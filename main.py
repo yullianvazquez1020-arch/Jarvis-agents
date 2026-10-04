@@ -1,6 +1,12 @@
-"""Jarvis: the orchestrator. You talk to Jarvis; he routes each task to the
-right specialist agent and brings back the answer. Runs on a server; you
-control him from your iPhone via Telegram (or the /chat HTTP endpoint).
+"""Jarvis: the orchestrator + built-in specialists.
+
+You talk to Jarvis; he handles everyday-life tasks himself (reminders,
+shopping list, bills) and routes the rest to external specialist agents
+when their URLs are configured. Runs on a server; you control him from
+your iPhone via Telegram (or the /chat HTTP endpoint).
+
+All specialists live INSIDE this one service to keep hosting cheap: one
+Render service, one bill. External agents remain optional add-ons.
 """
 import os, json, datetime, httpx
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -16,8 +22,10 @@ API_KEY = os.getenv("AGENT_API_KEY", "change-me")
 OWNER = os.getenv("OWNER_NAME", "the boss")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
+# ---------------------------------------------------------------------------
+# External specialist agents (optional). Leave URLs blank until deployed.
+# ---------------------------------------------------------------------------
 AGENTS = {
-    "personal": os.getenv("PERSONAL_AGENT_URL", ""),
     "call":     os.getenv("CALL_AGENT_URL", ""),
     "message":  os.getenv("SMS_AGENT_URL", ""),
     "email":    os.getenv("EMAIL_AGENT_URL", ""),
@@ -25,9 +33,7 @@ AGENTS = {
     "amazon":   os.getenv("AMAZON_AGENT_URL", ""),
     "coinbase": os.getenv("COINBASE_AGENT_URL", ""),
 }
-# endpoint + payload key for each plain-language agent
 AGENT_ENDPOINT = {
-    "personal": ("/ask", "message"),
     "calendar": ("/ask", "message"),
     "amazon":   ("/ask", "message"),
     "coinbase": ("/ask", "message"),
@@ -50,24 +56,64 @@ async def delegate(agent: str, instruction: str):
         except Exception as e:
             return {"error": str(e)}
 
+# ---------------------------------------------------------------------------
+# Built-in PERSONAL specialist: reminders, shopping list, bills.
+# Stored in a local JSON file on the server.
+# ---------------------------------------------------------------------------
+DB = "personal.json"
+def _load():
+    return json.load(open(DB)) if os.path.exists(DB) else {"reminders": [], "shopping": [], "bills": []}
+def _save(d): json.dump(d, open(DB, "w"), ensure_ascii=False, indent=2)
+
+def add_reminder(text, when=""):
+    d=_load(); d["reminders"].append({"text":text,"when":when,"done":False}); _save(d); return {"reminder":text,"when":when}
+def add_shopping(item):
+    d=_load(); d["shopping"].append(item); _save(d); return {"shopping":d["shopping"]}
+def clear_shopping():
+    d=_load(); d["shopping"]=[]; _save(d); return {"shopping":[]}
+def add_bill(name, day, amount=""):
+    d=_load(); d["bills"].append({"name":name,"day":day,"amount":amount}); _save(d); return {"bill":name,"day":day}
+def overview(): return _load()
+
+PERSONAL_HANDLERS = {"add_reminder":add_reminder,"add_shopping":add_shopping,
+                     "clear_shopping":clear_shopping,"add_bill":add_bill,"overview":overview}
+
+# ---------------------------------------------------------------------------
+# Tools Jarvis can call: the built-in personal tools + delegate for the rest.
+# ---------------------------------------------------------------------------
 TOOLS = [
-    {"name": "delegate", "description": "Hand a task to a specialist agent and get its result.",
-     "input_schema": {"type": "object", "properties": {
-         "agent": {"type": "string",
-                   "enum": ["personal", "call", "message", "email", "calendar", "amazon", "coinbase"]},
-         "instruction": {"type": "string"}},
-      "required": ["agent", "instruction"]}},
+    {"name":"add_reminder","description":"Add a reminder for the boss.","input_schema":{"type":"object","properties":{"text":{"type":"string"},"when":{"type":"string"}},"required":["text"]}},
+    {"name":"add_shopping","description":"Add one item to the shopping list.","input_schema":{"type":"object","properties":{"item":{"type":"string"}},"required":["item"]}},
+    {"name":"clear_shopping","description":"Empty the shopping list.","input_schema":{"type":"object","properties":{}}},
+    {"name":"add_bill","description":"Track a recurring bill by day of month.","input_schema":{"type":"object","properties":{"name":{"type":"string"},"day":{"type":"integer"},"amount":{"type":"string"}},"required":["name","day"]}},
+    {"name":"overview","description":"Return all reminders, shopping list and bills.","input_schema":{"type":"object","properties":{}}},
+    {"name":"delegate","description":"Hand a task to an EXTERNAL specialist agent (call, message, email, calendar, amazon, coinbase) and get its result.",
+     "input_schema":{"type":"object","properties":{
+         "agent":{"type":"string","enum":["call","message","email","calendar","amazon","coinbase"]},
+         "instruction":{"type":"string"}},
+      "required":["agent","instruction"]}},
 ]
+
+async def run_tool(name, args):
+    if name == "delegate":
+        return await delegate(**args)
+    try:
+        return PERSONAL_HANDLERS[name](**args)
+    except Exception as e:
+        return {"error": str(e)}
 
 def system_prompt():
     now = datetime.datetime.now().astimezone().isoformat()
-    deployed = [a for a, u in AGENTS.items() if u] or ["(none deployed yet)"]
+    deployed = [a for a, u in AGENTS.items() if u]
+    builtin = "reminders, shopping list, bills"
+    ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now: {now}.\n"
-            f"You command a team of specialist agents. Deployed: {', '.join(deployed)}.\n"
-            "Pick the right agent and use the delegate tool. For money matters (coinbase, amazon) you "
-            "NEVER authorize a purchase or trade yourself — you bring the boss the info or the prepared "
-            "order and he approves it. Be brief, reply in the boss's language (Spanish by default), and "
-            "never invent a result. If an agent isn't deployed, say so.")
+            f"You handle these yourself with your built-in tools: {builtin}.\n"
+            f"External specialist agents deployed: {ext}. Use the delegate tool for those.\n"
+            "For money matters (coinbase, amazon) you NEVER authorize a purchase or trade yourself "
+            "— you bring the boss the info or the prepared order and he approves it. Be brief, reply "
+            "in the boss's language (Spanish by default), and never invent a result. If an external "
+            "agent isn't deployed, say so.")
 
 conversations: dict = {}
 
@@ -82,13 +128,13 @@ async def run(session: str, message: str) -> str:
                                    system=system_prompt(), tools=TOOLS, messages=history)
         if r.stop_reason != "tool_use":
             text = "".join(b.text for b in r.content if b.type == "text")
-            history.append({"role": "assistant", "content": r.content})
+            history.append({"role": "assistant", "content": [b for b in r.content if b.type != "thinking"]})
             return text
         history.append({"role": "assistant", "content": [b for b in r.content if b.type != "thinking"]})
         results = []
         for b in r.content:
             if b.type == "tool_use":
-                out = await delegate(**b.input)
+                out = await run_tool(b.name, b.input)
                 results.append({"type": "tool_result", "tool_use_id": b.id,
                                 "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
         history.append({"role": "user", "content": results})
@@ -123,4 +169,5 @@ async def telegram(request: Request):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "agents": {a: bool(u) for a, u in AGENTS.items()}}
+    return {"jarvis": "online", "builtin": ["personal"],
+            "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
