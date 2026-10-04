@@ -79,6 +79,58 @@ PERSONAL_HANDLERS = {"add_reminder":add_reminder,"add_shopping":add_shopping,
                      "clear_shopping":clear_shopping,"add_bill":add_bill,"overview":overview}
 
 # ---------------------------------------------------------------------------
+# Built-in ACCOUNTANT specialist: income, expenses, tax estimates.
+# Orientation only — a licensed CPA files the official returns.
+# Stored in a local JSON file on the server.
+# ---------------------------------------------------------------------------
+BOOKS = "books.json"
+def _bload():
+    return json.load(open(BOOKS)) if os.path.exists(BOOKS) else {"income": [], "expenses": []}
+def _bsave(d): json.dump(d, open(BOOKS, "w"), ensure_ascii=False, indent=2)
+
+EXPENSE_CATEGORIES = ["operational", "materials", "equipment", "labor",
+                      "vehicle", "rent", "utilities", "professional", "other"]
+
+def add_income(amount, source="", date=""):
+    d=_bload(); date=date or datetime.date.today().isoformat()
+    d["income"].append({"amount":float(amount),"source":source,"date":date}); _bsave(d)
+    return {"logged_income":float(amount),"source":source,"date":date}
+
+def add_expense(amount, category="other", note="", date=""):
+    d=_bload(); date=date or datetime.date.today().isoformat()
+    category = category if category in EXPENSE_CATEGORIES else "other"
+    d["expenses"].append({"amount":float(amount),"category":category,"note":note,"date":date}); _bsave(d)
+    return {"logged_expense":float(amount),"category":category,"note":note,"date":date}
+
+def finances_summary():
+    d=_bload()
+    inc=sum(x["amount"] for x in d["income"])
+    exp=sum(x["amount"] for x in d["expenses"])
+    by_cat={}
+    for x in d["expenses"]:
+        by_cat[x["category"]]=by_cat.get(x["category"],0)+x["amount"]
+    net=inc-exp
+    return {"total_income":round(inc,2),"total_expenses":round(exp,2),
+            "net_profit":round(net,2),"expenses_by_category":{k:round(v,2) for k,v in by_cat.items()},
+            "entries":{"income":len(d["income"]),"expenses":len(d["expenses"])}}
+
+def tax_estimate(rate_percent=0):
+    """Rough set-aside estimate on net profit. rate_percent is the share of
+    net profit to reserve for taxes; the boss sets it with his CPA."""
+    d=_bload()
+    inc=sum(x["amount"] for x in d["income"])
+    exp=sum(x["amount"] for x in d["expenses"])
+    net=inc-exp
+    rate=float(rate_percent)/100.0
+    reserve=max(0.0, net)*rate
+    return {"net_profit":round(net,2),"rate_percent":float(rate_percent),
+            "suggested_tax_reserve":round(reserve,2),
+            "note":"Estimate only. Confirm the rate and final filing with your CPA."}
+
+ACCOUNTANT_HANDLERS = {"add_income":add_income,"add_expense":add_expense,
+                       "finances_summary":finances_summary,"tax_estimate":tax_estimate}
+
+# ---------------------------------------------------------------------------
 # Tools Jarvis can call: the built-in personal tools + delegate for the rest.
 # ---------------------------------------------------------------------------
 TOOLS = [
@@ -87,6 +139,10 @@ TOOLS = [
     {"name":"clear_shopping","description":"Empty the shopping list.","input_schema":{"type":"object","properties":{}}},
     {"name":"add_bill","description":"Track a recurring bill by day of month.","input_schema":{"type":"object","properties":{"name":{"type":"string"},"day":{"type":"integer"},"amount":{"type":"string"}},"required":["name","day"]}},
     {"name":"overview","description":"Return all reminders, shopping list and bills.","input_schema":{"type":"object","properties":{}}},
+    {"name":"add_income","description":"Log a business income entry (amount, optional source and date YYYY-MM-DD).","input_schema":{"type":"object","properties":{"amount":{"type":"number"},"source":{"type":"string"},"date":{"type":"string"}},"required":["amount"]}},
+    {"name":"add_expense","description":"Log a business expense. category must be one of: operational, materials, equipment, labor, vehicle, rent, utilities, professional, other.","input_schema":{"type":"object","properties":{"amount":{"type":"number"},"category":{"type":"string"},"note":{"type":"string"},"date":{"type":"string"}},"required":["amount"]}},
+    {"name":"finances_summary","description":"Totals: income, expenses, net profit, and expenses broken down by category.","input_schema":{"type":"object","properties":{}}},
+    {"name":"tax_estimate","description":"Estimate a tax set-aside on net profit. rate_percent is the share of net profit to reserve; ask the boss for it.","input_schema":{"type":"object","properties":{"rate_percent":{"type":"number"}},"required":["rate_percent"]}},
     {"name":"delegate","description":"Hand a task to an EXTERNAL specialist agent (call, message, email, calendar, amazon, coinbase) and get its result.",
      "input_schema":{"type":"object","properties":{
          "agent":{"type":"string","enum":["call","message","email","calendar","amazon","coinbase"]},
@@ -94,26 +150,30 @@ TOOLS = [
       "required":["agent","instruction"]}},
 ]
 
+ALL_HANDLERS = {**PERSONAL_HANDLERS, **ACCOUNTANT_HANDLERS}
+
 async def run_tool(name, args):
     if name == "delegate":
         return await delegate(**args)
     try:
-        return PERSONAL_HANDLERS[name](**args)
+        return ALL_HANDLERS[name](**args)
     except Exception as e:
         return {"error": str(e)}
 
 def system_prompt():
     now = datetime.datetime.now().astimezone().isoformat()
     deployed = [a for a, u in AGENTS.items() if u]
-    builtin = "reminders, shopping list, bills"
+    builtin = "reminders, shopping list, bills, and accounting (income, expenses, net profit, tax estimates)"
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now: {now}.\n"
             f"You handle these yourself with your built-in tools: {builtin}.\n"
             f"External specialist agents deployed: {ext}. Use the delegate tool for those.\n"
-            "For money matters (coinbase, amazon) you NEVER authorize a purchase or trade yourself "
-            "— you bring the boss the info or the prepared order and he approves it. Be brief, reply "
-            "in the boss's language (Spanish by default), and never invent a result. If an external "
-            "agent isn't deployed, say so.")
+            "As accountant you log income and expenses, report net profit, and estimate a tax "
+            "set-aside, but you ORIENT only — a licensed CPA files the official returns; say so when "
+            "tax filing comes up. For money matters (coinbase, amazon) you NEVER authorize a purchase "
+            "or trade yourself — you bring the boss the info or the prepared order and he approves it. "
+            "Be brief, reply in the boss's language (Spanish by default), and never invent a result. "
+            "If an external agent isn't deployed, say so.")
 
 conversations: dict = {}
 
@@ -169,5 +229,5 @@ async def telegram(request: Request):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "builtin": ["personal"],
+    return {"jarvis": "online", "builtin": ["personal", "accountant"],
             "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
