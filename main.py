@@ -84,7 +84,7 @@ async def run(session: str, message: str) -> str:
             text = "".join(b.text for b in r.content if b.type == "text")
             history.append({"role": "assistant", "content": r.content})
             return text
-        history.append({"role": "assistant", "content": r.content})
+        history.append({"role": "assistant", "content": [b for b in r.content if b.type != "thinking"]})
         results = []
         for b in r.content:
             if b.type == "tool_use":
