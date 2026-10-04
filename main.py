@@ -1,30 +1,45 @@
-"""Jarvis v3: orchestrator + built-in specialists + permanent memory.
+"""Jarvis v3.1: orchestrator + built-in specialists + permanent memory.
 
 Built-in: personal (reminders, shopping list, bills) and accountant
 (income, expenses, net profit, tax estimates). Data is saved in Upstash
 Redis (free) so it survives every deploy. If the Upstash variables are
 not set yet, it falls back to local files (those get wiped on deploy).
 One Render service, one bill.
+
+v3.1 fixes: Telegram secret + owner required, no duplicate entries on
+Telegram retries, Puerto Rico time zone, history safe on errors, async
+Claude calls, long/empty replies handled, input validation.
 """
-import os, json, datetime, httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+import os, json, datetime, asyncio, httpx
+from zoneinfo import ZoneInfo
+from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 app = FastAPI(title="Jarvis Orchestrator")
-client = Anthropic()
+client = AsyncAnthropic()
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
-API_KEY = os.getenv("AGENT_API_KEY", "change-me")
+API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 OWNER = os.getenv("OWNER_NAME", "the boss")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TG_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+TG_OWNER = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+TZ = ZoneInfo(os.getenv("TZ_NAME", "America/Puerto_Rico"))
+
+if not API_KEY or API_KEY == "change-me":
+    raise RuntimeError("Set AGENT_API_KEY in Render before starting Jarvis.")
+
+def _now():   return datetime.datetime.now(TZ)
+def _today(): return _now().date()
 
 # ---------------------------------------------------------------------------
 # Permanent storage: Upstash Redis over HTTPS, fallback to local JSON files.
 # ---------------------------------------------------------------------------
 UP_URL = os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
 UP_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
+USE_REDIS = bool(UP_URL and UP_TOKEN)
 
 def _redis(cmd):
     r = httpx.post(UP_URL, headers={"Authorization": f"Bearer {UP_TOKEN}"},
@@ -33,21 +48,25 @@ def _redis(cmd):
     return r.json().get("result")
 
 def kv_get(key, default):
-    if UP_URL and UP_TOKEN:
+    if USE_REDIS:
         v = _redis(["GET", key])
         return json.loads(v) if v else default
     path = key.replace(":", "_") + ".json"
-    return json.load(open(path)) if os.path.exists(path) else default
+    if not os.path.exists(path):
+        return default
+    with open(path) as f:
+        return json.load(f)
 
 def kv_set(key, value):
     data = json.dumps(value, ensure_ascii=False)
-    if UP_URL and UP_TOKEN:
+    if USE_REDIS:
         _redis(["SET", key, data])
         return
-    open(key.replace(":", "_") + ".json", "w").write(data)
+    with open(key.replace(":", "_") + ".json", "w") as f:
+        f.write(data)
 
 def storage_mode():
-    return "upstash (permanent)" if UP_URL and UP_TOKEN else "local files (erased on deploy)"
+    return "upstash (permanent)" if USE_REDIS else "local files (erased on deploy)"
 
 def _with_ids(items):
     """Give every entry a numeric id so it can be edited or deleted."""
@@ -59,6 +78,17 @@ def _with_ids(items):
 
 def _next_id(items):
     return max([x.get("id", 0) for x in items] + [0]) + 1
+
+def _to_bool(v):
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes", "si", "sí")
+    return bool(v)
+
+def _valid_day(day):
+    day = int(day)
+    if not 1 <= day <= 31:
+        raise ValueError("day must be between 1 and 31")
+    return day
 
 # ---------------------------------------------------------------------------
 # External specialist agents (optional). Leave URLs blank until deployed.
@@ -75,7 +105,7 @@ AGENT_ENDPOINT = {
     "calendar": ("/ask", "message"),
     "amazon":   ("/ask", "message"),
     "coinbase": ("/ask", "message"),
-    "email":    ("/process-inbox", None),
+    "email":    ("/process-inbox", None),   # email agent only processes the inbox
 }
 
 async def delegate(agent: str, instruction: str):
@@ -123,10 +153,10 @@ def remove_shopping(item):
 def clear_shopping():
     d=_pload(); d["shopping"]=[]; _psave(d); return {"shopping":[]}
 def add_bill(name, day, amount=""):
-    d=_pload(); e={"id":_next_id(d["bills"]),"name":name,"day":int(day),"amount":amount,"paid":[]}
+    d=_pload(); e={"id":_next_id(d["bills"]),"name":name,"day":_valid_day(day),"amount":amount,"paid":[]}
     d["bills"].append(e); _psave(d); return e
 def mark_bill_paid(id, month=""):
-    month = month or datetime.date.today().strftime("%Y-%m")
+    month = month or _today().strftime("%Y-%m")
     d=_pload()
     for x in d["bills"]:
         if x["id"]==int(id):
@@ -151,12 +181,12 @@ def _bsave(d): kv_set(B_KEY, d)
 
 def add_income(amount, source="", date=""):
     d=_bload(); e={"id":_next_id(d["income"]),"amount":float(amount),"source":source,
-                   "date":date or datetime.date.today().isoformat()}
+                   "date":date or _today().isoformat()}
     d["income"].append(e); _bsave(d); return e
 def add_expense(amount, category="other", note="", date=""):
     d=_bload(); category = category if category in EXPENSE_CATEGORIES else "other"
     e={"id":_next_id(d["expenses"]),"amount":float(amount),"category":category,"note":note,
-       "date":date or datetime.date.today().isoformat()}
+       "date":date or _today().isoformat()}
     d["expenses"].append(e); _bsave(d); return e
 def list_books(): return _bload()
 def finances_summary():
@@ -175,7 +205,7 @@ def tax_estimate(rate_percent=0):
             "note":"Estimate only. Confirm the rate and final filing with your CPA."}
 
 # ---------------------------------------------------------------------------
-# EDIT / DELETE for any list (Phase 1).
+# EDIT / DELETE for any list.
 # ---------------------------------------------------------------------------
 KINDS = {"reminder":(_pload,_psave,"reminders"), "bill":(_pload,_psave,"bills"),
          "income":(_bload,_bsave,"income"), "expense":(_bload,_bsave,"expenses")}
@@ -197,7 +227,8 @@ def edit_entry(kind, id, changes):
             for k,v in (changes or {}).items():
                 if k not in EDITABLE[kind]: continue
                 if k=="amount" and kind in ("income","expense"): v=float(v)
-                if k=="day": v=int(v)
+                if k=="day": v=_valid_day(v)
+                if k=="done": v=_to_bool(v)
                 if k=="category" and v not in EXPENSE_CATEGORIES: v="other"
                 x[k]=v
             save(d); return x
@@ -222,11 +253,12 @@ TOOLS = [
     _t("add_shopping","Add one item to the shopping list.",{"item":S},["item"]),
     _t("remove_shopping","Remove one item from the shopping list by name.",{"item":S},["item"]),
     _t("clear_shopping","Empty the shopping list."),
-    _t("add_bill","Track a recurring bill by day of month.",{"name":S,"day":I,"amount":S},["name","day"]),
+    _t("add_bill","Track a recurring bill by day of month (1-31).",{"name":S,"day":I,"amount":S},["name","day"]),
     _t("mark_bill_paid","Mark a bill paid for a month (YYYY-MM, default this month).",{"id":I,"month":S},["id"]),
     _t("overview","All reminders, shopping list and bills, with ids."),
-    _t("add_income","Log business income.",{"amount":N,"source":S,"date":S},["amount"]),
-    _t("add_expense","Log a business expense. category: "+", ".join(EXPENSE_CATEGORIES)+".",
+    _t("add_income","Log business income. date is YYYY-MM-DD, default today.",{"amount":N,"source":S,"date":S},["amount"]),
+    _t("add_expense","Log a business expense. date is YYYY-MM-DD, default today. category: "
+       +", ".join(EXPENSE_CATEGORIES)+".",
        {"amount":N,"category":S,"note":S,"date":S},["amount"]),
     _t("list_books","All income and expense entries, with ids."),
     _t("finances_summary","Totals: income, expenses, net profit, expenses by category."),
@@ -239,18 +271,21 @@ TOOLS = [
 ]
 
 async def run_tool(name, args):
-    if name == "delegate":
-        return await delegate(**args)
     try:
-        return HANDLERS[name](**args)
+        if name == "delegate":
+            return await delegate(**args)
+        if name not in HANDLERS:
+            return {"error": f"unknown tool {name}"}
+        # storage calls are blocking; run them off the event loop
+        return await asyncio.to_thread(HANDLERS[name], **args)
     except Exception as e:
         return {"error": str(e)}
 
 def system_prompt():
-    now = datetime.datetime.now().astimezone().isoformat()
+    now = _now().strftime("%A %Y-%m-%d %H:%M (%Z)")
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
-    return (f"You are Jarvis, chief of staff for {OWNER}. Now: {now}.\n"
+    return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             f"Storage: {storage_mode()}.\n"
@@ -261,30 +296,46 @@ def system_prompt():
             "Be brief, reply in Spanish by default, never invent a result, and say so if an agent "
             "isn't deployed.")
 
+# ---------------------------------------------------------------------------
+# Conversation loop. Works on a copy of the history and only saves it when
+# the turn finishes cleanly, so an error never leaves a broken history.
+# ---------------------------------------------------------------------------
 conversations: dict = {}
+_locks: dict = {}
 
-async def run(session: str, message: str) -> str:
-    history = conversations.setdefault(session, [])
-    history.append({"role": "user", "content": message})
-    history[:] = history[-30:]
+def _trim(history):
+    history = history[-30:]
     while history and not (history[0]["role"] == "user" and isinstance(history[0]["content"], str)):
         history.pop(0)
-    for _ in range(10):
-        r = client.messages.create(model=MODEL, max_tokens=1500,
-                                   system=system_prompt(), tools=TOOLS, messages=history)
-        content = [b for b in r.content if b.type != "thinking"]
-        history.append({"role": "assistant", "content": content})
-        if r.stop_reason != "tool_use":
-            return "".join(b.text for b in r.content if b.type == "text")
-        results = []
-        for b in r.content:
-            if b.type == "tool_use":
-                out = await run_tool(b.name, b.input)
-                results.append({"type": "tool_result", "tool_use_id": b.id,
-                                "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
-        history.append({"role": "user", "content": results})
-    return "Me enredé con demasiados pasos. ¿Me lo repites más simple?"
+    return history
 
+async def run(session: str, message: str) -> str:
+    lock = _locks.setdefault(session, asyncio.Lock())
+    async with lock:   # one message at a time per session
+        history = list(conversations.get(session, []))
+        history.append({"role": "user", "content": message})
+        history = _trim(history)
+        for _ in range(10):
+            r = await client.messages.create(model=MODEL, max_tokens=1500,
+                                              system=system_prompt(), tools=TOOLS, messages=history)
+            content = [b for b in r.content if b.type != "thinking"]
+            history.append({"role": "assistant", "content": content})
+            if r.stop_reason != "tool_use":
+                conversations[session] = history
+                return "".join(b.text for b in r.content if b.type == "text")
+            results = []
+            for b in r.content:
+                if b.type == "tool_use":
+                    out = await run_tool(b.name, b.input)
+                    results.append({"type": "tool_result", "tool_use_id": b.id,
+                                    "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
+            history.append({"role": "user", "content": results})
+        conversations[session] = history
+        return "Me enredé con demasiados pasos. ¿Me lo repites más simple?"
+
+# ---------------------------------------------------------------------------
+# HTTP endpoints
+# ---------------------------------------------------------------------------
 class Chat(BaseModel):
     message: str
     session: str = "default"
@@ -293,31 +344,72 @@ class Chat(BaseModel):
 async def chat(req: Chat, x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
         raise HTTPException(401, "Bad API key")
-    return {"reply": await run(req.session, req.message)}
+    try:
+        reply = await run(req.session, req.message)
+    except Exception as e:
+        conversations.pop(req.session, None)
+        reply = f"Tuve un error y reinicié la conversación. Repíteme, por favor. ({type(e).__name__})"
+    return {"reply": reply}
+
+_seen_updates: set = set()
+
+def _first_time(update_id) -> bool:
+    """True only the first time we see a Telegram update (Telegram retries)."""
+    if update_id is None:
+        return True
+    if USE_REDIS:
+        try:
+            return _redis(["SET", f"jarvis:tg:upd:{update_id}", "1", "NX", "EX", "86400"]) is not None
+        except Exception:
+            pass
+    if update_id in _seen_updates:
+        return False
+    _seen_updates.add(update_id)
+    if len(_seen_updates) > 1000:
+        _seen_updates.clear(); _seen_updates.add(update_id)
+    return True
+
+async def _tg_send(chat_id, text):
+    text = text.strip() or "(sin respuesta)"
+    async with httpx.AsyncClient(timeout=30) as hc:
+        for i in range(0, len(text), 4000):   # Telegram limit is 4096 chars
+            await hc.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                          json={"chat_id": chat_id, "text": text[i:i+4000]})
+
+async def _handle_tg(chat_id, text):
+    session = f"tg:{chat_id}"
+    try:
+        reply = await run(session, text)
+    except Exception as e:
+        conversations.pop(session, None)
+        reply = f"Tuve un error y reinicié la conversación. Repíteme, por favor. ({type(e).__name__})"
+    try:
+        await _tg_send(chat_id, reply)
+    except Exception:
+        pass
 
 @app.post("/telegram")
-async def telegram(request: Request):
+async def telegram(request: Request, background: BackgroundTasks,
+                   x_telegram_bot_api_secret_token: str = Header(None)):
+    # Only Telegram knows the secret; only the owner gets answers.
+    if not TG_SECRET or x_telegram_bot_api_secret_token != TG_SECRET:
+        raise HTTPException(401, "Bad secret")
     update = await request.json()
-    msg = update.get("message") or update.get("edited_message") or {}
+    msg = update.get("message") or {}   # edited messages ignored to avoid double entries
     chat_id = str(msg.get("chat", {}).get("id", ""))
     text = msg.get("text", "")
-    if not chat_id or not text:
+    if not chat_id or not text or not TG_OWNER or chat_id != TG_OWNER:
         return {"ok": True}
-    owner = os.getenv("TELEGRAM_OWNER_ID", "").strip()
-    if owner and chat_id != owner:
+    if not await asyncio.to_thread(_first_time, update.get("update_id")):
         return {"ok": True}
-    try:
-        reply = await run(f"tg:{chat_id}", text)
-    except Exception as e:
-        conversations.pop(f"tg:{chat_id}", None)
-        reply = f"Tuve un error y reinicié la conversación. Repíteme, por favor. ({type(e).__name__})"
-    async with httpx.AsyncClient(timeout=30) as hc:
-        await hc.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                      json={"chat_id": chat_id, "text": reply})
+    # Answer Telegram right away; do the work in the background.
+    background.add_task(_handle_tg, chat_id, text)
     return {"ok": True}
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": 3, "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.1", "storage": storage_mode(),
+            "time": _now().isoformat(),
+            "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete"],
             "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
