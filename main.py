@@ -16,8 +16,16 @@ date/time (optionally repeating daily/weekly/monthly), bills coming due,
 and a short morning brief. Alerts use ZERO Claude tokens. Daily backup of
 the data inside Redis + /backup endpoint. /hoy command in Telegram (no
 tokens). Every v3.1 function is kept as it was.
+
+v3.3 (Phase 3, step 1, additive): built-in CALENDAR agent for deliveries,
+appointments, dates to pay and dates to collect. Events can repeat and get
+ONE Telegram alert before they start (zero tokens, never re-sent). Today's
+and tomorrow's events appear in the morning brief and /hoy; /calendario
+lists the next days without tokens. Exact upcoming dates go in the system
+prompt so "el jueves" lands on the right day. Every v3.2 function is kept.
 """
 import os, json, datetime, asyncio, calendar, threading, contextlib, httpx
+import re   # v3.3
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel
@@ -279,12 +287,415 @@ def tax_estimate(rate_percent=0):
             "note":"Estimate only. Confirm the rate and final filing with your CPA."}
 
 # ---------------------------------------------------------------------------
+# CALENDAR (v3.3, Phase 3): deliveries, appointments, payment and collection
+# dates. Each event can repeat (daily/weekly/monthly) and gets ONE Telegram
+# alert before it starts (zero tokens). No nagging: nothing is re-sent.
+# ---------------------------------------------------------------------------
+E_KEY = "jarvis:calendar"
+EVENT_TYPES = ["delivery", "appointment", "payment", "collection", "other"]
+EVENT_ES = {"delivery": "📦 Entrega", "appointment": "📅 Cita", "payment": "💸 Pago",
+            "collection": "💰 Cobro", "other": "🗓️ Evento"}
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+CAL_ALLDAY_HOUR = int(os.getenv("CAL_ALLDAY_HOUR", "9") or 9)   # all-day events count as starting at this hour
+
+def _eload():
+    d = kv_get(E_KEY, {"events": []})
+    d.setdefault("events", [])
+    _with_ids(d["events"])
+    return d
+def _esave(d): kv_set(E_KEY, d)
+
+def _valid_type(t):
+    t = (t or "other").strip().lower()
+    alias = {"entrega": "delivery", "cita": "appointment", "pago": "payment", "cobro": "collection",
+             "otro": "other", "meeting": "appointment", "reunion": "appointment", "reunión": "appointment"}
+    t = alias.get(t, t)
+    if t not in EVENT_TYPES:
+        raise ValueError("type must be one of " + ", ".join(EVENT_TYPES))
+    return t
+
+def _valid_date(v):
+    v = (v or "").strip()[:10]
+    if not v:
+        raise ValueError("date is required as YYYY-MM-DD")
+    return datetime.date.fromisoformat(v).isoformat()
+
+def _valid_time(v):
+    """'HH:MM' 24h or blank (= all day)."""
+    v = (v or "").strip().lower().replace(".", "")
+    if v in ("", "all day", "todo el dia", "todo el día"):
+        return ""
+    for fmt in ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I %p", "%I%p"):
+        try:
+            return datetime.datetime.strptime(v, fmt).strftime("%H:%M")
+        except ValueError:
+            pass
+    raise ValueError("time must be 'HH:MM' (24h, Puerto Rico time) or blank for all day")
+
+def _int_or_none(v):
+    if v in (None, ""):
+        return None
+    return int(float(v))
+
+def _default_remind(e):
+    # timed event: 1 hour before; all-day event: the day before
+    return 60 if e.get("time") else 1440
+
+def _remind_of(e):
+    r = e.get("remind_min")
+    return _default_remind(e) if r is None else int(r)
+
+def _add_months(d, n):
+    y, m = divmod(d.month - 1 + n, 12)
+    y += d.year; m += 1
+    return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
+
+def _occurrences(e, start, end):
+    """Dates (datetime.date) of an event between start and end, inclusive."""
+    d0 = datetime.date.fromisoformat(e["date"]); rep = e.get("repeat", "")
+    skip = set(e.get("skip_dates", []))
+    if not rep:
+        return [d0] if start <= d0 <= end and d0.isoformat() not in skip else []
+    out = []
+    if rep in ("daily", "weekly"):
+        step = 1 if rep == "daily" else 7
+        n = max(0, (start - d0).days // step)
+        for _ in range(400):
+            occ = d0 + datetime.timedelta(days=step * n); n += 1
+            if occ > end: break
+            if occ >= start and occ.isoformat() not in skip: out.append(occ)
+    else:  # monthly
+        n = max(0, (start.year - d0.year) * 12 + start.month - d0.month - 1)
+        for _ in range(400):
+            occ = _add_months(d0, n); n += 1
+            if occ > end: break
+            if occ >= start and occ.isoformat() not in skip: out.append(occ)
+    return out
+
+def _occ_start(e, occ):
+    """Start datetime of one occurrence (all-day -> CAL_ALLDAY_HOUR)."""
+    if e.get("time"):
+        h, m = map(int, e["time"].split(":"))
+    else:
+        h, m = CAL_ALLDAY_HOUR, 0
+    return datetime.datetime(occ.year, occ.month, occ.day, h, m, tzinfo=TZ)
+
+def _occ_done(e, occ):
+    return e.get("status") == "done" or occ.isoformat() in e.get("done_dates", [])
+
+def _day_label(occ, today=None):
+    today = today or _today(); diff = (occ - today).days
+    rel = {0: "hoy", 1: "mañana", -1: "ayer"}.get(diff, "")
+    base = f"{DIAS[occ.weekday()]} {occ.isoformat()}"
+    return f"{rel} ({base})" if rel else base
+
+def _ev_view(e, occ):
+    return {"id": e["id"], "title": e["title"], "type": e["type"], "date": occ.isoformat(),
+            "weekday": DIAS[occ.weekday()], "time": e.get("time", ""),
+            "duration_min": e.get("duration_min"), "location": e.get("location", ""),
+            "who": e.get("who", ""), "amount": e.get("amount", ""), "notes": e.get("notes", ""),
+            "repeat": e.get("repeat", ""), "done": _occ_done(e, occ),
+            "status": "done" if _occ_done(e, occ) else e.get("status", "scheduled"),
+            "remind_min": _remind_of(e)}
+
+def _ev_line(v, today=None, with_date=True):
+    when = (_day_label(datetime.date.fromisoformat(v["date"]), today) + " ") if with_date else ""
+    when += v["time"] if v["time"] else "todo el día"
+    extra = "".join(x for x in (
+        f" · 📍{v['location']}" if v.get("location") else "",
+        f" · 👤{v['who']}" if v.get("who") else "",
+        f" · ${v['amount']}" if str(v.get("amount") or "").strip() else "",
+        " · 🔁" if v.get("repeat") else "",
+        " · ✅" if v.get("done") else ""))
+    return f"Ev#{v['id']} {EVENT_ES[v['type']]}: {v['title']} — {when}{extra}"
+
+def _interval(e, occ):
+    s = _occ_start(e, occ)
+    return s, s + datetime.timedelta(minutes=int(e.get("duration_min") or 60))
+
+def _conflicts(d, e):
+    """Other timed events that overlap this one in the next 60 days (first 5)."""
+    if not e.get("time"):
+        return []
+    today = _today(); end = today + datetime.timedelta(days=60); out = []
+    mine = _occurrences(e, today, end)
+    for o in d["events"]:
+        if o["id"] == e["id"] or not o.get("time") or o.get("status") == "cancelled":
+            continue
+        for occ in mine:
+            if occ in _occurrences(o, occ, occ) and not _occ_done(o, occ):
+                a1, a2 = _interval(e, occ); b1, b2 = _interval(o, occ)
+                if a1 < b2 and b1 < a2:
+                    out.append(_ev_line(_ev_view(o, occ), today))
+                    break
+        if len(out) >= 5:
+            break
+    return out
+
+LATE_ALERT_MIN = 15   # created too late for the normal alert -> alert this many minutes before
+
+def _premark_past_alerts(e):
+    """Event created/moved after its normal alert moment (e.g. 'cita en 40 minutos' with a 60-min
+    reminder, or an all-day delivery for tomorrow saved after 9 AM): instead of an instant ping
+    (the boss just typed it) or no alert at all, it alerts LATE_ALERT_MIN minutes before it starts.
+    Only if it starts in LATE_ALERT_MIN minutes or less is the alert skipped."""
+    e.setdefault("notices", []); e.setdefault("late", [])
+    if e.get("status") == "cancelled" or _remind_of(e) < 0:
+        return
+    now = _now(); today = now.date()
+    for occ in _occurrences(e, today - datetime.timedelta(days=1), today + datetime.timedelta(days=60)):
+        start = _occ_start(e, occ); key = occ.isoformat()
+        if start - datetime.timedelta(minutes=_remind_of(e)) > now:
+            break
+        if start - datetime.timedelta(minutes=LATE_ALERT_MIN) <= now:
+            if key not in e["notices"]: e["notices"].append(key)
+        elif key not in e["late"]:
+            e["late"].append(key)
+    e["late"] = e["late"][-20:]
+
+def add_event(title, date, type="other", time="", duration_min=None, location="", who="",
+              amount="", notes="", remind_min=None, repeat=""):
+    title = (title or "").strip()
+    if not title:
+        raise ValueError("title is required")
+    e = {"title": title, "type": _valid_type(type), "date": _valid_date(date), "time": _valid_time(time),
+         "duration_min": _int_or_none(duration_min), "location": location, "who": who,
+         "amount": str(amount or "").strip(), "notes": notes, "remind_min": _int_or_none(remind_min),
+         "repeat": _valid_repeat(repeat), "status": "scheduled", "done_dates": [], "skip_dates": [],
+         "notices": [], "late": [], "created": _now().isoformat(timespec="minutes")}
+    if e["time"] and e["duration_min"] is None:
+        e["duration_min"] = 60
+    d = _eload(); e["id"] = _next_id(d["events"])
+    _premark_past_alerts(e)
+    d["events"].append(e); _esave(d)
+    out = {**_ev_view(e, datetime.date.fromisoformat(e["date"]))}
+    clash = _conflicts(d, e)
+    if clash:
+        out["warning_conflicts"] = clash
+    if not e["repeat"] and _occ_start(e, datetime.date.fromisoformat(e["date"])) < _now() - datetime.timedelta(hours=1):
+        out["warning"] = "Esa fecha ya pasó. ¿Seguro que es esa fecha?"
+    r = _remind_of(e)
+    out["alert"] = "sin aviso" if r < 0 else (
+        f"aviso {r} min antes" if e["time"] else f"aviso {'el día antes' if r == 1440 else f'{r} min antes'} "
+        f"(día completo cuenta como {CAL_ALLDAY_HOUR}:00)")
+    return out
+
+def list_events(start="", days=14, type="", include_done=True):
+    s = datetime.date.fromisoformat(start[:10]) if (start or "").strip() else _today()
+    days = max(0, min(int(days), 366)); end = s + datetime.timedelta(days=days)
+    t = _valid_type(type) if (type or "").strip() else ""
+    rows = []
+    for e in _eload()["events"]:
+        if e.get("status") == "cancelled" or (t and e["type"] != t):
+            continue
+        for occ in _occurrences(e, s, end):
+            v = _ev_view(e, occ)
+            if v["done"] and not _to_bool(include_done):
+                continue
+            rows.append(v)
+    rows.sort(key=lambda v: (v["date"], v["time"] or "00:00", v["id"]))
+    return {"from": s.isoformat(), "to": end.isoformat(), "events": rows[:200], "count": len(rows)}
+
+def find_events(query="", include_past=False):
+    q = (query or "").strip().lower(); out = []
+    for e in _eload()["events"]:
+        hay = " ".join(str(e.get(k, "")) for k in ("title", "who", "location", "notes")).lower()
+        if q and q not in hay:
+            continue
+        if not _to_bool(include_past) and not e.get("repeat") and e["date"] < (_today() - datetime.timedelta(days=7)).isoformat():
+            continue
+        out.append({k: e.get(k) for k in ("id", "title", "type", "date", "time", "repeat", "status", "who",
+                                          "location", "amount", "remind_min", "done_dates", "skip_dates")})
+    return {"events": out[:50], "count": len(out)}
+
+def _pick_occurrence(e, date=""):
+    if date:
+        occ = datetime.date.fromisoformat(date[:10])
+        if not _occurrences(e, occ, occ):
+            raise ValueError(f"el evento #{e['id']} no ocurre el {occ.isoformat()}")
+        return occ
+    today = _today()
+    # the open date closest to today (today first; on a tie the past one), never an old forgotten one
+    opens = [o for o in _occurrences(e, today - datetime.timedelta(days=60), today + datetime.timedelta(days=400))
+             if not _occ_done(e, o)]
+    if not opens:
+        raise ValueError("no encontré una fecha abierta para ese evento")
+    return min(opens, key=lambda o: (abs((o - today).days), o > today))
+
+def complete_event(id, date=""):
+    """Mark done. Repeating events: only that date (default: the open date closest to today)."""
+    d = _eload(); e = next((x for x in d["events"] if x["id"] == int(id)), None)
+    if not e: return {"error": f"event {id} not found"}
+    if not e.get("repeat"):
+        e["status"] = "done"; _esave(d)
+        return {**_ev_view(e, datetime.date.fromisoformat(e["date"])), "note": "Marcado como hecho."}
+    occ = _pick_occurrence(e, date)
+    if occ.isoformat() not in e["done_dates"]:
+        e["done_dates"] = (e["done_dates"] + [occ.isoformat()])[-60:]
+    _esave(d)
+    return {**_ev_view(e, occ), "note": f"Hecho el {occ.isoformat()}; el evento se sigue repitiendo ({e['repeat']})."}
+
+def cancel_event(id, date=""):
+    """Cancel an event. For a repeating one, pass date to skip only that day; no date = cancel the whole series."""
+    d = _eload(); e = next((x for x in d["events"] if x["id"] == int(id)), None)
+    if not e: return {"error": f"event {id} not found"}
+    if e.get("repeat") and date:
+        occ = _pick_occurrence(e, date)
+        if occ.isoformat() not in e["skip_dates"]:
+            e["skip_dates"] = (e["skip_dates"] + [occ.isoformat()])[-60:]
+        _esave(d)
+        return {"cancelled_date": occ.isoformat(), "id": e["id"], "title": e["title"],
+                "note": "Solo ese día; la serie sigue."}
+    e["status"] = "cancelled"; _esave(d)
+    return {"cancelled": e["id"], "title": e["title"]}
+
+EVENT_EDITABLE = ["title", "type", "date", "time", "duration_min", "location", "who", "amount", "notes",
+                  "remind_min", "repeat", "status"]
+
+def edit_event(id, changes):
+    d = _eload(); e = next((x for x in d["events"] if x["id"] == int(id)), None)
+    if not e: return {"error": f"event {id} not found"}
+    moved = False
+    for k, v in (changes or {}).items():
+        if k not in EVENT_EDITABLE: continue
+        if k == "type": v = _valid_type(v)
+        if k == "date": v = _valid_date(v); moved = True
+        if k == "time": v = _valid_time(v); moved = True
+        if k in ("duration_min", "remind_min"): v = _int_or_none(v); moved = moved or k == "remind_min"
+        if k == "repeat": v = _valid_repeat(v); moved = True
+        if k == "amount": v = str(v or "").strip()
+        if k == "status":
+            v = (v or "").strip().lower()
+            if v not in ("scheduled", "done", "cancelled"):
+                raise ValueError("status must be scheduled, done or cancelled")
+        if k == "title" and not str(v).strip(): raise ValueError("title can't be blank")
+        e[k] = v
+    if e.get("time") and not e.get("duration_min"):
+        e["duration_min"] = 60
+    if moved:
+        # new date/time -> the alert can fire again for the new moment
+        e["notices"] = []; e["late"] = []; _premark_past_alerts(e)
+    _esave(d)
+    out = {k: e.get(k) for k in ("id", "title", "type", "date", "time", "duration_min", "location", "who",
+                                 "amount", "notes", "remind_min", "repeat", "status")}
+    clash = _conflicts(d, e)
+    if clash: out["warning_conflicts"] = clash
+    return out
+
+def collect_event_alerts():
+    """One alert per occurrence, remind_min before it starts. Read-only."""
+    alerts = []; now = _now(); today = now.date()
+    for e in _eload()["events"]:
+        if e.get("status") in ("cancelled", "done"):
+            continue
+        r = _remind_of(e)
+        if r < 0:
+            continue
+        horizon = today + datetime.timedelta(days=r // 1440 + 2)
+        for occ in _occurrences(e, today - datetime.timedelta(days=1), horizon):
+            key = occ.isoformat()
+            if key in e.get("notices", []) or _occ_done(e, occ):
+                continue
+            start = _occ_start(e, occ)
+            rr = min(r, LATE_ALERT_MIN) if key in e.get("late", []) else r
+            if not (start - datetime.timedelta(minutes=rr) <= now):
+                continue
+            # too late to be useful? timed: 30 min after start; all-day: end of that day
+            limit = start + datetime.timedelta(minutes=30) if e.get("time") else \
+                datetime.datetime(occ.year, occ.month, occ.day, 23, 59, tzinfo=TZ)
+            if now > limit:
+                continue
+            mins = int((start - now).total_seconds() // 60)
+            if e.get("time"):
+                if mins <= 0: when = "AHORA"
+                elif mins < 120: when = f"en {mins} min (a las {e['time']})"
+                elif (occ - today).days == 0: when = f"hoy a las {e['time']}"
+                else: when = f"{_day_label(occ, today)} a las {e['time']}"
+            else:
+                when = {0: "HOY", 1: "MAÑANA"}.get((occ - today).days, _day_label(occ, today))
+            v = _ev_view(e, occ)
+            extra = "".join(x for x in (
+                f"\n📍 {v['location']}" if v["location"] else "",
+                f"\n👤 {v['who']}" if v["who"] else "",
+                f"\n💵 ${v['amount']}" if v["amount"] else "",
+                f"\n📝 {v['notes'][:200]}" if v["notes"] else ""))
+            alerts.append({"kind": "event", "id": e["id"], "key": key,
+                           "text": f"{EVENT_ES[e['type']]} {when}: {e['title']}{extra}\n"
+                                   f"(Evento #{e['id']}. Cuando esté hecho: /listo {e['id']})"})
+    return alerts
+
+def mark_event_alert(alert):
+    d = _eload()
+    for e in d["events"]:
+        if e["id"] == alert["id"]:
+            e.setdefault("notices", [])
+            if alert["key"] not in e["notices"]:
+                e["notices"].append(alert["key"])
+            e["notices"] = e["notices"][-40:]
+    _esave(d)
+
+def calendar_brief_lines():
+    """Morning brief: today's and tomorrow's events + overdue deliveries/payments (no pings)."""
+    today = _today(); lines = []
+    rows = list_events(today.isoformat(), 1, include_done=False)["events"]
+    tod = [v for v in rows if v["date"] == today.isoformat()]
+    tmw = [v for v in rows if v["date"] != today.isoformat()]
+    if tod:
+        lines.append("\n🗓️ Calendario de hoy:")
+        lines += ["• " + _ev_line(v, today, with_date=False) for v in tod]
+    if tmw:
+        lines.append("\n🗓️ Mañana:")
+        lines += ["• " + _ev_line(v, today, with_date=False) for v in tmw]
+    late = [v for v in list_events((today - datetime.timedelta(days=7)).isoformat(), 6, include_done=False)["events"]
+            if v["type"] in ("delivery", "payment", "collection") and v["date"] < today.isoformat()]
+    if late:
+        lines.append("\n⚠️ Sin marcar como hecho:")
+        lines += ["• " + _ev_line(v, today) for v in late[:8]]
+    return lines
+
+def calendar_text(days=14):
+    days = max(1, min(int(days), 90)); today = _today()
+    r = list_events(today.isoformat(), days)
+    if not r["events"]:
+        return f"🗓️ Nada en el calendario en los próximos {days} días."
+    lines = [f"🗓️ Próximos {days} días:"]; cur = None
+    for v in r["events"]:
+        if v["date"] != cur:
+            cur = v["date"]
+            lines.append(f"\n{_day_label(datetime.date.fromisoformat(cur), today).capitalize()}")
+        lines.append("• " + _ev_line(v, today, with_date=False))
+    lines.append("\n✅ Para marcar hecho: /listo N (N = número del evento)")
+    return "\n".join(lines)
+
+def done_text(arg):
+    """v3.3: /listo N [YYYY-MM-DD] — mark a CALENDAR event done without Claude (zero tokens)."""
+    nums = re.findall(r"\d{4}-\d{2}-\d{2}|\d+", arg or "")
+    ids = [n for n in nums if "-" not in n]; dates = [n for n in nums if "-" in n]
+    if not ids:
+        return "Usa /listo N con el número del evento (míralo en /calendario)."
+    r = complete_event(int(ids[0]), dates[0] if dates else "")
+    if r.get("error"):
+        return f"⚠️ No encontré el evento #{ids[0]} (/calendario para ver los números)."
+    rep_note = " (la serie sigue)" if r.get("repeat") else ""
+    return f"✅ Evento #{r['id']} hecho: {EVENT_ES[r['type']]} {r['title']} — {r['date']}{rep_note}"
+
+def _date_helper():
+    """Exact dates for the next days, so 'el jueves' / 'pasado mañana' never get miscounted."""
+    today = _today()
+    return ", ".join(f"{DIAS[(today + datetime.timedelta(days=i)).weekday()]} "
+                     f"{(today + datetime.timedelta(days=i)).isoformat()}"
+                     + (" (hoy)" if i == 0 else " (mañana)" if i == 1 else "")
+                     for i in range(0, 8))
+
+# ---------------------------------------------------------------------------
 # EDIT / DELETE for any list.
 # ---------------------------------------------------------------------------
 KINDS = {"reminder":(_pload,_psave,"reminders"), "bill":(_pload,_psave,"bills"),
-         "income":(_bload,_bsave,"income"), "expense":(_bload,_bsave,"expenses")}
+         "income":(_bload,_bsave,"income"), "expense":(_bload,_bsave,"expenses"),
+         "event":(_eload,_esave,"events")}
 EDITABLE = {"reminder":["text","when","done","due","repeat"], "bill":["name","day","amount"],
-            "income":["amount","source","date"], "expense":["amount","category","note","date"]}
+            "income":["amount","source","date"], "expense":["amount","category","note","date"],
+            "event":EVENT_EDITABLE}
 
 def delete_entry(kind, id):
     if kind not in KINDS: return {"error":f"unknown kind {kind}"}
@@ -295,6 +706,7 @@ def delete_entry(kind, id):
 
 def edit_entry(kind, id, changes):
     if kind not in KINDS: return {"error":f"unknown kind {kind}"}
+    if kind=="event": return edit_event(id, changes)   # v3.3: calendar has its own rules
     load, save, field = KINDS[kind]; d=load()
     for x in d[field]:
         if x["id"]==int(id):
@@ -382,11 +794,18 @@ def collect_alerts():
             if key not in sent:
                 alerts.append({"kind": "bill", "id": b["id"], "key": key,
                                "text": msg + f"\n(Cuenta #{b['id']}. Dime \"pagué {b['name']}\" para marcarla.)"})
+    try:
+        alerts += collect_event_alerts()   # v3.3 calendar
+    except Exception as e:
+        _sched_state["last_error"] = f"calendar: {type(e).__name__}: {e}"
     return alerts
 
 def mark_alert_sent(alert):
     """Record a sent alert so it is never repeated (repeating reminders move to the next date)."""
     with _data_lock:
+        if alert["kind"] == "event":   # v3.3 calendar lives in its own key
+            mark_event_alert(alert)
+            return
         d = _pload()
         if alert["kind"] == "reminder":
             for r in d["reminders"]:
@@ -424,7 +843,12 @@ def upcoming(days=7):
                               "due": due.isoformat(), "month": month, "overdue": due < today})
     rem.sort(key=lambda r: r["due"]); bills.sort(key=lambda b: b["due"])
     open_no_date = [r for r in d["reminders"] if not r.get("done") and not r.get("due")]
-    return {"reminders": rem, "bills": bills, "open_reminders_without_date": len(open_no_date),
+    try:   # v3.3: calendar events in the same window
+        events = list_events(today.isoformat(), days, include_done=False)["events"]
+    except Exception:
+        events = []
+    return {"reminders": rem, "bills": bills, "events": events,
+            "open_reminders_without_date": len(open_no_date),
             "shopping_items": len(d["shopping"])}
 
 def brief_text():
@@ -441,6 +865,10 @@ def brief_text():
         lines.append("\n💳 Cuentas próximas:")
         lines += [f"• {b['name']}{_fmt_amount(b['amount'])} — {b['due']}" + (" ⚠️ vencida" if b["overdue"] else "")
                   for b in week]
+    try:
+        lines += calendar_brief_lines()   # v3.3: today's/tomorrow's events
+    except Exception:
+        pass
     if u["open_reminders_without_date"]:
         lines.append(f"\n📝 Pendientes sin fecha: {u['open_reminders_without_date']}")
     if u["shopping_items"]:
@@ -450,7 +878,8 @@ def brief_text():
     return "\n".join(lines)
 
 def snapshot():
-    return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload()}
+    return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload(),
+            "calendar": _eload()}
 
 def daily_backup():
     """One copy of all data per day, kept 30 days inside Redis."""
@@ -499,12 +928,15 @@ HANDLERS = {"add_reminder":add_reminder,"complete_reminder":complete_reminder,
             "add_income":add_income,"add_expense":add_expense,"list_books":list_books,
             "finances_summary":finances_summary,"tax_estimate":tax_estimate,
             "delete_entry":delete_entry,"edit_entry":edit_entry,"upcoming":upcoming}
+# v3.3 calendar
+HANDLERS.update({"add_event":add_event,"list_events":list_events,"find_events":find_events,
+                 "complete_event":complete_event,"cancel_event":cancel_event})
 
 def _t(name, desc, props=None, req=None):
     return {"name":name,"description":desc,
             "input_schema":{"type":"object","properties":props or {},"required":req or []}}
 S={"type":"string"}; N={"type":"number"}; I={"type":"integer"}
-KIND={"type":"string","enum":["reminder","bill","income","expense"]}
+KIND={"type":"string","enum":["reminder","bill","income","expense","event"]}
 
 TOOLS = [
     _t("add_reminder","Add a reminder. To get an automatic Telegram alert, set due as "
@@ -527,11 +959,31 @@ TOOLS = [
     _t("list_books","All income and expense entries, with ids."),
     _t("finances_summary","Totals: income, expenses, net profit, expenses by category."),
     _t("tax_estimate","Tax set-aside estimate on net profit; ask the boss for rate_percent.",{"rate_percent":N},["rate_percent"]),
-    _t("delete_entry","Delete a reminder, bill, income or expense by id. Look up the id first.",{"kind":KIND,"id":I},["kind","id"]),
-    _t("edit_entry","Edit fields of a reminder, bill, income or expense by id. Look up the id first.",
+    _t("delete_entry","Delete a reminder, bill, income, expense or calendar event by id. Look up the id first. "
+       "For an event the boss just wants to call off, prefer cancel_event.",{"kind":KIND,"id":I},["kind","id"]),
+    _t("edit_entry","Edit fields of a reminder, bill, income, expense or calendar event by id. Look up the id "
+       "first. Event fields: "+", ".join(EVENT_EDITABLE)+" (same formats as add_event).",
        {"kind":KIND,"id":I,"changes":{"type":"object"}},["kind","id","changes"]),
     _t("delegate","Hand a task to an EXTERNAL specialist agent.",
        {"agent":{"type":"string","enum":list(AGENTS)},"instruction":S},["agent","instruction"]),
+    # --- v3.3: calendar ---
+    _t("add_event","Put a dated item on the calendar: delivery (entrega), appointment (cita), payment (a date "
+       "the boss must PAY someone), collection (a date a client must PAY the boss), other. date YYYY-MM-DD and "
+       "time HH:MM 24h in Puerto Rico time — convert 'el jueves a las 3' yourself using the date list in the "
+       "system prompt. time blank = all day. duration_min default 60. remind_min: minutes before to send ONE "
+       "Telegram alert (default 60 for timed, 1440 = day before for all-day; -1 = no alert). repeat: daily, "
+       "weekly, monthly or blank. amount as text, no $. Reports overlapping events in warning_conflicts.",
+       {"title":S,"date":S,"type":{"type":"string","enum":EVENT_TYPES},"time":S,"duration_min":I,"location":S,
+        "who":S,"amount":S,"notes":S,"remind_min":I,"repeat":{"type":"string","enum":REPEATS}},["title","date"]),
+    _t("list_events","Calendar from start (YYYY-MM-DD, default today) for N days (default 14), each repeat "
+       "expanded to its dates. type filters (delivery, appointment, payment, collection, other).",
+       {"start":S,"days":I,"type":{"type":"string","enum":EVENT_TYPES},"include_done":{"type":"boolean"}}),
+    _t("find_events","Search calendar events by text (title, who, location, notes) to get their id.",
+       {"query":S,"include_past":{"type":"boolean"}}),
+    _t("complete_event","Mark an event done (delivered, paid, collected, attended). For a repeating event only "
+       "that date is marked (date YYYY-MM-DD; default the oldest open one).",{"id":I,"date":S},["id"]),
+    _t("cancel_event","Cancel an event. For a repeating event, pass date to skip only that day; without date "
+       "the whole series is cancelled.",{"id":I,"date":S},["id"]),
 ]
 
 async def run_tool(name, args):
@@ -564,7 +1016,18 @@ def system_prompt():
             "As accountant you ORIENT only — a licensed CPA files official returns. For money "
             "matters (coinbase, amazon) you NEVER authorize a purchase or trade — the boss approves. "
             "Be brief, reply in Spanish by default, never invent a result, and say so if an agent "
-            "isn't deployed.")
+            "isn't deployed.\n"
+            f"Exact dates (use these, never count weekdays yourself): {_date_helper()}.\n"
+            "v3.3 CALENDAR is built-in (do NOT delegate('calendar')): deliveries, appointments, dates to "
+            "pay (payment) and dates to collect (collection) go to add_event. A plain to-do or 'avísame a "
+            "las X' stays a reminder; a fixed monthly household bill stays add_bill. If an appointment has "
+            "no time, ask for it. After saving, confirm in one line with weekday, date and time, and mention "
+            "any warning_conflicts or warning. 'Qué tengo esta semana' -> list_events. The boss can also "
+            "type /calendario for a zero-token list and /listo N to mark event N done.\n"
+            "IDs: reminders and calendar events are numbered SEPARATELY (reminder #2 and event #2 can both "
+            "exist). Calendar alerts and lists show events as 'Evento #N' / 'Ev#N'. If the boss says 'listo N' "
+            "or 'borra el N' without saying evento or recordatorio, check whether both exist; if both do, ask "
+            "which one before changing anything.")
 
 # ---------------------------------------------------------------------------
 # Conversation loop. Works on a copy of the history and only saves it when
@@ -664,6 +1127,32 @@ async def _tg_brief(chat_id):
     except Exception:
         pass
 
+async def _tg_done(chat_id, arg):
+    """v3.3: /listo N — mark calendar event N done (zero tokens)."""
+    def _txt():
+        with _data_lock:
+            return done_text(arg)
+    try:
+        await _tg_send(chat_id, await asyncio.to_thread(_txt))
+    except Exception as e:
+        try:
+            await _tg_send(chat_id, f"⚠️ No pude marcarlo ({type(e).__name__}: {e}).")
+        except Exception:
+            pass
+
+async def _tg_calendar(chat_id, days):
+    """v3.3: /calendario [días] — calendar list without Claude (zero tokens)."""
+    def _txt():
+        with _data_lock:
+            return calendar_text(days)
+    try:
+        await _tg_send(chat_id, await asyncio.to_thread(_txt))
+    except Exception as e:
+        try:
+            await _tg_send(chat_id, f"⚠️ No pude leer el calendario ({type(e).__name__}).")
+        except Exception:
+            pass
+
 @app.post("/telegram")
 async def telegram(request: Request, background: BackgroundTasks,
                    x_telegram_bot_api_secret_token: str = Header(None)):
@@ -682,13 +1171,24 @@ async def telegram(request: Request, background: BackgroundTasks,
         # instant summary without Claude (zero tokens)
         background.add_task(_tg_brief, chat_id)
         return {"ok": True}
+    cmd, _, arg = text.strip().partition(" ")
+    cmd = cmd.lower().split("@")[0]
+    if cmd in ("/calendario", "/cal", "/semana"):
+        # v3.3: calendar list without Claude (zero tokens). /calendario 30 = next 30 days
+        n = int(arg.strip()) if arg.strip().isdigit() else (7 if cmd == "/semana" else 14)
+        background.add_task(_tg_calendar, chat_id, n)
+        return {"ok": True}
+    if cmd in ("/listo", "/hecho"):
+        # v3.3: /listo N [YYYY-MM-DD] marks calendar event N done (zero tokens)
+        background.add_task(_tg_done, chat_id, arg)
+        return {"ok": True}
     # Answer Telegram right away; do the work in the background.
     background.add_task(_handle_tg, chat_id, text)
     return {"ok": True}
 
 @app.get("/backup")
 async def backup(x_api_key: str = Header(...)):
-    """Full copy of all data (personal + books). Save it somewhere safe."""
+    """Full copy of all data (personal + books + calendar). Save it somewhere safe."""
     if x_api_key != API_KEY:
         raise HTTPException(401, "Bad API key")
     def _snap():
@@ -698,10 +1198,10 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.2", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.3", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
-            "builtin": ["personal", "accountant", "edit/delete", "proactive"],
+            "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar"],
             "scheduler": {"enabled": SCHED_ON, "every_seconds": SCHED_EVERY,
                           "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
                           **_sched_state},
