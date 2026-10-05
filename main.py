@@ -1,4 +1,4 @@
-"""Jarvis v3.1: orchestrator + built-in specialists + permanent memory.
+"""Jarvis v3.2: orchestrator + built-in specialists + permanent memory.
 
 Built-in: personal (reminders, shopping list, bills) and accountant
 (income, expenses, net profit, tax estimates). Data is saved in Upstash
@@ -9,8 +9,15 @@ One Render service, one bill.
 v3.1 fixes: Telegram secret + owner required, no duplicate entries on
 Telegram retries, Puerto Rico time zone, history safe on errors, async
 Claude calls, long/empty replies handled, input validation.
+
+v3.2 (Phase 1, additive): proactive engine. A background loop inside the
+same service sends Telegram alerts on its own: reminders with a real
+date/time (optionally repeating daily/weekly/monthly), bills coming due,
+and a short morning brief. Alerts use ZERO Claude tokens. Daily backup of
+the data inside Redis + /backup endpoint. /hoy command in Telegram (no
+tokens). Every v3.1 function is kept as it was.
 """
-import os, json, datetime, asyncio, httpx
+import os, json, datetime, asyncio, calendar, threading, contextlib, httpx
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel
@@ -18,7 +25,15 @@ from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-app = FastAPI(title="Jarvis Orchestrator")
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    # start the proactive engine when the server boots, stop it on shutdown
+    task = asyncio.create_task(_scheduler_loop())
+    yield
+    task.cancel()
+
+app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 client = AsyncAnthropic()
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
 API_KEY = os.getenv("AGENT_API_KEY", "").strip()
@@ -27,6 +42,11 @@ TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TG_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 TG_OWNER = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 TZ = ZoneInfo(os.getenv("TZ_NAME", "America/Puerto_Rico"))
+# Proactive engine settings (all optional; defaults work as-is)
+SCHED_ON = os.getenv("SCHEDULER_ENABLED", "true").strip().lower() not in ("false", "0", "no")
+SCHED_EVERY = max(30, int(os.getenv("SCHEDULER_INTERVAL_SECONDS", "60") or 60))
+BILL_NOTICE_DAYS = int(os.getenv("BILL_NOTICE_DAYS", "2") or 2)
+BRIEF_HOUR = os.getenv("DAILY_BRIEF_HOUR", "7").strip()   # 0-23 PR time; blank = off
 
 if not API_KEY or API_KEY == "change-me":
     raise RuntimeError("Set AGENT_API_KEY in Render before starting Jarvis.")
@@ -90,6 +110,51 @@ def _valid_day(day):
         raise ValueError("day must be between 1 and 31")
     return day
 
+# One lock for every read-modify-save, so the chat and the proactive engine
+# never overwrite each other's changes.
+_data_lock = threading.RLock()
+
+REPEATS = ["", "daily", "weekly", "monthly"]
+
+def _parse_due(due):
+    """'YYYY-MM-DD HH:MM' (PR time) -> normalized string. Blank stays blank."""
+    due = (due or "").strip().replace("T", " ")
+    if not due:
+        return ""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.datetime.strptime(due, fmt)
+            if fmt == "%Y-%m-%d":
+                dt = dt.replace(hour=9)   # date only -> 9:00 AM
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    raise ValueError("due must be 'YYYY-MM-DD HH:MM' (Puerto Rico time)")
+
+def _due_dt(due):
+    return datetime.datetime.strptime(due, "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
+
+def _valid_repeat(repeat):
+    repeat = (repeat or "").strip().lower()
+    if repeat in ("none", "no", "nunca"):
+        repeat = ""
+    if repeat not in REPEATS:
+        raise ValueError("repeat must be daily, weekly, monthly or blank")
+    return repeat
+
+def _roll(due, repeat):
+    """Next occurrence of a repeating reminder, always in the future."""
+    dt = _due_dt(due); now = _now()
+    while dt <= now:
+        if repeat == "daily":
+            dt += datetime.timedelta(days=1)
+        elif repeat == "weekly":
+            dt += datetime.timedelta(weeks=1)
+        else:  # monthly, same day (clamped to month length)
+            y, m = (dt.year + 1, 1) if dt.month == 12 else (dt.year, dt.month + 1)
+            dt = dt.replace(year=y, month=m, day=min(dt.day, calendar.monthrange(y, m)[1]))
+    return dt.strftime("%Y-%m-%d %H:%M")
+
 # ---------------------------------------------------------------------------
 # External specialist agents (optional). Leave URLs blank until deployed.
 # ---------------------------------------------------------------------------
@@ -135,13 +200,22 @@ def _pload():
     return d
 def _psave(d): kv_set(P_KEY, d)
 
-def add_reminder(text, when=""):
+def add_reminder(text, when="", due="", repeat=""):
+    due=_parse_due(due); repeat=_valid_repeat(repeat)
+    if repeat and not due:
+        raise ValueError("a repeating reminder needs a due date/time")
     d=_pload(); e={"id":_next_id(d["reminders"]),"text":text,"when":when,"done":False}
+    if due: e["due"]=due; e["notified"]=False
+    if repeat: e["repeat"]=repeat
     d["reminders"].append(e); _psave(d); return e
 def complete_reminder(id):
     d=_pload()
     for x in d["reminders"]:
         if x["id"]==int(id):
+            if x.get("repeat") and x.get("due"):
+                # repeating: keep it alive; the engine already moved it to the next date
+                return {**x, "note": f"Recurrente ({x['repeat']}); sigue activo, próximo aviso {x['due']}. "
+                                     "Para detenerlo: quitar la repetición o borrarlo."}
             x["done"]=True; _psave(d); return x
     return {"error":f"reminder {id} not found"}
 def add_shopping(item):
@@ -209,7 +283,7 @@ def tax_estimate(rate_percent=0):
 # ---------------------------------------------------------------------------
 KINDS = {"reminder":(_pload,_psave,"reminders"), "bill":(_pload,_psave,"bills"),
          "income":(_bload,_bsave,"income"), "expense":(_bload,_bsave,"expenses")}
-EDITABLE = {"reminder":["text","when","done"], "bill":["name","day","amount"],
+EDITABLE = {"reminder":["text","when","done","due","repeat"], "bill":["name","day","amount"],
             "income":["amount","source","date"], "expense":["amount","category","note","date"]}
 
 def delete_entry(kind, id):
@@ -230,16 +304,201 @@ def edit_entry(kind, id, changes):
                 if k=="day": v=_valid_day(v)
                 if k=="done": v=_to_bool(v)
                 if k=="category" and v not in EXPENSE_CATEGORIES: v="other"
+                if k=="due":
+                    v=_parse_due(v); x["notified"]=False   # new time -> alert again
+                if k=="repeat": v=_valid_repeat(v)
                 x[k]=v
+            if kind=="reminder" and x.get("repeat") and not x.get("due"):
+                raise ValueError("a repeating reminder needs a due date/time")
             save(d); return x
     return {"error":f"{kind} {id} not found"}
+
+# ---------------------------------------------------------------------------
+# PROACTIVE ENGINE (v3.2). Plain Python, no Claude calls -> zero tokens.
+# ---------------------------------------------------------------------------
+_local_claims: dict = {}
+_sched_state = {"last_tick": None, "last_error": None, "alerts_sent": 0}
+
+def _claim(key, ttl):
+    """True only once per key while it lives (safe if two servers overlap on deploy)."""
+    if USE_REDIS:
+        try:
+            return _redis(["SET", key, "1", "NX", "EX", str(int(ttl))]) is not None
+        except Exception:
+            pass
+    now = _now().timestamp()
+    for k in [k for k, exp in _local_claims.items() if exp < now]:
+        _local_claims.pop(k, None)
+    if key in _local_claims:
+        return False
+    _local_claims[key] = now + ttl
+    return True
+
+def _bill_due_dates(bill, today):
+    """This month's and next month's due date for a bill: [(YYYY-MM, date)]."""
+    out = []
+    y, m = today.year, today.month
+    for _ in range(2):
+        day = min(int(bill["day"]), calendar.monthrange(y, m)[1])
+        out.append((f"{y:04d}-{m:02d}", datetime.date(y, m, day)))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+def _fmt_amount(a):
+    return f" (${a})" if str(a).strip() else ""
+
+def collect_alerts():
+    """Everything that should be sent right now. Does not change any data."""
+    alerts = []; now = _now(); today = now.date()
+    d = _pload()
+    for r in d["reminders"]:
+        if r.get("done") or not r.get("due") or r.get("notified"):
+            continue
+        try:
+            due = _due_dt(r["due"])
+        except Exception:
+            continue
+        if due <= now:
+            late = " (atrasado)" if (now - due).total_seconds() > 3600 else ""
+            rep = f"\n🔁 Se repite: {r['repeat']}" if r.get("repeat") else ""
+            alerts.append({"kind": "reminder", "id": r["id"],
+                           "text": f"⏰ Recordatorio #{r['id']}{late}: {r['text']}\n🕒 {r['due']}{rep}"})
+    for b in d["bills"]:
+        paid = b.get("paid", []); sent = b.get("notices", [])
+        for month, due in _bill_due_dates(b, today):
+            if month in paid:
+                continue
+            left = (due - today).days
+            if left == 0:
+                stage, msg = "today", f"💳 HOY vence: {b['name']}{_fmt_amount(b.get('amount',''))}"
+            elif 0 < left <= BILL_NOTICE_DAYS:
+                stage, msg = "soon", f"💳 En {left} día(s) vence: {b['name']}{_fmt_amount(b.get('amount',''))} — {due.isoformat()}"
+            elif -3 <= left < 0 and any(n.startswith(month + ":") for n in sent):
+                # only if we already warned about it (avoids false alarms on new bills)
+                stage, msg = "late", f"⚠️ Vencida sin marcar pagada: {b['name']}{_fmt_amount(b.get('amount',''))} — {due.isoformat()}"
+            else:
+                continue
+            key = f"{month}:{stage}"
+            if key not in sent:
+                alerts.append({"kind": "bill", "id": b["id"], "key": key,
+                               "text": msg + f"\n(Cuenta #{b['id']}. Dime \"pagué {b['name']}\" para marcarla.)"})
+    return alerts
+
+def mark_alert_sent(alert):
+    """Record a sent alert so it is never repeated (repeating reminders move to the next date)."""
+    with _data_lock:
+        d = _pload()
+        if alert["kind"] == "reminder":
+            for r in d["reminders"]:
+                if r["id"] == alert["id"]:
+                    if r.get("repeat"):
+                        r["due"] = _roll(r["due"], r["repeat"]); r["notified"] = False
+                    else:
+                        r["notified"] = True
+        elif alert["kind"] == "bill":
+            for b in d["bills"]:
+                if b["id"] == alert["id"]:
+                    b.setdefault("notices", [])
+                    if alert["key"] not in b["notices"]:
+                        b["notices"].append(alert["key"])
+                    b["notices"] = b["notices"][-24:]   # keep it small
+        _psave(d)
+
+def upcoming(days=7):
+    """Reminders with a date and unpaid bills in the next N days."""
+    days = max(0, min(int(days), 60)); now = _now(); today = now.date()
+    end = today + datetime.timedelta(days=days)
+    d = _pload(); rem = []; bills = []
+    for r in d["reminders"]:
+        if r.get("done") or not r.get("due"):
+            continue
+        try:
+            if _due_dt(r["due"]).date() <= end:
+                rem.append(r)
+        except Exception:
+            pass
+    for b in d["bills"]:
+        for month, due in _bill_due_dates(b, today):
+            if month not in b.get("paid", []) and today - datetime.timedelta(days=3) <= due <= end:
+                bills.append({"id": b["id"], "name": b["name"], "amount": b.get("amount", ""),
+                              "due": due.isoformat(), "month": month, "overdue": due < today})
+    rem.sort(key=lambda r: r["due"]); bills.sort(key=lambda b: b["due"])
+    open_no_date = [r for r in d["reminders"] if not r.get("done") and not r.get("due")]
+    return {"reminders": rem, "bills": bills, "open_reminders_without_date": len(open_no_date),
+            "shopping_items": len(d["shopping"])}
+
+def brief_text():
+    """Short morning summary built without Claude."""
+    u = upcoming(0); today = _today().isoformat()
+    lines = [f"☀️ Buenos días, {OWNER}. Resumen de hoy {today}:"]
+    todays = [r for r in u["reminders"]]
+    if todays:
+        lines.append("\n⏰ Recordatorios:")
+        lines += [f"• #{r['id']} " + (r['due'][11:] if r['due'][:10] == today else f"{r['due']} ⚠️ atrasado")
+                  + f" — {r['text']}" for r in todays]
+    week = upcoming(BILL_NOTICE_DAYS + 5)["bills"]
+    if week:
+        lines.append("\n💳 Cuentas próximas:")
+        lines += [f"• {b['name']}{_fmt_amount(b['amount'])} — {b['due']}" + (" ⚠️ vencida" if b["overdue"] else "")
+                  for b in week]
+    if u["open_reminders_without_date"]:
+        lines.append(f"\n📝 Pendientes sin fecha: {u['open_reminders_without_date']}")
+    if u["shopping_items"]:
+        lines.append(f"🛒 Lista de compras: {u['shopping_items']} artículo(s)")
+    if len(lines) == 1:
+        lines.append("Nada programado. Día libre para avanzar los negocios. 💪")
+    return "\n".join(lines)
+
+def snapshot():
+    return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload()}
+
+def daily_backup():
+    """One copy of all data per day, kept 30 days inside Redis."""
+    if not USE_REDIS:
+        return False
+    key = f"jarvis:backup:{_today().isoformat()}"
+    _redis(["SET", key, json.dumps(snapshot(), ensure_ascii=False), "EX", str(30 * 86400)])
+    return True
+
+async def _tick():
+    now = _now()
+    if not await asyncio.to_thread(_claim, f"jarvis:tick:{now:%Y%m%d%H%M}", 300):
+        return   # another copy of the server already handled this minute
+    can_send = bool(TG_TOKEN and TG_OWNER)
+    if can_send:
+        alerts = await asyncio.to_thread(collect_alerts)
+        for a in alerts:
+            try:
+                await _tg_send(TG_OWNER, a["text"])
+            except Exception as e:
+                _sched_state["last_error"] = f"send: {e}"
+                continue   # not marked -> retried next tick
+            await asyncio.to_thread(mark_alert_sent, a)
+            _sched_state["alerts_sent"] += 1
+        if BRIEF_HOUR.isdigit() and now.hour == int(BRIEF_HOUR):
+            if await asyncio.to_thread(_claim, f"jarvis:brief:{now.date().isoformat()}", 2 * 86400):
+                await _tg_send(TG_OWNER, await asyncio.to_thread(brief_text))
+    if await asyncio.to_thread(_claim, f"jarvis:backupclaim:{now.date().isoformat()}", 2 * 86400):
+        await asyncio.to_thread(daily_backup)
+    _sched_state["last_tick"] = now.isoformat()
+
+async def _scheduler_loop():
+    if not SCHED_ON:
+        return
+    await asyncio.sleep(10)   # let the server finish booting
+    while True:
+        try:
+            await _tick()
+        except Exception as e:
+            _sched_state["last_error"] = f"{type(e).__name__}: {e}"
+        await asyncio.sleep(SCHED_EVERY)
 
 HANDLERS = {"add_reminder":add_reminder,"complete_reminder":complete_reminder,
             "add_shopping":add_shopping,"remove_shopping":remove_shopping,"clear_shopping":clear_shopping,
             "add_bill":add_bill,"mark_bill_paid":mark_bill_paid,"overview":overview,
             "add_income":add_income,"add_expense":add_expense,"list_books":list_books,
             "finances_summary":finances_summary,"tax_estimate":tax_estimate,
-            "delete_entry":delete_entry,"edit_entry":edit_entry}
+            "delete_entry":delete_entry,"edit_entry":edit_entry,"upcoming":upcoming}
 
 def _t(name, desc, props=None, req=None):
     return {"name":name,"description":desc,
@@ -248,13 +507,18 @@ S={"type":"string"}; N={"type":"number"}; I={"type":"integer"}
 KIND={"type":"string","enum":["reminder","bill","income","expense"]}
 
 TOOLS = [
-    _t("add_reminder","Add a reminder.",{"text":S,"when":S},["text"]),
+    _t("add_reminder","Add a reminder. To get an automatic Telegram alert, set due as "
+       "'YYYY-MM-DD HH:MM' in Puerto Rico time (convert 'mañana a las 9' yourself using the current "
+       "date). repeat: daily, weekly, monthly or blank (needs due). when is free text.",
+       {"text":S,"when":S,"due":S,"repeat":{"type":"string","enum":REPEATS}},["text"]),
     _t("complete_reminder","Mark a reminder as done by id.",{"id":I},["id"]),
     _t("add_shopping","Add one item to the shopping list.",{"item":S},["item"]),
     _t("remove_shopping","Remove one item from the shopping list by name.",{"item":S},["item"]),
     _t("clear_shopping","Empty the shopping list."),
     _t("add_bill","Track a recurring bill by day of month (1-31).",{"name":S,"day":I,"amount":S},["name","day"]),
-    _t("mark_bill_paid","Mark a bill paid for a month (YYYY-MM, default this month).",{"id":I,"month":S},["id"]),
+    _t("mark_bill_paid","Mark a bill paid for a month (YYYY-MM, default this month). If the boss pays "
+       "early for next month's due date, pass that month (see upcoming).",{"id":I,"month":S},["id"]),
+    _t("upcoming","Agenda: dated reminders and unpaid bills in the next N days (default 7).",{"days":I}),
     _t("overview","All reminders, shopping list and bills, with ids."),
     _t("add_income","Log business income. date is YYYY-MM-DD, default today.",{"amount":N,"source":S,"date":S},["amount"]),
     _t("add_expense","Log a business expense. date is YYYY-MM-DD, default today. category: "
@@ -277,7 +541,10 @@ async def run_tool(name, args):
         if name not in HANDLERS:
             return {"error": f"unknown tool {name}"}
         # storage calls are blocking; run them off the event loop
-        return await asyncio.to_thread(HANDLERS[name], **args)
+        def _locked():
+            with _data_lock:
+                return HANDLERS[name](**args)
+        return await asyncio.to_thread(_locked)
     except Exception as e:
         return {"error": str(e)}
 
@@ -288,6 +555,9 @@ def system_prompt():
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
+            "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
+            "(also daily/weekly/monthly repeats), bills get alerts before they are due, and a morning "
+            "brief goes out. When the boss asks to be reminded at a time, ALWAYS set due.\n"
             f"Storage: {storage_mode()}.\n"
             f"External agents deployed: {ext}. Use delegate for those.\n"
             "Before editing or deleting, look up the entry id; confirm with the boss before deleting. "
@@ -388,6 +658,12 @@ async def _handle_tg(chat_id, text):
     except Exception:
         pass
 
+async def _tg_brief(chat_id):
+    try:
+        await _tg_send(chat_id, await asyncio.to_thread(brief_text))
+    except Exception:
+        pass
+
 @app.post("/telegram")
 async def telegram(request: Request, background: BackgroundTasks,
                    x_telegram_bot_api_secret_token: str = Header(None)):
@@ -402,14 +678,31 @@ async def telegram(request: Request, background: BackgroundTasks,
         return {"ok": True}
     if not await asyncio.to_thread(_first_time, update.get("update_id")):
         return {"ok": True}
+    if text.strip().lower().split("@")[0] in ("/hoy", "/agenda"):
+        # instant summary without Claude (zero tokens)
+        background.add_task(_tg_brief, chat_id)
+        return {"ok": True}
     # Answer Telegram right away; do the work in the background.
     background.add_task(_handle_tg, chat_id, text)
     return {"ok": True}
 
+@app.get("/backup")
+async def backup(x_api_key: str = Header(...)):
+    """Full copy of all data (personal + books). Save it somewhere safe."""
+    if x_api_key != API_KEY:
+        raise HTTPException(401, "Bad API key")
+    def _snap():
+        with _data_lock:
+            return snapshot()
+    return await asyncio.to_thread(_snap)
+
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.1", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.2", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
-            "builtin": ["personal", "accountant", "edit/delete"],
+            "builtin": ["personal", "accountant", "edit/delete", "proactive"],
+            "scheduler": {"enabled": SCHED_ON, "every_seconds": SCHED_EVERY,
+                          "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
+                          **_sched_state},
             "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
