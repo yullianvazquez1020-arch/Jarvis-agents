@@ -6,7 +6,7 @@ ROOT=__import__('pathlib').Path(__file__).resolve().parents[1];sys.path.insert(0
 spec=importlib.util.spec_from_file_location('jarvis', ROOT/'main.py'); j=importlib.util.module_from_spec(spec);sys.modules['jarvis']=j;spec.loader.exec_module(j)
 class Tests(unittest.TestCase):
  def setUp(self):
-  j.DATA_DIR=__import__('pathlib').Path(tempfile.mkdtemp());j.USE_REDIS=False
+  j.DATA_DIR=__import__('pathlib').Path(tempfile.mkdtemp());j.USE_REDIS=False;j._seen_updates.clear();j._fence.update(mode="off",leader=True)
  def test_real_trading_disabled(self): self.assertFalse(j.CB_TRADING)
  def test_money_invalid(self):
   for v in [True,-1,0,'nan','inf',1e15]:
@@ -90,7 +90,9 @@ class Tests(unittest.TestCase):
    if path.endswith('/preview'):return {'order_total':'20','commission_total':'0.2'}
    if path.endswith('/orders'):return {'success':True,'success_response':{'order_id':'mock-order'}}
    return {'price':'100'}
-  with patch.object(j,'CB_ON',True),patch.object(j,'CB_TRADING',True),patch.object(j,'_cb',side_effect=cb) as api:
+  # 4.0.3: real orders need the owner to have selected REAL mode (and variables that allow it)
+  j.kv_set(j.M_KEY,{'mode':'real','epoch':1,'since':None,'by':'test','history':[]})
+  with patch.object(j,'CB_ON',True),patch.object(j,'CB_TRADING',True),patch.object(j,'real_blockers',return_value=[]),patch.object(j,'_cb',side_effect=cb) as api:
    o=asyncio.run(j.coinbase_prepare_order('BTC','BUY',usd_amount=20));oid=o['order']
    self.assertEqual(j._xload()['orders'][0]['status'],'pending')
    msg=j.cb_approve_text(str(oid));code=__import__('re').search(r'\b\d{6}\b',msg).group()

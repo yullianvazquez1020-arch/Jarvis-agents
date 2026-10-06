@@ -47,9 +47,11 @@ class ExtensionTests(base.Tests):
   item=j.add_income(100);a=asyncio.run(j.run_tool('delete_entry',{'kind':'income','id':item['id']}));self.assertEqual(len(j._bload()['income']),1)
   asyncio.run(e.execute_action(a['id']));self.assertEqual(j._bload()['income'],[])
  def test_external_draft_no_send(self):
-  with patch.dict(j.AGENTS,{'call':'https://agent.example'}),patch.object(j,'_extensions_original_delegate',new=AsyncMock()) as call:
+  # 4.0.1: drafting needs a separate EXTERNAL_AGENT_KEY; execution passes the owner-approved action id
+  with patch.dict(j.AGENTS,{'call':'https://agent.example'}),patch.object(j,'EXTERNAL_AGENT_KEY','ext-test-key'),patch.object(j,'_extensions_original_delegate',new=AsyncMock()) as call:
    a=asyncio.run(j.run_tool('delegate',{'agent':'call','instruction':'Llama para confirmar cita'}));call.assert_not_called()
    asyncio.run(e.execute_action(a['id']));call.assert_awaited_once()
+   self.assertEqual(call.await_args.kwargs.get('approved_action_id'),a['id'])
  def test_coinbase_not_external(self):
   with self.assertRaises(ValueError):e.prepare_external_action('coinbase','buy')
  def test_config_no_secrets(self):

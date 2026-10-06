@@ -70,7 +70,7 @@ def install(j):
     old_snapshot=j.snapshot
     def snapshot():
         with j._data_lock:return {**old_snapshot(),'extensions':load()}
-    j.snapshot=snapshot
+    j.snapshot=snapshot;j.RESTORE_KEYS['extensions']=KEY
     old_tick=j._tick_v38
     async def tick(now,can_send):
         await old_tick(now,can_send)
@@ -86,7 +86,7 @@ def install(j):
         try:
             body=json.loads(raw);kind=body['kind']
             if kind not in ('call','message','email'):raise ValueError('Unsupported kind')
-            sender=j._text(body.get('sender'),'sender',200);text=j._text(body.get('text'),'text',10000)
+            sender=j._redact_secrets(j._text(body.get('sender'),'sender',200))[0];text=j._redact_secrets(j._text(body.get('text'),'text',10000))[0]
             event_id=j._text(body.get('event_id'),'event_id',200)
         except (ValueError,TypeError,KeyError):raise j.HTTPException(400,'Invalid event')
         with j._data_lock:
@@ -123,7 +123,7 @@ def configure_business(tax_reserve_percent=None,ivu_percent=None,low_balance=Non
     return {'settings':d['settings'],'bank_alerts':result,'note':'Tasas proporcionadas por el dueño; CPA valida su aplicación.'}
 
 def save_note(title,body):
-    title=core._text(title,'title',200);body=core._text(body,'body',100000)
+    title=core._redact_secrets(core._text(title,'title',200))[0];body=core._redact_secrets(core._text(body,'body',100000))[0]
     d=load();n={'id':alloc(d,'notes'),'title':title,'body':body,'created':stamp()};d['notes'].append(n);save(d)
     return {'id':n['id'],'title':title,'characters':len(body),'note':f"Guardada. /nota {n['id']}"}
 
@@ -262,10 +262,10 @@ def _service_url(name):
 
 def system_configuration():
     # No secrets returned.
-    return {'version':'3.9.0','pdf':True,'long_notes':True,'recurring_invoice_drafts':True,'receipt_photos':True,
+    return {'version':core.VERSION,'pdf':True,'long_notes':True,'recurring_invoice_drafts':True,'receipt_photos':True,
         'settings':load()['settings'],'bank_alerts':core._bank_settings(core._kload()),
         'sms_connected':core.SMS_ON,'email_connected':core.EMAIL_ON,'coinbase_connected':core.CB_ON,
-        'coinbase_trading_enabled':core.CB_TRADING,'bank_connection':'CSV/OFX/QFX; no direct bank integration',
+        'coinbase_trading_enabled':core.CB_TRADING,'crypto_mode':core._mode_for_prompt(),'crypto_mode_note':'Only the owner changes it with /cripto modo; variables allowing real never select it.','bank_connection':'CSV/OFX/QFX; no direct bank integration',
         'speech_to_text_connected':bool(os.getenv('STT_AGENT_URL','').strip()),'text_to_speech_connected':bool(os.getenv('TTS_AGENT_URL','').strip()),
         'external_agents':{k:bool(v.strip()) for k,v in core.AGENTS.items()},'provider_research_watches':len(load()['watches']),
         'note':'Implemented is not the same as connected. Photos use Claude tokens; voice requires a compatible service.'}
@@ -306,7 +306,7 @@ async def voice_message(chat_id,voice):
         if not url:raise ValueError('Falta STT_AGENT_URL: servicio de transcripción local o externo compatible')
         raw=await core._tg_file(voice['file_id']);mime=voice.get('mime_type','audio/ogg')
         async with core.httpx.AsyncClient(timeout=90) as hc:
-            r=await hc.post(url+'/transcribe',headers={'x-api-key':os.getenv('STT_AGENT_API_KEY','')},files={'file':('voice.ogg',raw,mime)});r.raise_for_status();text=core._text(r.json().get('text'),'transcript',20000)
+            r=await hc.post(url+'/transcribe',headers={'x-api-key':os.getenv('STT_AGENT_API_KEY','')},files={'file':('voice.ogg',raw,mime)});r.raise_for_status();text=core._redact_secrets(core._text(r.json().get('text'),'transcript',20000))[0]
         with core._data_lock:
             d=load();n={'id':alloc(d,'voices'),'text':text,'status':'pending','created':stamp()};d['voices'].append(n);save(d)
         await core._tg_send(chat_id,f"🎙 Dictado #{n['id']}:\n{text}\n\nRevisa monto y concepto antes de guardar. /dictado {n['id']} para procesarlo. No he ejecutado nada.")
@@ -315,7 +315,7 @@ async def voice_message(chat_id,voice):
 async def audio_reply(chat_id,text):
     url=_service_url('TTS_AGENT_URL')
     if not url:raise ValueError('Falta TTS_AGENT_URL: servicio de voz compatible')
-    text=core._text(text,'text',3000)
+    text=core._redact_secrets(core._text(text,'text',3000))[0]
     async with core.httpx.AsyncClient(timeout=90) as hc:
         r=await hc.post(url+'/synthesize',headers={'x-api-key':os.getenv('TTS_AGENT_API_KEY','')},json={'text':text});r.raise_for_status()
         mime=r.headers.get('content-type','').split(';')[0]
@@ -329,6 +329,10 @@ def prepare_external_action(agent,instruction):
     if agent=='coinbase':raise ValueError('Coinbase usa su módulo integrado y /aprobar + /confirmar')
     instruction=core._text(instruction,'instruction',3000)
     if not core.AGENTS[agent].strip():raise ValueError('Agente '+agent+' aún no conectado; configura su URL y permisos limitados')
+    problem=core._agent_url_problem(core.AGENTS[agent].strip())
+    if problem:raise ValueError(problem)
+    if not core.EXTERNAL_AGENT_KEY:raise ValueError('Falta EXTERNAL_AGENT_KEY (clave propia para agentes externos)')
+    instruction=core._redact_secrets(instruction)[0]
     d=load();n={'id':alloc(d,'actions'),'agent':agent,'instruction':instruction,'status':'pending','created':stamp()};d['actions'].append(n);save(d)
     return {**n,'note':f"Solo el dueño ejecuta /ejecutar {n['id']}. /acciones {n['id']} muestra el texto exacto. Nunca se autorizan compras o transferencias con este mecanismo."}
 
@@ -348,7 +352,10 @@ async def execute_action(id):
             a['status']='sending';a['approved_at']=stamp();save(d)
             fn=core._extensions_mutations.get(a['function'])
             if not fn:raise ValueError('Función de cambio no reconocida')
-            result=fn(**a['args'])
+            try:result=fn(**a['args'])
+            except Exception as e:
+                d=load();a=next(x for x in d['actions'] if x['id']==int(id));a['status']='failed';a['result']=str(e)[:500];save(d)
+                raise
             # Function persists target data first; do not automatically retry after uncertain writes.
             d=load();a=next(x for x in d['actions'] if x['id']==int(id));a['status']='completed';a['result']=str(result)[:2000];save(d)
             return result
@@ -356,7 +363,7 @@ async def execute_action(id):
     if a['agent']=='amazon':
         result=await core.research_topic('Investiga en Amazon, sin comprar: '+a['instruction'])
     else:
-        result=await core._extensions_original_delegate(a['agent'],a['instruction'])
+        result=await core._extensions_original_delegate(a['agent'],a['instruction'],approved_action_id=a['id'])
     with core._data_lock:
         d=load();record=next(x for x in d['actions'] if x['id']==a['id']);record['status']='unknown' if isinstance(result,dict) and result.get('error') else 'completed';record['result']=str(result)[:2000];save(d)
     return result

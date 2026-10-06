@@ -1,9 +1,11 @@
-fastapi
-uvicorn
-anthropic
-python-dotenv
-httpx
-cryptography
-reportlab
-pillow>=10.1
-imageio-ffmpeg
+# Direct dependencies verified on Python 3.12.14
+fastapi==0.142.2
+uvicorn==0.54.0
+anthropic==1.11.0
+python-dotenv==1.2.4
+httpx==0.28.1
+cryptography==50.0.2
+reportlab==5.0.1
+pillow==12.3.0
+imageio-ffmpeg==0.6.0
+pydantic==2.13.5
