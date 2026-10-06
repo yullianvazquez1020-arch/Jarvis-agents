@@ -1,3 +1,6 @@
+# Jarvis 4.2.0 — adds the jarvis_ai/ package: Claude + OpenAI router with cross-review, token/cost control,
+#   real market data and alerts, practice by strategy, asset recovery (official channels), defensive security
+#   audit, opportunities, payables, structured memory, audit log, GREEN/YELLOW/RED + kill switch. Fixes in 4.1.1.
 # Jarvis 4.1.0 — adds jarvis_voice.py: /voz voice conversation (Telegram Mini App); everything in 4.0 kept.
 # Reviewed correction of supplied 3.8.0. Existing capabilities and owner approvals retained.
 # Local verification uses mocked external services; live integrations require deployment checks.
@@ -59,6 +62,8 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from anthropic import AsyncAnthropic
+import anthropic as _anthropic_sdk
+_BAD_REQUEST = getattr(_anthropic_sdk, "BadRequestError", None) or type("_NoBadRequest", (Exception,), {})
 from dotenv import load_dotenv
 
 logger = logging.getLogger("jarvis")
@@ -300,6 +305,9 @@ AGENTS = {
     "amazon":   os.getenv("AMAZON_AGENT_URL", ""),
     "coinbase": os.getenv("COINBASE_AGENT_URL", ""),
 }
+# 4.2: external agents get their own key, so the master key (/backup, /chat) never leaves Jarvis.
+# Falls back to AGENT_API_KEY for agents built earlier with the shared key (the security audit warns).
+EXTERNAL_AGENT_KEY = os.getenv("EXTERNAL_AGENT_API_KEY", "").strip() or API_KEY
 AGENT_ENDPOINT = {
     "calendar": ("/ask", "message"),
     "amazon":   ("/ask", "message"),
@@ -317,9 +325,9 @@ async def delegate(agent: str, instruction: str):
     async with httpx.AsyncClient(timeout=90) as hc:
         try:
             if key:
-                r = await hc.post(url + path, headers={"x-api-key": API_KEY}, json={key: instruction})
+                r = await hc.post(url + path, headers={"x-api-key": EXTERNAL_AGENT_KEY}, json={key: instruction})
             else:
-                r = await hc.post(url + path, headers={"x-api-key": API_KEY})
+                r = await hc.post(url + path, headers={"x-api-key": EXTERNAL_AGENT_KEY})
             r.raise_for_status()
             return r.json()
         except Exception:
@@ -1554,7 +1562,7 @@ def bank_books_proposal(month="", start="", end="", account="", include_uncatego
         if _book_exists(books, t.get("book")) or _booked_from_bank(books, t["id"]):
             skipped["already_booked"] += 1; continue
         cat = t["category"]
-        if cat in ("transfer", "personal"):
+        if cat in ("transfer", "personal", "refund"):   # 4.2 fix: refunds never block the proposal
             skipped["transfer_or_personal"] += 1; continue
         if t["amount"] > 0:
             if cat != "income":
@@ -3045,7 +3053,11 @@ def _client_by_name(clients, who):
     if len(w) < 3: return None
     exact = [c for c in clients if c["name"].casefold() == w]
     if len(exact) == 1: return exact[0]
-    part = [c for c in clients if len(c["name"]) >= 4 and (c["name"].casefold() in w or w in c["name"].casefold())]
+    def _words(x): return set(re.findall(r"[^\W\d_]{2,}", x.casefold()))
+    ww = _words(w)
+    # 4.2 fix: whole words only ("Ana" no longer matches "Mariana López")
+    part = [c for c in clients if len(c["name"]) >= 4 and ww and
+            (ww <= _words(c["name"]) or _words(c["name"]) <= ww)]
     return part[0] if len(part) == 1 else None
 
 def detect_client_notices():
@@ -3623,10 +3635,11 @@ def _unclaim(key):
             claims = kv_get("jarvis:claims", {}); claims.pop(key, None); kv_set("jarvis:claims", claims)
 
 def _bill_due_dates(bill, today):
-    """This month's and next month's due date for a bill: [(YYYY-MM, date)]."""
+    """Previous, this and next month's due date for a bill: [(YYYY-MM, date)].
+    4.2 fix: the previous month is needed so a bill due on the 28-31 still gets its late alert."""
     out = []
-    y, m = today.year, today.month
-    for _ in range(2):
+    y, m = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+    for _ in range(3):
         day = min(int(bill["day"]), calendar.monthrange(y, m)[1])
         out.append((f"{y:04d}-{m:02d}", datetime.date(y, m, day)))
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
@@ -3821,16 +3834,16 @@ async def _tick():
             if await asyncio.to_thread(_claim, bkey, 2 * 86400):
                 try:
                     await _tg_send(TG_OWNER, await asyncio.to_thread(brief_text))
-                except Exception:
+                except Exception as e:
                     await asyncio.to_thread(_unclaim, bkey)   # try again next minute
-                    raise
+                    _sched_state["last_error"] = f"brief: {type(e).__name__}"
     ckey = f"jarvis:backupclaim:{now.date().isoformat()}"
     if await asyncio.to_thread(_claim, ckey, 2 * 86400):
         try:
             await asyncio.to_thread(daily_backup)
-        except Exception:
+        except Exception as e:
             await asyncio.to_thread(_unclaim, ckey)
-            raise
+            _sched_state["last_error"] = f"backup: {type(e).__name__}"
     # Phase 5: market brief once per MARKET_EVERY-hour slot (opt-in). One attempt per slot:
     # if web search is off or it fails, it waits for the next slot (no retry every minute).
     if MARKET_ON and can_send:
@@ -4222,14 +4235,31 @@ async def run(session: str, message: str) -> str:
         history = list(conversations.get(session, []))
         history.append({"role": "user", "content": message})
         history = _trim(history)
-        for _ in range(10):
-            r = await client.messages.create(model=MODEL, max_tokens=1500,
-                                              system=system_prompt(), tools=TOOLS, messages=history)
+        for step in range(10):
+            try:
+                r = await client.messages.create(model=MODEL, max_tokens=1500,
+                                                  system=system_prompt(), tools=TOOLS, messages=history)
+            except _BAD_REQUEST:
+                # 4.2 fix: a broken saved history must never mute the chat until a restart.
+                if step:
+                    raise
+                logger.warning("history rejected by the API; starting a clean conversation for %s", session)
+                conversations.pop(session, None)
+                history = [{"role": "user", "content": message}]
+                r = await client.messages.create(model=MODEL, max_tokens=1500,
+                                                  system=system_prompt(), tools=TOOLS, messages=history)
             content = [b for b in r.content if b.type not in ("thinking", "redacted_thinking")]
-            history.append({"role": "assistant", "content": content})
             if r.stop_reason != "tool_use":
+                # 4.2 fix: a reply cut by max_tokens can hold a tool call with no result, and an empty
+                # reply is invalid history. Save plain text only.
+                text = "".join(b.text for b in content if b.type == "text").strip()
+                if r.stop_reason == "max_tokens":
+                    text = (text + "\n\n(Se me cortó la respuesta; pídemelo por partes.)").strip()
+                text = text or "(sin respuesta)"
+                history.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
                 conversations[session] = history
-                return "".join(b.text for b in r.content if b.type == "text")
+                return text
+            history.append({"role": "assistant", "content": content})
             results = []
             for b in r.content:
                 if b.type == "tool_use":
@@ -4266,6 +4296,8 @@ async def chat(req: Chat, x_api_key: str = Header(...)):
     return {"reply": reply}
 
 _seen_updates: set = set()
+SECRET_GUARD = None    # 4.2: set by jarvis_ai (secret detection before anything else)
+SECRET_REPLY = None
 
 def _first_time(update_id) -> bool:
     """True only the first time we see a Telegram update (Telegram retries)."""
@@ -4488,6 +4520,11 @@ async def telegram(request: Request, background: BackgroundTasks,
         return {"ok": True}     # v3.7.1: only the owner's own user, never someone else in the chat
     if not await asyncio.to_thread(_first_time, update.get("update_id")):
         return {"ok": True}
+    guard_text = text or (msg.get("caption") if isinstance(msg.get("caption"), str) else "")
+    if guard_text and SECRET_GUARD is not None and SECRET_GUARD(guard_text):
+        # 4.2: a password, seed phrase or private key never reaches any AI and is deleted from the chat
+        background.add_task(SECRET_REPLY, chat_id, msg.get("message_id"), guard_text)
+        return {"ok": True}
     if photos or voice:
         if not is_owner_private(msg):
             background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para recibos y voz.")
@@ -4585,7 +4622,7 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "4.1.0", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "4.2.0", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
@@ -4616,3 +4653,6 @@ _growth.install(_sys.modules[__name__])
 
 import jarvis_voice as _voice   # 4.1: voice conversation page (/voz)
 _voice.install(_sys.modules[__name__])
+
+import jarvis_ai as _ai   # 4.2: multi-model brain + new agents (see jarvis_ai/__init__.py)
+_ai.install(_sys.modules[__name__])
