@@ -112,9 +112,7 @@ async def _lifespan(app):
             await client.close()
 
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
-# Claude is optional in free mode (AI_ROUTER_MODE=free + LOCAL_LLM_URL). Tools still need a real key.
-_ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-client = AsyncAnthropic(api_key=_ANTHROPIC_KEY or "missing-anthropic-key-free-mode")
+client = AsyncAnthropic()
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5")
 API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 OWNER = os.getenv("OWNER_NAME", "the boss")
