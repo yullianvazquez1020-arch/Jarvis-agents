@@ -1,3 +1,14 @@
+# Reviewed correction of supplied 3.8.0. Existing capabilities and owner approvals retained.
+# Local verification uses mocked external services; live integrations require deployment checks.
+# Jarvis 3.8.1 — on top of 3.7.1 (everything before is kept):
+#   1) Client messages: Jarvis drafts SMS/WhatsApp (Twilio) and email (Resend) to clients; ONLY the
+#      boss sends them with /enviar N in his private chat. /mensajes /enviar /noenviar.
+#   2) /cobros, one-time low-stock alerts, daily client-reminder drafts (overdue / due tomorrow /
+#      tomorrow's deliveries, appointments, collections).
+#   3) Weekly bank summary (default Monday 8 AM) + /banco semana.
+#   4) Crypto PAPER TRADING: real Coinbase public prices, SIMULATED money, rule-based, trade alerts,
+#      daily report vs buy-and-hold. /practica. It has no path to real orders.
+#   New variables are optional; see the 3.8 notes. No new packages (same requirements as 3.7.1).
 # Jarvis 3.7.1 — Phase 4 step 1: money gate (one-time 6-digit codes, hard limits $100/$300,
 #   owner-only private chat, lockout, audit log /seguridad).
 # Jarvis 3.7.0 — Coinbase built in (read + buy/sell with double confirmation and limits), on top of 3.6.0.
@@ -551,7 +562,7 @@ def _conflicts(d, e):
             continue
         found = False
         for occ in mine:
-            for cand in (occ, occ - datetime.timedelta(days=1)):
+            for cand in (occ + datetime.timedelta(days=offset) for offset in range(-7, 8)):
                 if cand in _occurrences(o, cand, cand) and not _occ_done(o, cand):
                     a1, a2 = _interval(e, occ); b1, b2 = _interval(o, cand)
                     if a1 < b2 and b1 < a2:
@@ -1950,7 +1961,7 @@ def record_job_payment(id, amount, note="", date="", add_to_books=True):
     if _to_bool(add_to_books):
         books = _bload()
         from_jobs = {"income": {x["id"] for x in books["income"] if x.get("job_id")}}   # those are known, not typed by hand
-        dup = _looks_logged(books, {"amount": amount, "date": date}, from_jobs)
+        dup = None  # Separate customer payments must remain separate ledger entries.
         if dup:
             books_note = f"Ya había un ingreso igual (#{dup['id']} del {dup['date']}); no lo dupliqué."
             kv_set_many({C_KEY: d})
@@ -2033,7 +2044,9 @@ def _iload():
     d.setdefault("items", [])
     _with_ids(d["items"])
     return d
-def _isave(d): kv_set(I_KEY, d)
+def _isave(d):
+    _refresh_low_flags(d)   # v3.8: restocked items can alert again next time they run low
+    kv_set(I_KEY, d)
 
 def _qty(v, name="quantity"):
     try:
@@ -2266,6 +2279,8 @@ def gate_practice_confirm(code):
             else f"⚠️ {_cap(chk['msg'])}.")
 
 MONEY_COMMANDS = ("/aprobar", "/confirmar", "/rechazar", "/anotar", "/descartar")
+# v3.8: sending to clients and resetting practice also require the owner's private chat
+PRIVATE_COMMANDS = MONEY_COMMANDS + ("/enviar", "/noenviar", "/practica")
 
 def security_text():
     """/seguridad — limits, today's total, lockout and the last approval attempts (zero tokens)."""
@@ -2715,6 +2730,817 @@ async def cb_fills_text():
         for f in r["fills"])
 
 # ---------------------------------------------------------------------------
+# CLIENT MESSAGES (v3.8, mejora #1): SMS/WhatsApp (Twilio) and email (Resend) to clients.
+# Jarvis DETECTS (overdue balances, balances due tomorrow, tomorrow's deliveries /
+# appointments / collections for a known client) and DRAFTS. Claude can also draft.
+# NOTHING goes out until the boss types /enviar N in his private chat.
+# Jarvis itself shows the boss the EXACT text (not Claude's paraphrase). Changing a draft
+# makes a NEW number, so /enviar N always sends exactly the text the boss saw.
+# Daily cap on sends; every send is in the audit log (/seguridad).
+# ---------------------------------------------------------------------------
+O_KEY = "jarvis:outbox"
+TW_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+TW_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+TW_FROM = os.getenv("TWILIO_FROM", "").strip()        # +17875551234  or  whatsapp:+14155238886
+SMS_ON = bool(TW_SID and TW_TOKEN and TW_FROM)
+RESEND_KEY = os.getenv("RESEND_API_KEY", "").strip()
+EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip()      # "Mi Negocio <avisos@midominio.com>"
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", "").strip()
+EMAIL_ON = bool(RESEND_KEY and EMAIL_FROM)
+BUSINESS_NAME = os.getenv("BUSINESS_NAME", "").strip() or OWNER
+NOTICES_ON = os.getenv("CLIENT_NOTICES_ENABLED", "true").strip().lower() not in ("false", "0", "no")
+NOTICE_HOUR = _env_int("CLIENT_NOTICE_HOUR", 9, 0, 23)
+OUTBOX_MAX_DAY = _env_int("OUTBOX_MAX_PER_DAY", 20, 1, 50)
+DRAFT_DAYS = 3
+MSG_LIMIT = {"sms": 1000, "email": 5000}
+
+def _oload():
+    d = kv_get(O_KEY, {"drafts": [], "seq": 0, "sent_day": {}, "auto_keys": []})
+    for k, v in (("drafts", []), ("seq", 0), ("sent_day", {}), ("auto_keys", [])):
+        d.setdefault(k, v)
+    return d
+def _osave(d): kv_set(O_KEY, d)
+
+def _norm_phone(p):
+    digits = re.sub(r"\D", "", str(p or ""))
+    if len(digits) == 10:
+        digits = "1" + digits            # 787 / 939 numbers -> +1
+    return "+" + digits if 11 <= len(digits) <= 15 else ""
+
+def _valid_email(e):
+    e = str(e or "").strip()
+    return e if len(e) <= 120 and re.fullmatch(r"[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}", e) else ""
+
+def _pick_channel(client, channel=""):
+    ch = (channel or "").strip().lower()
+    ch = {"texto": "sms", "mensaje": "sms", "whatsapp": "sms", "correo": "email", "mail": "email"}.get(ch, ch)
+    phone = _norm_phone(client.get("phone")); mail = _valid_email(client.get("email"))
+    if ch == "sms":
+        if not phone: raise ValueError(f"{client['name']} no tiene un teléfono válido")
+        return "sms", phone
+    if ch == "email":
+        if not mail: raise ValueError(f"{client['name']} no tiene un email válido")
+        return "email", mail
+    if ch: raise ValueError("channel debe ser sms o email")
+    if phone and SMS_ON: return "sms", phone
+    if mail and EMAIL_ON: return "email", mail
+    if phone: return "sms", phone
+    if mail: return "email", mail
+    raise ValueError(f"{client['name']} no tiene teléfono ni email; agrégalo con edit_client")
+
+def _new_draft(d, client, channel, to, body, subject="", reason="", job_id=None, event_id=None, auto_key=""):
+    body = _text(body, "body", MSG_LIMIT[channel])
+    subject = ((str(subject or "").strip() or f"Aviso de {BUSINESS_NAME}")[:150]) if channel == "email" else ""
+    d["seq"] = int(d.get("seq", 0)) + 1
+    m = {"id": d["seq"], "client_id": client["id"], "client_name": client["name"], "channel": channel, "to": to,
+         "subject": subject, "body": body, "reason": str(reason or "")[:120], "job_id": job_id,
+         "event_id": event_id, "auto_key": auto_key, "status": "pending",
+         "created": _now().isoformat(timespec="seconds")}
+    pend = [x for x in d["drafts"] if x["status"] == "pending"][-30:]
+    rest = [x for x in d["drafts"] if x["status"] != "pending"][-100:]
+    # Retain all pending and unresolved sends; never silently discard an approval.
+    active = [x for x in d["drafts"] if x["status"] in ("pending", "sending", "unknown")]
+    rest = [x for x in d["drafts"] if x["status"] not in ("pending", "sending", "unknown")][-100:]
+    d["drafts"] = rest + active + [m]
+    return m
+
+def _expire_drafts(d):
+    now = _now()
+    for m in d["drafts"]:
+        if m["status"] == "pending" and (now - datetime.datetime.fromisoformat(m["created"])).days >= DRAFT_DAYS:
+            m["status"] = "expired"
+
+def _channel_ready(channel):
+    return SMS_ON if channel == "sms" else EMAIL_ON
+
+def draft_text(m):
+    """Exactly what the client would receive, shown to the boss by Jarvis itself (zero tokens)."""
+    ch = "📱 SMS" if m["channel"] == "sms" else "📧 Email"
+    head = f"✉️ Borrador #{m['id']} · {ch} a {m['client_name']} ({m['to']})"
+    if m.get("reason"): head += f"\nMotivo: {m['reason']}"
+    subj = f"\nAsunto: {m['subject']}" if m.get("subject") else ""
+    if m.get("status") != "pending":
+        tail = f"\n\nEstado: {_MSG_ST_ES.get(m.get("status"), m.get("status"))}."
+    elif _channel_ready(m["channel"]):
+        tail = f"\n\n✅ /enviar {m['id']}   ❌ /noenviar {m['id']}   (vence en {DRAFT_DAYS} días)"
+    else:
+        prov = "Twilio" if m["channel"] == "sms" else "Resend"
+        tail = (f"\n\n⚠️ {prov} no está configurado en Render: cópialo y mándalo tú. "
+                f"/noenviar {m['id']} para quitarlo de la lista.")
+    return f"{head}{subj}\n———\n{m['body']}\n———{tail}"
+
+def prepare_client_message(client_id, body, channel="", subject="", job_id=None, reason=""):
+    """DRAFT a message to a client. Never sends."""
+    c = _cload(); client = next((x for x in c["clients"] if x["id"] == int(client_id)), None)
+    if not client: return {"error": f"client {client_id} not found"}
+    ch, to = _pick_channel(client, channel)
+    if job_id not in (None, ""):
+        job_id = int(job_id)
+        if not any(j["id"] == job_id and j["client_id"] == client["id"] for j in c["jobs"]):
+            raise ValueError(f"el trabajo #{job_id} no es de {client['name']}")
+    else:
+        job_id = None
+    d = _oload(); _expire_drafts(d)
+    m = _new_draft(d, client, ch, to, body, subject, reason or "preparado en el chat", job_id)
+    _osave(d)
+    return m
+
+def revise_client_message(id, body, subject=""):
+    """Change the text of a pending draft: the old one is replaced and a NEW number is created."""
+    d = _oload(); _expire_drafts(d)
+    old = next((x for x in d["drafts"] if x["id"] == int(id)), None)
+    if not old: return {"error": f"draft {id} not found"}
+    if old["status"] != "pending": raise ValueError(f"el borrador #{id} ya no está pendiente ({old['status']})")
+    client = {"id": old["client_id"], "name": old["client_name"]}
+    m = _new_draft(d, client, old["channel"], old["to"], body, subject or old.get("subject", ""), old["reason"],
+                   old.get("job_id"), old.get("event_id"), old.get("auto_key", ""))
+    old["status"] = "replaced"; m["replaces"] = old["id"]
+    _osave(d)
+    return m
+
+async def _draft_tool(fn, args):
+    def _do():
+        with _data_lock:
+            return fn(**args)
+    m = await asyncio.to_thread(_do)
+    if not (isinstance(m, dict) and m.get("id") and m.get("status") == "pending"):
+        return m
+    shown = False
+    if TG_TOKEN and TG_OWNER:
+        with contextlib.suppress(Exception):
+            await _tg_send(TG_OWNER, draft_text(m)); shown = True
+    return {"draft": m["id"], "channel": m["channel"], "to": m["to"], "status": "pending",
+            "replaces": m.get("replaces"), "shown_to_boss": shown,
+            "note": f"Borrador pendiente. Mostrado al jefe: {shown}. SOLO él lo envía escribiendo /enviar {m['id']}. "
+                    "Tú no tienes forma de enviarlo; no digas que se envió."}
+
+async def prepare_client_message_tool(**args):
+    return await _draft_tool(prepare_client_message, args)
+
+async def revise_client_message_tool(**args):
+    return await _draft_tool(revise_client_message, args)
+
+def list_client_messages(status="pending"):
+    d = _oload(); _expire_drafts(d)
+    st = (status or "").strip().lower()
+    rows = [x for x in d["drafts"] if st in ("", "all") or x["status"] == st]
+    rows.sort(key=lambda x: x["id"], reverse=True)
+    return {"messages": rows[:30], "count": len(rows),
+            "sent_today": int(d["sent_day"].get(_today().isoformat(), 0)), "daily_limit": OUTBOX_MAX_DAY,
+            "sms_ready": SMS_ON, "email_ready": EMAIL_ON}
+
+def messages_text():
+    """/mensajes — pending drafts (zero tokens)."""
+    r = list_client_messages("pending")
+    if not r["messages"]:
+        return (f"✉️ No hay mensajes a clientes esperando. Enviados hoy: {r['sent_today']}/{OUTBOX_MAX_DAY}.\n"
+                f"SMS {'✅' if SMS_ON else '❌ sin Twilio'} · Email {'✅' if EMAIL_ON else '❌ sin Resend'}")
+    lines = [f"✉️ Esperando tu OK ({r['count']}) · enviados hoy {r['sent_today']}/{OUTBOX_MAX_DAY}:"]
+    for m in sorted(r["messages"], key=lambda x: x["id"]):
+        lines.append(f"\n#{m['id']} {'📱' if m['channel'] == 'sms' else '📧'} {m['client_name']} — {m['reason']}\n"
+                     f"   {m['body'][:160]}" + ("…" if len(m["body"]) > 160 else ""))
+    lines.append("\n✅ /enviar N   ❌ /noenviar N   👁 /mensajes N (texto completo)")
+    return "\n".join(lines)
+
+def message_detail_text(arg):
+    ids = re.findall(r"\d+", arg or "")
+    d = _oload()
+    m = next((x for x in d["drafts"] if ids and x["id"] == int(ids[0])), None)
+    return draft_text(m) if m else "⚠️ No encontré ese borrador. Usa /mensajes."
+
+async def _send_sms(to, body):
+    to_addr = ("whatsapp:" + to) if TW_FROM.startswith("whatsapp:") else to
+    async with httpx.AsyncClient(timeout=30) as hc:
+        r = await hc.post(f"https://api.twilio.com/2010-04-01/Accounts/{TW_SID}/Messages.json",
+                          auth=(TW_SID, TW_TOKEN), data={"From": TW_FROM, "To": to_addr, "Body": body})
+    if r.status_code >= 500:
+        raise RuntimeError("Twilio: delivery unconfirmed")
+    if r.status_code >= 400:
+        try: detail = str(r.json().get("message", ""))
+        except ValueError: detail = ""
+        raise ValueError(f"Twilio respondió {r.status_code} {detail}"[:200])
+    try:
+        provider_id = r.json().get("sid")
+    except (ValueError, AttributeError):
+        provider_id = None
+    if not isinstance(provider_id, str) or not provider_id.strip():
+        raise RuntimeError("Twilio: delivery unconfirmed")
+    return provider_id
+
+async def _send_email(to, subject, body, mid):
+    payload = {"from": EMAIL_FROM, "to": [to], "subject": subject, "text": body}
+    if EMAIL_REPLY_TO: payload["reply_to"] = EMAIL_REPLY_TO
+    async with httpx.AsyncClient(timeout=30) as hc:
+        r = await hc.post("https://api.resend.com/emails", json=payload,
+                          headers={"Authorization": f"Bearer {RESEND_KEY}",
+                                   "Idempotency-Key": f"jarvis-msg-{mid}"})
+    if r.status_code >= 500:
+        raise RuntimeError("Resend: delivery unconfirmed")
+    if r.status_code >= 400:
+        try: detail = str(r.json().get("message", ""))
+        except ValueError: detail = ""
+        raise ValueError(f"Resend respondió {r.status_code} {detail}"[:200])
+    try:
+        provider_id = r.json().get("id")
+    except (ValueError, AttributeError):
+        provider_id = None
+    if not isinstance(provider_id, str) or not provider_id.strip():
+        raise RuntimeError("Resend: delivery unconfirmed")
+    return provider_id
+
+_MSG_ST_ES = {"sent": "enviado", "sending": "enviándose", "failed": "fallido", "unknown": "sin confirmar",
+              "discarded": "descartado", "expired": "vencido", "replaced": "reemplazado por uno nuevo"}
+
+async def send_message_text(arg):
+    """/enviar N — ONLY path that sends a message to a client (owner's own private command)."""
+    ids = re.findall(r"\d+", arg or "")
+    if not ids: return "Usa /enviar N (el número del borrador; míralos en /mensajes)."
+    mid = int(ids[0])
+    def _lock_it():
+        with _data_lock:
+            d = _oload(); _expire_drafts(d); g = _gload(); ref = f"msg#{mid}"
+            m = next((x for x in d["drafts"] if x["id"] == mid), None)
+            if not m: raise ValueError(f"el borrador #{mid} no existe")
+            if m["status"] != "pending":
+                _osave(d)
+                raise ValueError(f"el borrador #{mid} ya está {_MSG_ST_ES.get(m['status'], m['status'])}")
+            if not _channel_ready(m["channel"]):
+                raise ValueError(("Twilio" if m["channel"] == "sms" else "Resend") +
+                                 " no está configurado; copia el texto y mándalo tú")
+            day = _today().isoformat(); sent = int(d["sent_day"].get(day, 0))
+            if sent >= OUTBOX_MAX_DAY:
+                gate_audit(g, "enviar", ref, "rechazado", "límite diario"); _gsave(g)
+                raise ValueError(f"ya van {sent} mensajes hoy (límite {OUTBOX_MAX_DAY}); mañana sigo")
+            m["status"] = "sending"; m["sent_at"] = _now().isoformat(timespec="seconds")
+            d["sent_day"][day] = sent + 1
+            oldest = (_today() - datetime.timedelta(days=10)).isoformat()
+            d["sent_day"] = {k: v for k, v in d["sent_day"].items() if k >= oldest}
+            gate_audit(g, "enviar", ref, "enviando", f"{m['channel']} a {m['client_name']}")
+            kv_set_many({O_KEY: d, G_KEY: g})     # saved BEFORE sending: it can never go twice
+            return dict(m)
+    try:
+        m = await asyncio.to_thread(_lock_it)
+    except ValueError as e:
+        return f"⚠️ {_cap(str(e))}."
+    status, extra = "unknown", ""
+    try:
+        if m["channel"] == "sms":
+            extra = await _send_sms(m["to"], m["body"])
+        else:
+            extra = await _send_email(m["to"], m["subject"], m["body"], m["id"])
+        status = "sent"
+    except ValueError as e:
+        status, extra = "failed", str(e)
+    except Exception as e:
+        extra = type(e).__name__
+    def _finish():
+        with _data_lock:
+            d = _oload(); g = _gload()
+            for x in d["drafts"]:
+                if x["id"] == m["id"]:
+                    x["status"] = status; x["result"] = extra[:200]
+            if status == "failed":
+                day = _today().isoformat()
+                d["sent_day"][day] = max(0, int(d["sent_day"].get(day, 0)) - 1)
+            gate_audit(g, "resultado", f"msg#{m['id']}", _MSG_ST_ES[status], extra)
+            kv_set_many({O_KEY: d, G_KEY: g})
+    await asyncio.to_thread(_finish)
+    who = f"{m['client_name']} ({m['to']})"
+    if status == "sent":
+        return f"✅ Mensaje #{m['id']} enviado a {who}."
+    if status == "failed":
+        return f"❌ No salió el mensaje #{m['id']}: {extra}. No se envió nada."
+    return (f"⚠️ No sé si el mensaje #{m['id']} le llegó a {who} ({extra}). Revisa en "
+            f"{'Twilio' if m['channel'] == 'sms' else 'Resend'} antes de repetirlo. No lo reenvío solo.")
+
+def discard_message_text(arg):
+    ids = re.findall(r"\d+", arg or "")
+    if not ids: return "Usa /noenviar N."
+    with _data_lock:
+        d = _oload(); m = next((x for x in d["drafts"] if x["id"] == int(ids[0])), None)
+        if not m: return f"⚠️ El borrador #{ids[0]} no existe."
+        if m["status"] != "pending":
+            return f"⚠️ El borrador #{ids[0]} ya está {_MSG_ST_ES.get(m['status'], m['status'])}."
+        m["status"] = "discarded"; _osave(d)
+    return f"❌ Borrador #{m['id']} descartado. No se envió nada."
+
+def _first_name(name):
+    parts = (name or "").split()
+    return parts[0] if parts else ""
+
+def _hour12(t):
+    try:
+        return datetime.datetime.strptime(t, "%H:%M").strftime("%I:%M %p").lstrip("0")
+    except ValueError:
+        return t
+
+def _client_by_name(clients, who):
+    w = (who or "").strip().casefold()
+    if len(w) < 3: return None
+    exact = [c for c in clients if c["name"].casefold() == w]
+    if len(exact) == 1: return exact[0]
+    part = [c for c in clients if len(c["name"]) >= 4 and (c["name"].casefold() in w or w in c["name"].casefold())]
+    return part[0] if len(part) == 1 else None
+
+def detect_client_notices():
+    """Daily scan (zero tokens). Creates DRAFTS only and returns the new ones. Never sends.
+    Each situation is drafted once (auto_keys), so the boss is not nagged."""
+    if not NOTICES_ON:
+        return []
+    c = _cload(); d = _oload(); _expire_drafts(d)
+    keys = set(d["auto_keys"]); today = _today(); tmw = today + datetime.timedelta(days=1)
+    clients = {x["id"]: x for x in c["clients"]}
+    new = []
+    def _add(client, key, reason, body, subject="", job_id=None, event_id=None):
+        if key in keys:
+            return
+        try:
+            ch, to = _pick_channel(client)
+        except ValueError:
+            return                       # no phone/email: the morning brief still shows it to the boss
+        keys.add(key); d["auto_keys"].append(key)
+        new.append(_new_draft(d, client, ch, to, body, subject, reason, job_id, event_id, key))
+    for j in c["jobs"]:
+        if j["status"] in ("paid", "cancelled", "quote") or float(j.get("balance", 0)) <= 0 or not j.get("due_date"):
+            continue
+        cl = clients.get(j["client_id"])
+        if not cl:
+            continue
+        due = datetime.date.fromisoformat(j["due_date"]); hi = _first_name(cl["name"])
+        if due < today:
+            _add(cl, f"overdue:{j['id']}:{j['due_date']}", f"saldo vencido del trabajo #{j['id']}",
+                 f"Hola {hi}, le saluda {BUSINESS_NAME}. Le recordamos que el balance de {_bank_usd(j['balance'])} "
+                 f"del trabajo \"{j['title']}\" venció el {j['due_date']}. ¿Nos confirma cuándo puede hacer el pago? "
+                 "¡Gracias!", f"Recordatorio de pago: {j['title']}", j["id"])
+        elif due == tmw and j["status"] in ("delivered", "invoiced"):
+            _add(cl, f"duesoon:{j['id']}:{j['due_date']}", f"saldo del trabajo #{j['id']} vence mañana",
+                 f"Hola {hi}, le saluda {BUSINESS_NAME}. Un recordatorio amistoso: mañana {j['due_date']} vence el "
+                 f"balance de {_bank_usd(j['balance'])} del trabajo \"{j['title']}\". ¡Gracias por su preferencia!",
+                 f"Recordatorio: balance de {j['title']}", j["id"])
+    for v in list_events(tmw.isoformat(), 0, include_done=False)["events"]:
+        if v["type"] not in ("delivery", "appointment", "collection"):
+            continue
+        cl = _client_by_name(list(clients.values()), v.get("who"))
+        if not cl:
+            continue
+        hi = _first_name(cl["name"])
+        when = f"mañana {v['weekday']} {v['date']}" + (f" a las {_hour12(v['time'])}" if v["time"] else "")
+        loc = f" en {v['location']}" if v.get("location") else ""
+        if v["type"] == "delivery":
+            body = (f"Hola {hi}, le saluda {BUSINESS_NAME}. Le confirmamos la entrega de \"{v['title']}\" para "
+                    f"{when}{loc}. Si necesita cambiar algo, responda este mensaje.")
+            subj, why = f"Confirmación de entrega: {v['title']}", "entrega de mañana"
+        elif v["type"] == "appointment":
+            body = (f"Hola {hi}, le saluda {BUSINESS_NAME}. Le confirmamos la cita ({v['title']}) para {when}{loc}. "
+                    "Si necesita cambiarla, responda este mensaje.")
+            subj, why = f"Confirmación de cita: {v['title']}", "cita de mañana"
+        else:
+            amt = f" de ${v['amount']}" if str(v.get("amount") or "").strip() else ""
+            body = (f"Hola {hi}, le saluda {BUSINESS_NAME}. Le recordamos que {when} está pautado el pago{amt} "
+                    f"({v['title']}). ¡Gracias!")
+            subj, why = f"Recordatorio de pago: {v['title']}", "cobro de mañana"
+        _add(cl, f"event:{v['id']}:{v['date']}", f"{why} (Ev#{v['id']})", body, subj, None, v["id"])
+    d["auto_keys"] = d["auto_keys"][-500:]
+    if new:
+        _osave(d)
+    return new
+
+# ---------------------------------------------------------------------------
+# BUSINESS ALERTS (v3.8, mejora #2): low stock is pinged ONCE when an item reaches its
+# minimum (again only after it was restocked). /cobros = everything pending to collect.
+# ---------------------------------------------------------------------------
+def collect_stock_alerts():
+    out = []
+    for x in _iload()["items"]:
+        if _is_low(x) and not x.get("low_alert"):
+            out.append({"kind": "stock", "id": x["id"],
+                        "text": f"📦 Se está acabando: {x['name']} — quedan {x['quantity']} {x['unit']} "
+                                f"(mínimo {x['min_stock']}). Dime cuando compres y lo sumo."})
+    return out
+
+def mark_stock_alert(alert):
+    with _data_lock:
+        d = _iload()
+        for x in d["items"]:
+            if x["id"] == alert["id"]:
+                x["low_alert"] = True
+        _isave(d)
+
+def _refresh_low_flags(d):
+    """Restocked above the minimum -> it can alert again next time it runs low."""
+    for x in d["items"]:
+        if not _is_low(x):
+            x.pop("low_alert", None)
+
+def collections_text():
+    """/cobros — money clients owe, overdue first, plus collection dates in the next 14 days (zero tokens)."""
+    today = _today().isoformat()
+    jobs = [j for j in _cload()["jobs"] if float(j.get("balance", 0)) > 0
+            and j["status"] not in ("quote", "paid", "cancelled")]
+    jobs.sort(key=lambda j: (not (j.get("due_date") and j["due_date"] < today), j.get("due_date") or "9999"))
+    lines = []
+    if jobs:
+        lines.append(f"💰 Por cobrar: {_bank_usd(sum(j['balance'] for j in jobs))} en {len(jobs)} trabajo(s)")
+        for j in jobs[:25]:
+            late = j.get("due_date") and j["due_date"] < today
+            due = f" · {'⚠️ venció' if late else 'vence'} {j['due_date']}" if j.get("due_date") else " · sin fecha"
+            lines.append(f"• #{j['id']} {j['client_name']} — {j['title']}: {_bank_usd(j['balance'])}{due}")
+    ev = list_events(today, 14, type="collection", include_done=False)["events"]
+    if ev:
+        lines.append("\n🗓️ Cobros en el calendario (14 días):")
+        lines += ["• " + _ev_line(v) for v in ev[:10]]
+    if not lines:
+        return "💰 Nada pendiente por cobrar. 👌"
+    lines.append("\nPara avisarle a un cliente: pídeme \"prepárale un mensaje a X\" (tú apruebas con /enviar).")
+    return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# BANK WEEKLY REPORT (v3.8, mejora #3). Sent by itself once a week (default Monday 8 AM).
+# Bank data only arrives when the boss sends a file, so low-balance / big-movement alerts
+# fire on import (reply), in /banco, in the morning brief and in this weekly report.
+# ---------------------------------------------------------------------------
+BANK_WEEKLY_ON = os.getenv("BANK_WEEKLY_ENABLED", "true").strip().lower() not in ("false", "0", "no")
+BANK_WEEKLY_DAY = _env_int("BANK_WEEKLY_DAY", 0, 0, 6)       # 0 = lunes ... 6 = domingo
+BANK_WEEKLY_HOUR = _env_int("BANK_WEEKLY_HOUR", 8, 0, 23)
+BANK_STALE_DAYS = _env_int("BANK_STALE_DAYS", 7, 1, 60)
+
+def bank_weekly_text():
+    d = _kload()
+    if not d["accounts"]:
+        return ("🏦 Resumen semanal del banco: todavía no tengo datos.\nBaja los movimientos de FirstBank "
+                "en CSV u OFX/QFX y mándamelos aquí; desde ahí te hago el resumen cada semana.")
+    end = _today(); start = end - datetime.timedelta(days=6)
+    s = bank_summary(start=start.isoformat(), end=end.isoformat())
+    prev = bank_summary(start=(start - datetime.timedelta(days=7)).isoformat(),
+                        end=(start - datetime.timedelta(days=1)).isoformat())
+    st = _bank_settings(d)
+    lines = [f"🏦 Banco — semana del {start.isoformat()} al {end.isoformat()} (solo lectura)"]
+    newest = s.get("data_until")
+    if newest:
+        age = (end - datetime.date.fromisoformat(newest)).days
+        if age >= BANK_STALE_DAYS:
+            lines.append(f"📥 Mis datos llegan hasta {newest} (hace {age} días). Mándame el CSV/QFX nuevo "
+                         "para que este resumen sea real.")
+    lines.append("\nBalances:")
+    for a in d["accounts"].values():
+        name = a["name"] + (f" ••{a['last4']}" if a.get("last4") else "")
+        if a.get("balance") is not None:
+            lines.append(f"• {name}: {_bank_usd(a['balance'])} al {a['balance_date']}")
+            if _low_note(a, st):
+                lines.append(f"  {_low_note(a, st)}")
+        else:
+            lines.append(f"• {name}: sin balance en el archivo")
+    lines.append(f"\nEntró {_bank_usd(s['money_in'])} · salió {_bank_usd(s['money_out'])} · neto {_bank_usd(s['net'])}")
+    if prev["money_out"] or prev["money_in"]:
+        diff = s["money_out"] - prev["money_out"]
+        lines.append(f"Gastos vs semana anterior: {'+' if diff >= 0 else '-'}{_bank_usd(abs(diff))}")
+    if s["out_by_category"]:
+        lines.append("Gastos por categoría: " + ", ".join(
+            f"{k} {_bank_usd(v)}" for k, v in list(s["out_by_category"].items())[:5]))
+    if s["top_merchants"]:
+        lines.append("Donde más: " + ", ".join(f"{m['merchant']} {_bank_usd(m['total'])}" for m in s["top_merchants"][:3]))
+    big = st.get("big_amount")
+    if big:
+        bigs = [t for t in d["tx"] if start.isoformat() <= t["date"] <= end.isoformat()
+                and abs(t["amount"]) >= big and t["category"] != "transfer"]
+        if bigs:
+            lines.append(f"\n💸 Movimientos de {_bank_usd(big)} o más:")
+            lines += [f"• {t['date']} {'➕' if t['amount'] > 0 else '➖'}{_bank_usd(abs(t['amount']))} {t['desc'][:40]}"
+                      for t in bigs[:6]]
+    if s["recurring_charges"]:
+        lines.append("\n🔁 Cargos que se repiten cada mes: " + ", ".join(
+            f"{r['merchant']} ~{_bank_usd(r['avg_per_month'])}" for r in s["recurring_charges"][:5]))
+    if s["uncategorized"]:
+        lines.append(f"\n🏷️ {s['uncategorized']} movimiento(s) sin categoría: dime qué son y aprendo.")
+    lines.append("\n(Orientación, no consejo financiero. /banco · /movimientos · /contabilizar)")
+    return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# CRYPTO PAPER TRADING (v3.8, mejora #4): PRACTICE MODE ONLY.
+# Real prices from Coinbase's PUBLIC market data (no keys, no account), SIMULATED money.
+# This section has NO path to a real order: it never calls _cb() and never POSTs anywhere.
+# Rule-based strategy (zero tokens), explained in plain words in every report:
+#   buy  when the 20-hour average is above the 50-hour average, price above the 20h average
+#        and RSI 45-70 (rising, not overheated);
+#   sell on stop-loss, take-profit, or when the 20h average falls under the 50h average.
+# Simulated fees and slippage, so results are not flattered. Compared against just holding.
+# ---------------------------------------------------------------------------
+def _env_float(name, default, low, high):
+    raw = os.getenv(name, "").strip()
+    if not raw: return float(default)
+    try: v = float(raw)
+    except ValueError: raise RuntimeError(f"{name} must be a number") from None
+    if not math.isfinite(v) or not low <= v <= high:
+        raise RuntimeError(f"{name} must be between {low} and {high}")
+    return v
+
+PAPER_KEY = "jarvis:paper"
+PAPER_ON = os.getenv("PAPER_TRADING_ENABLED", "true").strip().lower() not in ("false", "0", "no")
+PAPER_START = _env_float("PAPER_START_USD", 1000, 100, 1_000_000)
+PAPER_PRODUCTS = list(dict.fromkeys(_product(p) for p in os.getenv("PAPER_PRODUCTS", "BTC-USD,ETH-USD,SOL-USD").split(",") if p.strip()))[:6]
+if PAPER_ON and not PAPER_PRODUCTS:
+    raise RuntimeError("PAPER_PRODUCTS needs at least one product when practice is enabled")
+PAPER_EVERY = _env_int("PAPER_EVERY_HOURS", 1, 1, 24)
+PAPER_REPORT_HOUR = os.getenv("PAPER_REPORT_HOUR", "20").strip()      # 0-23 PR time; blank = off
+if PAPER_REPORT_HOUR and (not PAPER_REPORT_HOUR.isdigit() or not 0 <= int(PAPER_REPORT_HOUR) <= 23):
+    raise RuntimeError("PAPER_REPORT_HOUR must be 0-23 or blank")
+PAPER_FEE_PCT = _env_float("PAPER_FEE_PCT", 0.6, 0, 5)
+PAPER_SLIP_PCT = 0.1
+PAPER_SIZE_PCT = _env_float("PAPER_SIZE_PCT", 25, 1, 100)    # % of equity per entry
+PAPER_STOP_PCT = _env_float("PAPER_STOP_PCT", 5, 0.5, 50)
+PAPER_TAKE_PCT = _env_float("PAPER_TAKE_PCT", 10, 0.5, 200)
+PAPER_COOLDOWN_H = 6
+PAPER_TRADE_ALERTS = os.getenv("PAPER_TRADE_ALERTS", "true").strip().lower() not in ("false", "0", "no")
+CB_PUBLIC = "https://api.exchange.coinbase.com"
+PAPER_RULES = (f"Compra si la media de 20h está sobre la de 50h, el precio sobre la de 20h y el RSI entre 45 y 70. "
+               f"Vende con stop-loss -{PAPER_STOP_PCT:g}%, toma de ganancia +{PAPER_TAKE_PCT:g}% o si la media de 20h "
+               f"cae bajo la de 50h. Cada entrada usa {PAPER_SIZE_PCT:g}% del capital. Comisión simulada "
+               f"{PAPER_FEE_PCT:g}% + {PAPER_SLIP_PCT:g}% de deslizamiento.")
+
+def _paper_new(start):
+    return {"start_usd": float(start), "cash": float(start), "positions": {}, "trades": [], "equity": [],
+            "seq": 0, "started": _now().isoformat(timespec="minutes"), "bench_start": {}, "last_prices": {},
+            "last_market": {}, "cooldown": {}, "last_run": None, "realized": 0.0, "fees": 0.0}
+
+def _paperload():
+    d = kv_get(PAPER_KEY, None)
+    if not isinstance(d, dict):
+        d = _paper_new(PAPER_START)
+    for k, v in _paper_new(d.get("start_usd", PAPER_START)).items():
+        d.setdefault(k, v)
+    return d
+def _papersave(d): kv_set(PAPER_KEY, d)
+
+async def _cb_public(path, params=None):
+    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "jarvis-paper/1.0"}) as hc:
+        r = await hc.get(CB_PUBLIC + path, params=params)
+    if r.status_code != 200:
+        raise ValueError(f"Coinbase (precios públicos) respondió {r.status_code}")
+    try:
+        return r.json()
+    except ValueError:
+        raise ValueError("respuesta inválida de Coinbase") from None
+
+def _sma(xs, n):
+    return sum(xs[-n:]) / n if len(xs) >= n else None
+
+def _rsi(closes, n=14):
+    if len(closes) <= n: return None
+    gains = losses = 0.0
+    for a, b in zip(closes[-n - 1:-1], closes[-n:]):
+        ch = b - a
+        if ch > 0: gains += ch
+        else: losses -= ch
+    if losses == 0: return 50.0 if gains == 0 else 100.0
+    return 100 - 100 / (1 + gains / losses)
+
+def _market_from_closes(p, closes, price):
+    sma20, sma50 = _sma(closes, 20), _sma(closes, 50)
+    rsi = _rsi(closes, 14)
+    ch24 = (price / closes[-25] - 1) * 100 if len(closes) >= 25 and closes[-25] else None
+    rets = [b / a - 1 for a, b in zip(closes[-25:-1], closes[-24:]) if a]
+    vol = (math.sqrt(sum(r * r for r in rets) / len(rets)) * 100) if rets else None
+    if sma20 > sma50 and price > sma20: trend = "alcista"
+    elif sma20 < sma50 and price < sma20: trend = "bajista"
+    else: trend = "lateral"
+    return {"product": p, "price": round(price, 6), "sma20": round(sma20, 6), "sma50": round(sma50, 6),
+            "rsi": round(rsi, 1) if rsi is not None else None,
+            "change_24h_pct": round(ch24, 2) if ch24 is not None else None,
+            "hourly_volatility_pct": round(vol, 2) if vol is not None else None, "trend": trend,
+            "at": _now().isoformat(timespec="minutes"), "source": "Coinbase (datos públicos)"}
+
+async def paper_market(product_id):
+    """Live market reading (hourly candles + current price). Read-only, public data."""
+    p = _product(product_id)
+    candles = await _cb_public(f"/products/{p}/candles", {"granularity": 3600})
+    rows = sorted((c for c in (candles if isinstance(candles, list) else [])
+                   if isinstance(c, list) and len(c) >= 5), key=lambda c: c[0])
+    # Use closed, recent hourly candles; reject stale prices instead of trading on a fallback.
+    now_ts = _now().timestamp()
+    closes = []
+    last_closed = None
+    for c in rows:
+        try:
+            stamp, close = float(c[0]), float(c[4])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(stamp) and math.isfinite(close) and close > 0 and stamp + 3600 <= now_ts:
+            closes.append(close); last_closed = stamp
+    if last_closed is None or now_ts - last_closed > 10800:
+        raise ValueError(f"datos desactualizados de {p}; no opero")
+    if len(closes) < 60:
+        raise ValueError(f"pocos datos de {p} para analizar")
+    tick = await _cb_public(f"/products/{p}/ticker")
+    try:
+        price = float(tick.get("price"))
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError(f"ticker inválido de {p}; no opero") from None
+    try:
+        tick_time = datetime.datetime.fromisoformat(str(tick["time"]).replace("Z", "+00:00"))
+        if tick_time.tzinfo is None or not -60 <= (_now() - tick_time).total_seconds() <= 300:
+            raise ValueError("stale ticker")
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"ticker desactualizado de {p}; no opero") from None
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError(f"precio inválido de {p}")
+    return _market_from_closes(p, closes, price)
+
+def _paper_equity(d):
+    return d["cash"] + sum(pos["qty"] * d["last_prices"].get(p, pos["entry"]) for p, pos in d["positions"].items())
+
+def _paper_trade(d, **kw):
+    d["seq"] = int(d.get("seq", 0)) + 1
+    t = {"id": d["seq"], "at": _now().isoformat(timespec="minutes"), **kw}
+    d["trades"] = (d["trades"] + [t])[-1000:]
+    return t
+
+def _paper_buy(d, p, price, budget, reason):
+    fill = price * (1 + PAPER_SLIP_PCT / 100); fee = budget * PAPER_FEE_PCT / 100
+    qty = (budget - fee) / fill
+    d["cash"] = round(d["cash"] - budget, 8); d["fees"] = round(d["fees"] + fee, 8)
+    d["positions"][p] = {"qty": qty, "entry": fill, "cost": budget, "opened": _now().isoformat(timespec="minutes")}
+    return _paper_trade(d, product=p, side="buy", qty=round(qty, 8), price=round(fill, 6), usd=round(budget, 2),
+                        fee=round(fee, 2), reason=reason)
+
+def _paper_sell(d, p, price, reason):
+    pos = d["positions"].pop(p)
+    fill = price * (1 - PAPER_SLIP_PCT / 100); gross = pos["qty"] * fill
+    fee = gross * PAPER_FEE_PCT / 100; net = gross - fee; pnl = net - pos["cost"]
+    d["cash"] = round(d["cash"] + net, 8); d["fees"] = round(d["fees"] + fee, 8)
+    d["realized"] = round(d["realized"] + pnl, 8)
+    d["cooldown"][p] = (_now() + datetime.timedelta(hours=PAPER_COOLDOWN_H)).isoformat(timespec="minutes")
+    held = (_now() - datetime.datetime.fromisoformat(pos["opened"])).total_seconds() / 3600
+    return _paper_trade(d, product=p, side="sell", qty=round(pos["qty"], 8), price=round(fill, 6),
+                        usd=round(net, 2), fee=round(fee, 2), pnl=round(pnl, 2),
+                        pnl_pct=round(pnl / pos["cost"] * 100, 2), held_hours=round(held, 1), reason=reason)
+
+def _paper_apply(d, markets):
+    """Simulated decisions for one step. Pure (no network); returns the new paper trades."""
+    events = []; now = _now()
+    for p, m in markets.items():
+        price = m["price"]
+        d["last_prices"][p] = price; d["last_market"][p] = m
+        d["bench_start"].setdefault(p, price)
+        pos = d["positions"].get(p)
+        if pos:
+            chg = price / pos["entry"] - 1
+            reason = ""
+            if chg <= -PAPER_STOP_PCT / 100: reason = f"stop-loss ({chg * 100:.1f}%)"
+            elif chg >= PAPER_TAKE_PCT / 100: reason = f"toma de ganancia (+{chg * 100:.1f}%)"
+            elif m["sma20"] < m["sma50"]: reason = "la tendencia se volteó (media 20h bajo la de 50h)"
+            if reason:
+                events.append(_paper_sell(d, p, price, reason))
+            continue
+        cd = d["cooldown"].get(p)
+        if cd and datetime.datetime.fromisoformat(cd) > now:
+            continue
+        rsi = m.get("rsi")
+        if m["trend"] == "alcista" and rsi is not None and 45 <= rsi <= 70:
+            budget = min(d["cash"], _paper_equity(d) * PAPER_SIZE_PCT / 100)
+            if budget >= 10:
+                events.append(_paper_buy(d, p, price, budget,
+                                         f"tendencia alcista (media 20h sobre 50h, RSI {rsi:.0f})"))
+    d["equity"] = (d["equity"] + [{"at": now.isoformat(timespec="minutes"), "v": round(_paper_equity(d), 2)}])[-2200:]
+    d["last_run"] = now.isoformat(timespec="minutes")
+    return events
+
+async def paper_step():
+    """One practice step: real prices in, simulated decisions out. Never touches real money."""
+    markets, errors = {}, []
+    for p in PAPER_PRODUCTS:
+        try:
+            markets[p] = await paper_market(p)
+        except Exception as e:
+            errors.append(f"{p}: {e}")
+    if not markets:
+        raise ValueError("; ".join(errors) or "sin datos de mercado")
+    def _apply():
+        with _data_lock:
+            d = _paperload(); ev = _paper_apply(d, markets); _papersave(d); return ev
+    return await asyncio.to_thread(_apply), errors
+
+def paper_trade_text(t):
+    a = t["product"].split("-")[0]
+    if t["side"] == "buy":
+        return (f"🧪 PRÁCTICA (dinero simulado) 🟢 Compré {t['qty']:.6g} {a} a {_bank_usd(t['price'])} "
+                f"({_bank_usd(t['usd'])}). Motivo: {t['reason']}.")
+    return (f"🧪 PRÁCTICA (dinero simulado) 🔴 Vendí {t['qty']:.6g} {a} a {_bank_usd(t['price'])} → "
+            f"{'ganancia' if t['pnl'] >= 0 else 'pérdida'} {_bank_usd(t['pnl'])} ({t['pnl_pct']:+.2f}%) en "
+            f"{t['held_hours']} h. Motivo: {t['reason']}.")
+
+def paper_status():
+    d = _paperload(); eq = _paper_equity(d); start = d["start_usd"]
+    positions = []
+    for p, pos in d["positions"].items():
+        price = d["last_prices"].get(p, pos["entry"]); value = pos["qty"] * price
+        positions.append({"product": p, "qty": round(pos["qty"], 8), "entry": round(pos["entry"], 6),
+                          "price": round(price, 6), "value": round(value, 2),
+                          "unrealized": round(value - pos["cost"], 2),
+                          "unrealized_pct": round((value / pos["cost"] - 1) * 100, 2), "since": pos["opened"]})
+    sells = [t for t in d["trades"] if t["side"] == "sell"]
+    wins = [t for t in sells if t["pnl"] > 0]
+    ratios = [d["last_prices"][p] / b for p, b in d["bench_start"].items() if d["last_prices"].get(p) and b]
+    hold = start * sum(ratios) / len(ratios) if ratios else None
+    return {"mode": "PRÁCTICA — dinero simulado, precios reales de Coinbase. Nunca toca dinero real.",
+            "started": d["started"], "start_usd": round(start, 2), "equity": round(eq, 2),
+            "cash": round(d["cash"], 2), "pnl_total": round(eq - start, 2),
+            "pnl_pct": round((eq / start - 1) * 100, 2), "realized": round(d["realized"], 2),
+            "unrealized": round(sum(x["unrealized"] for x in positions), 2), "fees_paid": round(d["fees"], 2),
+            "closed_trades": len(sells), "wins": len(wins),
+            "win_rate_pct": round(len(wins) / len(sells) * 100, 1) if sells else None,
+            "best_trade": max((t["pnl"] for t in sells), default=None),
+            "worst_trade": min((t["pnl"] for t in sells), default=None),
+            "buy_and_hold_equity": round(hold, 2) if hold else None,
+            "vs_buy_and_hold": round(eq - hold, 2) if hold else None,
+            "positions": positions, "watching": PAPER_PRODUCTS, "last_run": d["last_run"], "rules": PAPER_RULES}
+
+def paper_trades(limit=20):
+    d = _paperload(); lim = max(1, min(int(limit or 20), 100))
+    return {"mode": "PRÁCTICA (dinero simulado)", "trades": list(reversed(d["trades"][-lim:])),
+            "count": len(d["trades"])}
+
+def paper_status_text():
+    s = paper_status()
+    if not s["last_run"]:
+        return (f"🧪 Práctica cripto: todavía no ha corrido. Empieza con {_bank_usd(s['start_usd'])} simulados "
+                f"vigilando {', '.join(PAPER_PRODUCTS)}.\nReglas: {PAPER_RULES}")
+    lines = [f"🧪 Práctica cripto (dinero simulado, precios reales) — desde {s['started'][:10]}",
+             f"Capital: {_bank_usd(s['equity'])} (empezó con {_bank_usd(s['start_usd'])}) → "
+             f"{'+' if s['pnl_total'] >= 0 else ''}{_bank_usd(s['pnl_total'])} ({s['pnl_pct']:+.2f}%)",
+             f"Realizado {_bank_usd(s['realized'])} · abierto {_bank_usd(s['unrealized'])} · comisiones "
+             f"{_bank_usd(s['fees_paid'])} · efectivo {_bank_usd(s['cash'])}"]
+    if s["closed_trades"]:
+        lines.append(f"Operaciones cerradas: {s['closed_trades']} · ganadoras {s['wins']} ({s['win_rate_pct']}%)")
+    if s["buy_and_hold_equity"]:
+        lines.append(f"Si solo hubiera comprado y aguantado: {_bank_usd(s['buy_and_hold_equity'])} → la estrategia va "
+                     f"{'+' if s['vs_buy_and_hold'] >= 0 else ''}{_bank_usd(s['vs_buy_and_hold'])} contra eso")
+    for x in s["positions"]:
+        lines.append(f"• Abierta {x['product']}: {x['qty']:.6g} a {_bank_usd(x['entry'])}, ahora "
+                     f"{_bank_usd(x['price'])} ({x['unrealized_pct']:+.2f}%)")
+    lines.append(f"Última revisión: {s['last_run'][11:16]}. /practica operaciones · /practica reporte")
+    return "\n".join(lines)
+
+def paper_trades_text():
+    r = paper_trades(15)
+    if not r["trades"]:
+        return "🧪 Práctica: todavía no ha hecho operaciones (espera una tendencia clara)."
+    return "🧪 Últimas operaciones de PRÁCTICA (simuladas):\n" + "\n".join(
+        f"• {t['at'][5:16].replace('T', ' ')} {'🟢' if t['side'] == 'buy' else '🔴'} {t['product']} "
+        f"{_bank_usd(t['usd'])}" + (f" → {_bank_usd(t['pnl'])} ({t['pnl_pct']:+.1f}%)" if t["side"] == "sell" else "")
+        + f" · {t['reason']}" for t in r["trades"])
+
+def paper_report_text():
+    """Daily report: how the practice went in the last 24 h and since the start, plus a market reading."""
+    d = _paperload(); s = paper_status(); now = _now()
+    since = (now - datetime.timedelta(hours=24)).isoformat(timespec="minutes")
+    day_trades = [t for t in d["trades"] if t["at"] >= since]
+    old = [e for e in d["equity"] if e["at"] <= since]
+    base = old[-1]["v"] if old else s["start_usd"]
+    lines = [f"🧪 Reporte de PRÁCTICA cripto — {now.date().isoformat()} (dinero simulado, nada real)",
+             f"Hoy: {_bank_usd(base)} → {_bank_usd(s['equity'])} "
+             f"({'+' if s['equity'] >= base else ''}{_bank_usd(s['equity'] - base)})",
+             f"Desde el inicio: {'+' if s['pnl_total'] >= 0 else ''}{_bank_usd(s['pnl_total'])} ({s['pnl_pct']:+.2f}%)"
+             + (f" · vs comprar y aguantar: {'+' if s['vs_buy_and_hold'] >= 0 else ''}{_bank_usd(s['vs_buy_and_hold'])}"
+                if s["vs_buy_and_hold"] is not None else "")]
+    if day_trades:
+        lines.append(f"\nOperaciones de hoy ({len(day_trades)}):")
+        lines += ["• " + paper_trade_text(t).replace("🧪 PRÁCTICA (dinero simulado) ", "") for t in day_trades[-8:]]
+    else:
+        lines.append("\nHoy no operó: no hubo una señal clara según las reglas.")
+    if s["closed_trades"]:
+        lines.append(f"Historial: {s['closed_trades']} cerradas, {s['win_rate_pct']}% ganadoras, mejor "
+                     f"{_bank_usd(s['best_trade'])}, peor {_bank_usd(s['worst_trade'])}, comisiones {_bank_usd(s['fees_paid'])}")
+    if d["last_market"]:
+        lines.append("\n📈 Lectura del mercado:")
+        for p, m in d["last_market"].items():
+            ch = f"{m['change_24h_pct']:+.2f}% en 24h" if m.get("change_24h_pct") is not None else ""
+            lines.append(f"• {p}: {_bank_usd(m['price'])} {ch} · tendencia {m['trend']} · RSI {m.get('rsi')}")
+    lesson = ""
+    if s["closed_trades"] >= 5 and s["win_rate_pct"] is not None and s["win_rate_pct"] < 40:
+        lesson = "Va perdiendo más de lo que gana: las reglas no le están funcionando a este mercado."
+    elif s["vs_buy_and_hold"] is not None and s["vs_buy_and_hold"] < 0 and s["closed_trades"] >= 3:
+        lesson = "Por ahora, solo aguantar habría dado más que operar."
+    if lesson:
+        lines.append(f"\n💡 {lesson}")
+    lines.append("\nEsto es práctica: no garantiza resultados con dinero real ni es consejo financiero.")
+    return "\n".join(lines)
+
+def paper_reset_text(arg):
+    """/practica reiniciar [monto] — owner command only. Starts the practice again from zero."""
+    nums = re.findall(r"\d+(?:\.\d+)?", arg or "")
+    start = float(nums[0]) if nums else PAPER_START
+    if not 100 <= start <= 1_000_000:
+        return "⚠️ El monto de práctica debe estar entre $100 y $1,000,000."
+    with _data_lock:
+        old = _paperload(); new = _paper_new(start)
+        new["history"] = (old.get("history", []) + [{"ended": _now().isoformat(timespec="minutes"),
+                                                     "start_usd": old["start_usd"],
+                                                     "final": round(_paper_equity(old), 2),
+                                                     "trades": len(old["trades"])}])[-10:]
+        _papersave(new)
+    return f"🧪 Práctica reiniciada con {_bank_usd(start)} simulados. Lo de antes quedó guardado en el historial."
+
+# ---------------------------------------------------------------------------
 # EDIT / DELETE for any list.
 # ---------------------------------------------------------------------------
 KINDS = {"reminder":(_pload,_psave,"reminders"), "bill":(_pload,_psave,"bills"),
@@ -2929,6 +3755,20 @@ def brief_text():
         lines += inventory_brief_lines()   # v3.6: low stock
     except Exception:
         pass
+    try:   # v3.8: client messages waiting for the boss's OK
+        pend = list_client_messages("pending")["count"]
+        if pend:
+            lines.append(f"\n✉️ {pend} mensaje(s) a clientes esperando tu OK: /mensajes")
+    except Exception:
+        pass
+    try:   # v3.8: paper trading one-liner
+        if PAPER_ON:
+            s = paper_status()
+            if s["last_run"]:
+                lines.append(f"\n🧪 Práctica cripto (simulada): {_bank_usd(s['equity'])} "
+                             f"({s['pnl_pct']:+.2f}% desde el inicio) · /practica")
+    except Exception:
+        pass
     if u["open_reminders_without_date"]:
         lines.append(f"\n📝 Pendientes sin fecha: {u['open_reminders_without_date']}")
     if u["shopping_items"]:
@@ -2941,7 +3781,8 @@ def snapshot():
     with _data_lock:
         return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload(),
                 "calendar": _eload(), "bank": _kload(), "research": _rload(),
-                "clients": _cload(), "inventory": _iload(), "crypto": _xload(), "money_audit": _gload()["audit"]}
+                "clients": _cload(), "inventory": _iload(), "crypto": _xload(), "money_audit": _gload()["audit"],
+                "outbox": _oload(), "paper": _paperload()}
 
 def daily_backup():
     """One copy of all data per day, kept 30 days inside Redis."""
@@ -2997,7 +3838,76 @@ async def _tick():
                     _sched_state["last_error"] = "market: web search not available; brief not sent"
             except Exception as e:
                 _sched_state["last_error"] = f"market: {type(e).__name__}: {e}"
+    await _tick_v38(now, can_send)
     _sched_state["last_tick"] = now.isoformat()
+
+async def _tick_v38(now, can_send):
+    """v3.8 proactive jobs. Each part is independent: one failing never stops the others."""
+    if can_send:   # low stock: once per item when it reaches its minimum
+        try:
+            def _stock():
+                with _data_lock:
+                    return collect_stock_alerts()
+            for a in await asyncio.to_thread(_stock):
+                await _tg_send(TG_OWNER, a["text"])
+                await asyncio.to_thread(mark_stock_alert, a)
+                _sched_state["alerts_sent"] += 1
+        except Exception as e:
+            _sched_state["last_error"] = f"stock: {type(e).__name__}: {e}"
+    if can_send and NOTICES_ON and now.hour >= NOTICE_HOUR:   # client drafts, once a day
+        nkey = f"jarvis:notices:{now.date().isoformat()}"
+        try:
+            if await asyncio.to_thread(_claim, nkey, 2 * 86400):
+                def _detect():
+                    with _data_lock:
+                        return detect_client_notices()
+                new = await asyncio.to_thread(_detect)
+                if new:
+                    await _tg_send(TG_OWNER, f"✉️ Preparé {len(new)} aviso(s) para clientes. Nada sale sin tu OK:")
+                for m in new:
+                    await _tg_send(TG_OWNER, draft_text(m))
+        except Exception as e:
+            _sched_state["last_error"] = f"notices: {type(e).__name__}: {e}"
+    if can_send and BANK_WEEKLY_ON and now.weekday() == BANK_WEEKLY_DAY and now.hour >= BANK_WEEKLY_HOUR:
+        wkey = f"jarvis:bankweek:{now.date().isoformat()}"
+        try:
+            if await asyncio.to_thread(_claim, wkey, 8 * 86400):
+                def _week():
+                    with _data_lock:
+                        return bank_weekly_text()
+                try:
+                    await _tg_send(TG_OWNER, await asyncio.to_thread(_week))
+                except Exception:
+                    await asyncio.to_thread(_unclaim, wkey)   # try again next minute
+                    raise
+        except Exception as e:
+            _sched_state["last_error"] = f"bank weekly: {type(e).__name__}: {e}"
+    if PAPER_ON:   # practice trading: one step per slot (runs even without Telegram)
+        slot = now.strftime("%Y%m%d") + f"-h{(now.hour // PAPER_EVERY) * PAPER_EVERY:02d}"
+        try:
+            if await asyncio.to_thread(_claim, f"jarvis:paper:{slot}", PAPER_EVERY * 3600 + 300):
+                events, errors = await paper_step()
+                if errors:
+                    _sched_state["last_error"] = "paper: " + "; ".join(errors)[:300]
+                if can_send and PAPER_TRADE_ALERTS:
+                    for t in events:
+                        await _tg_send(TG_OWNER, paper_trade_text(t))
+        except Exception as e:
+            _sched_state["last_error"] = f"paper: {type(e).__name__}: {e}"
+        if can_send and PAPER_REPORT_HOUR.isdigit() and now.hour >= int(PAPER_REPORT_HOUR):
+            rkey = f"jarvis:paperreport:{now.date().isoformat()}"
+            try:
+                if await asyncio.to_thread(_claim, rkey, 2 * 86400):
+                    def _rep():
+                        with _data_lock:
+                            return paper_report_text()
+                    try:
+                        await _tg_send(TG_OWNER, await asyncio.to_thread(_rep))
+                    except Exception:
+                        await asyncio.to_thread(_unclaim, rkey)
+                        raise
+            except Exception as e:
+                _sched_state["last_error"] = f"paper report: {type(e).__name__}: {e}"
 
 async def _scheduler_loop():
     if not SCHED_ON:
@@ -3038,6 +3948,11 @@ HANDLERS.update({"add_client":add_client,"list_clients":list_clients,"find_clien
 ASYNC_TOOLS.update({"coinbase_balances": coinbase_balances, "coinbase_price": coinbase_price,
                     "coinbase_fills": coinbase_fills, "coinbase_prepare_order": coinbase_prepare_order})
 HANDLERS.update({"record_crypto_trade": record_crypto_trade, "crypto_log_summary": crypto_log_summary})
+# v3.8: client messages (DRAFT only; sending is the boss's /enviar), bank weekly, paper trading (read only).
+ASYNC_TOOLS.update({"prepare_client_message": prepare_client_message_tool,
+                    "revise_client_message": revise_client_message_tool, "paper_market": paper_market})
+HANDLERS.update({"list_client_messages": list_client_messages, "paper_status": paper_status,
+                 "paper_trades": paper_trades, "bank_weekly_report": lambda: {"report": bank_weekly_text()}})
 
 def _t(name, desc, props=None, req=None):
     return {"name":name,"description":desc,
@@ -3169,6 +4084,26 @@ TOOLS = [
         "fee":N,"note":S},["asset","side","crypto_amount","usd_amount"]),
     _t("crypto_log_summary","Crypto log per asset: quantity, average cost, realized gain (orientation; CPA for taxes).",
        {"asset":S}),
+    # --- v3.8 client messages (draft only) ---
+    _t("prepare_client_message","DRAFT a short SMS or email to a client (client_id from find_client). channel sms/email "
+       "or blank = best available. Spanish, polite, signed by the business, no bank data, nothing about other "
+       "clients. It NEVER sends: Jarvis shows the exact text to the boss and ONLY he sends it with /enviar N.",
+       {"client_id":I,"body":S,"channel":{"type":"string","enum":["sms","email"]},"subject":S,"job_id":I,
+        "reason":S},["client_id","body"]),
+    _t("revise_client_message","Change the text of a pending draft. Creates a NEW draft number (the old one is "
+       "replaced) and Jarvis shows it to the boss. Still never sends.",{"id":I,"body":S,"subject":S},["id","body"]),
+    _t("list_client_messages","Client message drafts and their status (pending, sent, failed, discarded, expired, "
+       "replaced). status=all for everything.",{"status":S}),
+    # --- v3.8 bank weekly ---
+    _t("bank_weekly_report","The weekly bank summary text (last 7 days, balances, big movements, recurring "
+       "charges, stale-data warning). Read-only.",{}),
+    # --- v3.8 paper trading (PRACTICE, simulated money) ---
+    _t("paper_status","PRACTICE crypto trading status: simulated capital, P&L, win rate, open positions, vs "
+       "buy-and-hold, the rules it follows. Simulated money with real prices; never real.",{}),
+    _t("paper_trades","Last PRACTICE (simulated) trades with reason and P&L.",{"limit":I}),
+    _t("paper_market","Live market reading for a product (price, 24h change, 20h/50h averages, RSI, trend, "
+       "volatility) from Coinbase public data. Works without Coinbase keys. Orientation only.",
+       {"product_id":S},["product_id"]),
 ]
 
 async def run_tool(name, args):
@@ -3244,7 +4179,23 @@ def system_prompt():
             "sent unless he tells you Jarvis confirmed it. The boss can type /seguridad to see limits and attempts. Never suggest what to buy or sell or when: crypto info "
             "is general orientation, not financial advice (use research_topic for general info). Trades he did "
             "by himself go to record_crypto_trade (separate crypto log, not business income/expenses unless he "
-            "says so). There is no tool to withdraw or send crypto. Shortcuts: /cripto, /cripto movimientos.")
+            "says so). There is no tool to withdraw or send crypto. Shortcuts: /cripto, /cripto movimientos.\n"
+            f"v3.8 CLIENT MESSAGES (SMS {'ready' if SMS_ON else 'NOT configured'}, email "
+            f"{'ready' if EMAIL_ON else 'NOT configured'}): when the boss asks to notify a client, use "
+            "prepare_client_message (find_client first). It only DRAFTS; Jarvis shows him the exact text and ONLY he "
+            "sends it by typing /enviar N (/noenviar N discards). You have NO way to send: never say a message was "
+            "sent. To change wording use revise_client_message (new number). Keep messages short, in Spanish, "
+            "polite; never include bank data, account numbers or other clients' info. Jarvis also drafts reminders "
+            "by itself every morning (overdue balances, balances due tomorrow, tomorrow's deliveries/appointments/"
+            "collections whose 'who' is a client). /cobros lists money pending to collect. Low stock is alerted "
+            "automatically once per item.\n"
+            "v3.8 BANK WEEKLY: a weekly bank summary goes out automatically; bank_weekly_report or /banco semana "
+            "shows it. Bank data only exists when the boss sends a file.\n"
+            f"v3.8 PAPER TRADING (practice): Jarvis practices crypto trading with SIMULATED money "
+            f"({_bank_usd(PAPER_START)} start) and REAL Coinbase prices, by fixed rules, and reports daily. Use "
+            "paper_status / paper_trades / paper_market. ALWAYS say it is simulated; it can never place a real "
+            "order. Practice results don't guarantee real results; never suggest moving real money because of "
+            "them. Shortcuts: /practica, /practica operaciones, /practica reporte.")
 
 # ---------------------------------------------------------------------------
 # Conversation loop. Works on a copy of the history; it is saved only at
@@ -3340,6 +4291,12 @@ async def _tg_send(chat_id, text):
                               json={"chat_id": chat_id, "text": chunk})
             if r.status_code != 200:
                 raise RuntimeError(f"Telegram send failed (HTTP {r.status_code})")
+            try:
+                confirmed = r.json().get("ok") is True
+            except (ValueError, AttributeError):
+                confirmed = False
+            if not confirmed:
+                raise RuntimeError("Telegram did not confirm sendMessage")
 
 async def _handle_tg(chat_id, text):
     session = f"tg:{chat_id}"
@@ -3454,6 +4411,46 @@ async def _tg_security(chat_id):
     except Exception:
         pass
 
+HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
+             "/hoy — resumen del día · /calendario · /listo N\n"
+             "/clientes · /trabajos · /cobros · /inventario [bajo]\n"
+             "/mensajes — avisos a clientes esperando tu OK · /enviar N · /noenviar N\n"
+             "/banco · /banco semana · /movimientos · /contabilizar · /anotar N\n"
+             "/practica — cripto en práctica (simulado) · /practica operaciones · /practica reporte\n"
+             "/cripto · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
+             "/mercado · /seguridad\n"
+             "Para lo demás, escríbeme normal.")
+
+async def _tg_v38_cmd(chat_id, cmd, arg):
+    """v3.8: /mensajes /enviar /noenviar /cobros /practica /ayuda (zero tokens)."""
+    try:
+        if cmd == "/enviar":
+            msg = await send_message_text(arg)
+        elif cmd == "/practica":
+            a = arg.lower()
+            if a.startswith(("oper", "mov", "hist")):
+                msg = await asyncio.to_thread(paper_trades_text)
+            elif a.startswith(("rep", "inf")):
+                msg = await asyncio.to_thread(paper_report_text)
+            elif a.startswith(("reinic", "reset")):
+                msg = await asyncio.to_thread(paper_reset_text, arg)
+            else:
+                msg = await asyncio.to_thread(paper_status_text)
+        else:
+            def _txt():
+                with _data_lock:
+                    if cmd == "/noenviar": return discard_message_text(arg)
+                    if cmd == "/mensajes": return message_detail_text(arg) if arg.strip() else messages_text()
+                    if cmd == "/cobros": return collections_text()
+                    return HELP_TEXT
+            msg = await asyncio.to_thread(_txt)
+    except Exception as e:
+        msg = f"⚠️ No pude hacerlo ({type(e).__name__})."
+    try:
+        await _tg_send(chat_id, msg)
+    except Exception:
+        pass
+
 @app.post("/telegram")
 async def telegram(request: Request, background: BackgroundTasks,
                    x_telegram_bot_api_secret_token: str = Header(None)):
@@ -3497,7 +4494,9 @@ async def telegram(request: Request, background: BackgroundTasks,
         return {"ok": True}
     cmd, _, arg = text.strip().partition(" ")
     cmd = cmd.lower().split("@")[0]
-    if cmd in MONEY_COMMANDS and not is_owner_private(msg):
+    cmd = {"/mensaje": "/mensajes", "/no_enviar": "/noenviar", "/paper": "/practica", "/práctica": "/practica",
+           "/help": "/ayuda", "/start": "/ayuda"}.get(cmd, cmd)   # v3.8 aliases
+    if cmd in PRIVATE_COMMANDS and not is_owner_private(msg):
         def _deny():
             with _data_lock:
                 g = _gload(); gate_audit(g, cmd, "-", "rechazado", "no es chat privado del dueño"); _gsave(g)
@@ -3513,9 +4512,25 @@ async def telegram(request: Request, background: BackgroundTasks,
         n = int(arg.strip()) if arg.strip().isdigit() else (7 if cmd == "/semana" else 14)
         background.add_task(_tg_calendar, chat_id, n)
         return {"ok": True}
+    if cmd in ("/bancosemana",) or (cmd == "/banco" and arg.strip().lower().startswith("seman")):
+        # v3.8: weekly bank summary on demand (zero tokens)
+        def _week():
+            with _data_lock:
+                return bank_weekly_text()
+        async def _send_week():
+            try:
+                await _tg_send(chat_id, await asyncio.to_thread(_week))
+            except Exception:
+                pass
+        background.add_task(_send_week)
+        return {"ok": True}
     if cmd in ("/banco", "/movimientos"):
         # v3.4: bank balances / last movements without Claude (zero tokens). /movimientos 20
         background.add_task(_tg_bank_cmd, chat_id, cmd, arg.strip())
+        return {"ok": True}
+    if cmd in ("/mensajes", "/enviar", "/noenviar", "/cobros", "/practica", "/ayuda"):
+        # v3.8: client messages (/enviar is the ONLY way one goes out), collections, paper trading, help
+        background.add_task(_tg_v38_cmd, chat_id, cmd, arg.strip())
         return {"ok": True}
     if cmd in ("/contabilizar", "/anotar", "/descartar"):
         # v3.4.1: bank -> books. Proposal and approval without Claude; approval only by the boss's command
@@ -3550,11 +4565,18 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.7.1", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.8.1", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
-                        "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase"],
+                        "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase",
+                        "client messages (approval)", "bank weekly", "paper trading"],
+            "client_messages": {"sms": SMS_ON, "email": EMAIL_ON, "auto_drafts": NOTICES_ON,
+                                "draft_hour": NOTICE_HOUR, "max_per_day": OUTBOX_MAX_DAY},
+            "bank_weekly": {"enabled": BANK_WEEKLY_ON, "weekday": DIAS[BANK_WEEKLY_DAY], "hour": BANK_WEEKLY_HOUR},
+            "paper_trading": {"enabled": PAPER_ON, "products": PAPER_PRODUCTS, "start_usd": PAPER_START,
+                              "every_hours": PAPER_EVERY, "report_hour": PAPER_REPORT_HOUR or "off",
+                              "real_money": False},
             "scheduler": {"enabled": SCHED_ON, "every_seconds": SCHED_EVERY,
                           "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
                           "market_brief": f"every {MARKET_EVERY}h" if MARKET_ON else "off",
