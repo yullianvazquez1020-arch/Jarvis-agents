@@ -4584,7 +4584,7 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.9.0", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "4.0.0", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
@@ -4609,3 +4609,6 @@ async def health():
 import sys as _sys
 import jarvis_extensions as _extensions
 _extensions.install(_sys.modules[__name__])
+
+import jarvis_growth as _growth
+_growth.install(_sys.modules[__name__])
