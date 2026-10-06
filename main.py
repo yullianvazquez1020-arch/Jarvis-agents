@@ -1746,7 +1746,12 @@ async def _claude_research(prompt: str, max_tokens: int = 1200, need_live: bool 
                                              messages=[{"role": "user", "content": prompt}])
             text = "".join(b.text for b in r.content if b.type == "text").strip()
             if text:
-                return text, True
+                live = any(b.type == "web_search_tool_result" and isinstance(getattr(b, "content", None), list)
+                           and any(getattr(item, "type", None) == "web_search_result" for item in b.content)
+                           for b in r.content)
+                if need_live and not live:
+                    return None, False
+                return text, live
         except Exception as e:
             logger.warning("web search unavailable: %s", type(e).__name__)
     if need_live:
@@ -2820,7 +2825,7 @@ def draft_text(m):
     if m.get("reason"): head += f"\nMotivo: {m['reason']}"
     subj = f"\nAsunto: {m['subject']}" if m.get("subject") else ""
     if m.get("status") != "pending":
-        tail = f"\n\nEstado: {_MSG_ST_ES.get(m.get("status"), m.get("status"))}."
+        tail = f"\n\nEstado: {_MSG_ST_ES.get(m.get('status'), m.get('status'))}."
     elif _channel_ready(m["channel"]):
         tail = f"\n\n✅ /enviar {m['id']}   ❌ /noenviar {m['id']}   (vence en {DRAFT_DAYS} días)"
     else:
@@ -4473,17 +4478,25 @@ async def telegram(request: Request, background: BackgroundTasks,
         text = ""
     if doc is not None and not isinstance(doc, dict):
         doc = None
-    if not text and not doc and msg.get("photo") and chat_id and chat_id == TG_OWNER:
-        if await asyncio.to_thread(_first_time, update.get("update_id")):
-            background.add_task(_tg_safe_send, chat_id, "📷 Todavía no leo fotos. Para el banco mándame el archivo "
-                                "CSV u OFX/QFX que bajas de FirstBank Digital Banking.")
-        return {"ok": True}
-    if not chat_id or not (text or doc) or not TG_OWNER or chat_id != TG_OWNER:
+    photos = msg.get("photo") if isinstance(msg.get("photo"), list) else []
+    voice = msg.get("voice") if isinstance(msg.get("voice"), dict) else None
+    if not chat_id or not (text or doc or photos or voice) or not TG_OWNER or chat_id != TG_OWNER:
         return {"ok": True}
     frm = msg.get("from") or {}
     if str(frm.get("id", "")) != TG_OWNER_USER or frm.get("is_bot"):
         return {"ok": True}     # v3.7.1: only the owner's own user, never someone else in the chat
     if not await asyncio.to_thread(_first_time, update.get("update_id")):
+        return {"ok": True}
+    if photos or voice:
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para recibos y voz.")
+            return {"ok": True}
+        if photos:
+            photo = photos[-1]
+            if isinstance(photo, dict) and isinstance(photo.get("file_id"), str):
+                background.add_task(_extensions.receipt_photo, chat_id, photo["file_id"])
+        elif voice and isinstance(voice.get("file_id"), str):
+            background.add_task(_extensions.voice_message, chat_id, voice)
         return {"ok": True}
     if doc and not text:
         background.add_task(_tg_bank_file, chat_id, doc, msg.get("caption", "") or "")
@@ -4496,6 +4509,12 @@ async def telegram(request: Request, background: BackgroundTasks,
     cmd = cmd.lower().split("@")[0]
     cmd = {"/mensaje": "/mensajes", "/no_enviar": "/noenviar", "/paper": "/practica", "/práctica": "/practica",
            "/help": "/ayuda", "/start": "/ayuda"}.get(cmd, cmd)   # v3.8 aliases
+    if cmd in _extensions.COMMANDS:
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+        else:
+            background.add_task(_extensions.command, chat_id, cmd, arg.strip())
+        return {"ok": True}
     if cmd in PRIVATE_COMMANDS and not is_owner_private(msg):
         def _deny():
             with _data_lock:
@@ -4565,7 +4584,7 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.8.1", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.9.0", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
@@ -4585,3 +4604,8 @@ async def health():
             "money_gate": {"max_order_usd": MONEY_MAX_ORDER, "max_day_usd": MONEY_MAX_DAY,
                            "owner_user_set": bool(TG_OWNER_USER), "code_minutes": GATE_CODE_MIN},
             "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
+
+# Additive feature module; loaded after all core handlers and routes exist.
+import sys as _sys
+import jarvis_extensions as _extensions
+_extensions.install(_sys.modules[__name__])
