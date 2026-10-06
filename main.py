@@ -1,55 +1,31 @@
-# Jarvis 3.4.2 — corrected from the supplied v3.4.1 file.
-# Validation: 41 local regression checks passed (mocked external services).
-# Real Claude/Telegram/Upstash/Render credentials were not used in tests.
+# Jarvis 3.6.0 — Clients/Jobs + Inventory + Phase 5 + bugfixes.
 # Python 3.10+. Keep existing env vars and data keys. Deploy with ONE worker/replica.
 # Start: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
 # Dependencies: fastapi, uvicorn, anthropic, httpx, python-dotenv, pydantic.
-# Corrections: money/date validation; bank dedup; atomic approvals and JSON writes;
-# verified Telegram sends; monthly recurrence anchor; error handling and shutdown.
-# Limits: background webhook tasks are not a durable queue; a hard process crash
-# after acknowledgement can lose a pending message. Use a durable worker queue
-# before scaling. No exactly-once guarantee across Telegram and storage outages.
-# This supplied version has NO marketing/crypto/stocks modules; none were removed.
-# Local storage needs a persistent disk. Upstash preserves existing Redis keys.
-"""Jarvis v3.2: orchestrator + built-in specialists + permanent memory.
+# Bugfixes in 3.5.0:
+#   - Recurring reminders: re-evaluate due even if notified flag was left True
+#     (handles crash between Telegram send and the roll of next due).
+#   - Calendar conflicts: detect overlaps that cross midnight (check previous day).
+# Phase 5 (additive): research & external agents foundation.
+#   - Periodic market brief (optional, every 6h, uses Claude — tokens apply).
+#   - Expanded external agent registry + research tool for Claude.
+#   - /mercado command (zero tokens if last brief is cached).
+# Limits: same as before. Local storage needs persistent disk. Upstash preferred.
+"""Jarvis v3.5: orchestrator + built-in specialists + permanent memory + research.
 
-Built-in: personal (reminders, shopping list, bills) and accountant
-(income, expenses, net profit, tax estimates). Data is saved in Upstash
-Redis (free) so it survives every deploy. If the Upstash variables are
-not set yet, it falls back to local files (those get wiped on deploy).
-One Render service, one bill.
+Built-in: personal (reminders, shopping list, bills), accountant
+(income, expenses, net profit, tax estimates), calendar, bank (read-only),
+and research/market brief (Phase 5).
 
-v3.1 fixes: Telegram secret + owner required, no duplicate entries on
-Telegram retries, Puerto Rico time zone, history safe on errors, async
-Claude calls, long/empty replies handled, input validation.
+Data is saved in Upstash Redis (free) so it survives every deploy.
+If the Upstash variables are not set yet, it falls back to local files
+(those get wiped on deploy). One Render service, one bill.
 
-v3.2 (Phase 1, additive): proactive engine. A background loop inside the
-same service sends Telegram alerts on its own: reminders with a real
-date/time (optionally repeating daily/weekly/monthly), bills coming due,
-and a short morning brief. Alerts use ZERO Claude tokens. Daily backup of
-the data inside Redis + /backup endpoint. /hoy command in Telegram (no
-tokens). Every v3.1 function is kept as it was.
-
-v3.3 (Phase 3, step 1, additive): built-in CALENDAR agent for deliveries,
-appointments, dates to pay and dates to collect. Events can repeat and get
-ONE Telegram alert before they start (zero tokens, never re-sent). Today's
-and tomorrow's events appear in the morning brief and /hoy; /calendario
-lists the next days without tokens. Exact upcoming dates go in the system
-prompt so "el jueves" lands on the right day. Every v3.2 function is kept.
-
-v3.4 (Phase 4, part 1, additive): BANK, READ-ONLY. The boss sends the CSV /
-OFX / QFX file he downloads from his bank to the Telegram bot; Jarvis keeps
-balances and movements (last 4 digits only) and analyzes them: where the
-money went, by category, top merchants, recurring charges. /banco and
-/movimientos answer without tokens; balances appear in the morning brief.
-There is NO function that moves money, pays, transfers, buys or trades.
-Every v3.3 function is kept.
-
-v3.4.1 (Phase 4, part 3, additive): bank alerts only inside the import reply,
-/banco and the morning brief (low balance, big movements; no extra pings), and
-bank -> accounting books WITH APPROVAL: /contabilizar prepares a list, and
-ONLY the boss's own /anotar N records it (Claude can prepare, never approve).
-Every v3.4 function is kept.
+v3.2 (Phase 1): proactive engine (reminders, bills, morning brief).
+v3.3 (Phase 3): built-in calendar.
+v3.4 / 3.4.1 (Phase 4): bank read-only + bank→books with approval.
+v3.5 (Phase 5 start): market analysis every 6h (opt-in), research tool,
+expanded external agents. Every previous function is kept.
 """
 import os, json, datetime, asyncio, calendar, threading, contextlib, httpx
 import re   # v3.3
@@ -125,6 +101,10 @@ BRIEF_HOUR = os.getenv("DAILY_BRIEF_HOUR", "7").strip()   # 0-23 PR time; blank 
 
 if BRIEF_HOUR and (not BRIEF_HOUR.isdigit() or not 0 <= int(BRIEF_HOUR) <= 23):
     raise RuntimeError("DAILY_BRIEF_HOUR must be 0-23 or blank")
+
+# Phase 5: market / research (opt-in; uses Claude tokens when it runs)
+MARKET_ON = os.getenv("MARKET_ANALYSIS_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+MARKET_EVERY = _env_int("MARKET_ANALYSIS_HOURS", 6, 1, 24)
 
 if not API_KEY or API_KEY == "change-me":
     raise RuntimeError("Set AGENT_API_KEY in Render before starting Jarvis.")
@@ -547,7 +527,8 @@ def _interval(e, occ):
     return s, s + datetime.timedelta(minutes=int(e.get("duration_min") or 60))
 
 def _conflicts(d, e):
-    """Other timed events that overlap this one in the next 60 days (first 5)."""
+    """Other timed events that overlap this one in the next 60 days (first 5).
+    Handles events that cross midnight by also checking the previous day of each occurrence."""
     if not e.get("time"):
         return []
     today = _today(); end = today + datetime.timedelta(days=60); out = []
@@ -556,11 +537,20 @@ def _conflicts(d, e):
         if o["id"] == e["id"] or not o.get("time") or o.get("status") == "cancelled":
             continue
         for occ in mine:
-            if occ in _occurrences(o, occ, occ) and not _occ_done(o, occ):
-                a1, a2 = _interval(e, occ); b1, b2 = _interval(o, occ)
-                if a1 < b2 and b1 < a2:
-                    out.append(_ev_line(_ev_view(o, occ), today))
-                    break
+            # Check same day and previous day (for overnight events ending on this day)
+            candidates = [occ]
+            prev = occ - datetime.timedelta(days=1)
+            if prev >= today - datetime.timedelta(days=1):
+                candidates.append(prev)
+            for cand in candidates:
+                if cand in _occurrences(o, cand, cand) and not _occ_done(o, cand):
+                    a1, a2 = _interval(e, occ)
+                    b1, b2 = _interval(o, cand)
+                    if a1 < b2 and b1 < a2:
+                        out.append(_ev_line(_ev_view(o, cand), today))
+                        break
+            if len(out) >= 5:
+                break
         if len(out) >= 5:
             break
     return out
@@ -1659,14 +1649,364 @@ async def _tg_books_cmd(chat_id, cmd, arg):
             pass
 
 # ---------------------------------------------------------------------------
+# PHASE 5: Research & market analysis (v3.5)
+# Opt-in via MARKET_ANALYSIS_ENABLED=true. Uses Claude (tokens). Caches last brief
+# so /mercado is zero-token most of the time. External agents already supported
+# via delegate(); this adds a built-in research helper and a periodic brief.
+# ---------------------------------------------------------------------------
+R_KEY = "jarvis:research"
+
+def _rload():
+    d = kv_get(R_KEY, {"last_brief": None, "last_at": None, "topics": []})
+    d.setdefault("last_brief", None)
+    d.setdefault("last_at", None)
+    d.setdefault("topics", [])
+    return d
+
+def _rsave(d):
+    kv_set(R_KEY, d)
+
+async def _claude_research(prompt: str, max_tokens: int = 800) -> str:
+    """One-shot Claude call for research/market (no tools, short)."""
+    try:
+        r = await client.messages.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            system=("You are a concise research analyst for a small business owner in Puerto Rico. "
+                    "Reply in Spanish. Be factual, short, bullet points preferred. "
+                    "No investment advice; orientation only. Mention if data may be outdated."),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return "".join(b.text for b in r.content if b.type == "text").strip() or "(sin respuesta)"
+    except Exception as e:
+        return f"⚠️ Investigación falló ({type(e).__name__})."
+
+async def run_market_brief() -> str:
+    """Generate a short market / business climate brief and cache it."""
+    prompt = (
+        "Resume en máximo 12 líneas el clima de mercados relevante hoy para un negocio pequeño "
+        "en Puerto Rico (dólar, inflación USA, tasas, commodities clave, crypto principal si hay "
+        "movimiento grande, y cualquier noticia económica que afecte a PR o a pymes). "
+        "Formato: 📊 Mercado (fecha) + bullets. Sin relleno."
+    )
+    text = await _claude_research(prompt, max_tokens=600)
+    with _data_lock:
+        d = _rload()
+        d["last_brief"] = text
+        d["last_at"] = _now().isoformat(timespec="minutes")
+        _rsave(d)
+    return text
+
+def market_text() -> str:
+    """Zero-token /mercado — last cached brief."""
+    d = _rload()
+    if not d.get("last_brief"):
+        return ("📊 Todavía no hay un análisis de mercado en caché.\n"
+                "Activa MARKET_ANALYSIS_ENABLED=true y espera el próximo ciclo, "
+                "o pídeme 'haz un análisis de mercado' en el chat.")
+    age = ""
+    if d.get("last_at"):
+        try:
+            at = datetime.datetime.fromisoformat(d["last_at"])
+            mins = int((_now() - at).total_seconds() // 60)
+            if mins < 60:
+                age = f" (hace {mins} min)"
+            else:
+                age = f" (hace {mins // 60} h)"
+        except Exception:
+            pass
+    return f"📊 Último análisis{age}:\n\n{d['last_brief']}"
+
+async def research_topic(topic: str) -> dict:
+    """Claude tool: research a topic (networks, video ideas, competitors, etc.)."""
+    topic = _text(topic, "topic", 300)
+    prompt = (
+        f"Investiga y resume de forma práctica este tema para el jefe de un negocio pequeño: {topic}\n"
+        "Incluye: puntos clave, oportunidades o riesgos, y 2-3 acciones concretas. "
+        "Máximo 15 líneas. Español."
+    )
+    text = await _claude_research(prompt, max_tokens=700)
+    with _data_lock:
+        d = _rload()
+        d["topics"] = ([{"topic": topic, "at": _now().isoformat(timespec="minutes")}] + d.get("topics", []))[:20]
+        _rsave(d)
+    return {"topic": topic, "summary": text}
+
+# ---------------------------------------------------------------------------
+# PHASE 2: Clients & Jobs / Sales (v3.6)
+# Clients with contact info + Jobs/Orders with price, cost, advance (adelanto),
+# balance (saldo) and status. Claude can create/update; money never moves.
+# ---------------------------------------------------------------------------
+C_KEY = "jarvis:clients"
+JOB_STATUSES = ["quote", "confirmed", "in_progress", "delivered", "invoiced", "paid", "cancelled"]
+JOB_STATUS_ES = {
+    "quote": "📝 Cotización", "confirmed": "✅ Confirmado", "in_progress": "🔧 En proceso",
+    "delivered": "📦 Entregado", "invoiced": "🧾 Facturado", "paid": "💰 Pagado", "cancelled": "❌ Cancelado"
+}
+
+def _cload():
+    d = kv_get(C_KEY, {"clients": [], "jobs": []})
+    d.setdefault("clients", []); d.setdefault("jobs", [])
+    _with_ids(d["clients"]); _with_ids(d["jobs"])
+    return d
+def _csave(d): kv_set(C_KEY, d)
+
+def _valid_status(s):
+    s = (s or "quote").strip().lower().replace(" ", "_")
+    alias = {"cotizacion": "quote", "cotización": "quote", "confirmado": "confirmed",
+             "en_proceso": "in_progress", "proceso": "in_progress", "entregado": "delivered",
+             "facturado": "invoiced", "pagado": "paid", "cancelado": "cancelled"}
+    s = alias.get(s, s)
+    if s not in JOB_STATUSES:
+        raise ValueError("status must be one of: " + ", ".join(JOB_STATUSES))
+    return s
+
+def add_client(name, phone="", email="", notes="", tags=""):
+    name = _text(name, "name", 200)
+    d = _cload()
+    e = {"id": _allocate_id(d, "clients"), "name": name, "phone": str(phone or "").strip()[:40],
+         "email": str(email or "").strip()[:120], "notes": str(notes or "").strip()[:500],
+         "tags": str(tags or "").strip()[:100], "created": _now().isoformat(timespec="minutes")}
+    d["clients"].append(e); _csave(d)
+    return e
+
+def list_clients(query=""):
+    q = (query or "").strip().lower()
+    rows = _cload()["clients"]
+    if q:
+        rows = [c for c in rows if q in c["name"].lower() or q in (c.get("phone") or "") or
+                q in (c.get("email") or "").lower() or q in (c.get("tags") or "").lower()]
+    return {"clients": rows[:100], "count": len(rows)}
+
+def find_client(query):
+    r = list_clients(query)
+    return r if r["count"] else {"error": f"no encontré cliente que coincida con '{query}'"}
+
+def edit_client(id, changes):
+    d = _cload()
+    for c in d["clients"]:
+        if c["id"] == int(id):
+            for k, v in (changes or {}).items():
+                if k in ("name",) and v is not None: c[k] = _text(str(v), k, 200)
+                if k in ("phone", "email", "notes", "tags") and v is not None:
+                    c[k] = str(v).strip()[: { "phone":40, "email":120, "notes":500, "tags":100 }[k]]
+            _csave(d); return c
+    return {"error": f"client {id} not found"}
+
+def add_job(client_id, title, price=0, cost=0, advance=0, status="quote",
+            due_date="", notes="", location=""):
+    title = _text(title, "title", 300)
+    price = _money(price, allow_zero=True)
+    cost = _money(cost, allow_zero=True)
+    advance = _money(advance, allow_zero=True)
+    if advance > price and price > 0:
+        raise ValueError("el adelanto no puede ser mayor que el precio")
+    d = _cload()
+    client = next((c for c in d["clients"] if c["id"] == int(client_id)), None)
+    if not client:
+        return {"error": f"client {client_id} not found. Crea el cliente primero."}
+    balance = round(price - advance, 2)
+    e = {"id": _allocate_id(d, "jobs"), "client_id": int(client_id), "client_name": client["name"],
+         "title": title, "price": price, "cost": cost, "advance": advance, "balance": balance,
+         "status": _valid_status(status), "due_date": _valid_date(due_date) if due_date else "",
+         "notes": str(notes or "").strip()[:500], "location": str(location or "").strip()[:200],
+         "created": _now().isoformat(timespec="minutes"), "updated": _now().isoformat(timespec="minutes")}
+    d["jobs"].append(e); _csave(d)
+    return e
+
+def list_jobs(status="", client_id="", query="", include_cancelled=False):
+    d = _cload(); rows = d["jobs"]
+    if status:
+        st = _valid_status(status)
+        rows = [j for j in rows if j["status"] == st]
+    if client_id:
+        rows = [j for j in rows if j["client_id"] == int(client_id)]
+    if query:
+        q = query.strip().lower()
+        rows = [j for j in rows if q in j["title"].lower() or q in (j.get("client_name") or "").lower()]
+    if not _to_bool(include_cancelled):
+        rows = [j for j in rows if j["status"] != "cancelled"]
+    rows = sorted(rows, key=lambda j: (j.get("due_date") or "9999", j["id"]), reverse=False)
+    return {"jobs": rows[:100], "count": len(rows),
+            "open_balance": round(sum(j["balance"] for j in rows if j["status"] not in ("paid", "cancelled")), 2)}
+
+def edit_job(id, changes):
+    d = _cload()
+    for j in d["jobs"]:
+        if j["id"] == int(id):
+            for k, v in (changes or {}).items():
+                if k == "title" and v is not None: j[k] = _text(str(v), "title", 300)
+                if k == "status" and v is not None: j[k] = _valid_status(v)
+                if k in ("price", "cost", "advance") and v is not None:
+                    j[k] = _money(v, allow_zero=True)
+                if k == "due_date":
+                    j[k] = _valid_date(v) if v else ""
+                if k in ("notes", "location") and v is not None:
+                    j[k] = str(v).strip()[:500 if k == "notes" else 200]
+            # Recalculate balance
+            j["balance"] = round(float(j.get("price", 0)) - float(j.get("advance", 0)), 2)
+            if j["balance"] < 0:
+                raise ValueError("el adelanto no puede superar el precio")
+            j["updated"] = _now().isoformat(timespec="minutes")
+            _csave(d); return j
+    return {"error": f"job {id} not found"}
+
+def record_job_payment(id, amount, note=""):
+    """Register a payment (adelanto or saldo) on a job. Does NOT move real money."""
+    amount = _money(amount)
+    d = _cload()
+    for j in d["jobs"]:
+        if j["id"] == int(id):
+            j["advance"] = round(float(j.get("advance", 0)) + amount, 2)
+            j["balance"] = round(float(j.get("price", 0)) - j["advance"], 2)
+            if j["balance"] < 0:
+                raise ValueError("el pago supera el saldo pendiente")
+            if j["balance"] == 0 and j["status"] not in ("paid", "cancelled"):
+                j["status"] = "paid"
+            j.setdefault("payments", [])
+            j["payments"].append({"amount": amount, "note": str(note or "").strip()[:200],
+                                  "at": _now().isoformat(timespec="minutes")})
+            j["updated"] = _now().isoformat(timespec="minutes")
+            _csave(d)
+            return {**j, "note": f"Pago de ${_bank_usd(amount)} registrado. Saldo: ${_bank_usd(j['balance'])}"}
+    return {"error": f"job {id} not found"}
+
+def jobs_summary():
+    d = _cload()
+    jobs = [j for j in d["jobs"] if j["status"] != "cancelled"]
+    by_status = {}
+    for j in jobs:
+        by_status[j["status"]] = by_status.get(j["status"], 0) + 1
+    open_bal = sum(j["balance"] for j in jobs if j["status"] not in ("paid",))
+    total_price = sum(j["price"] for j in jobs)
+    total_cost = sum(j["cost"] for j in jobs)
+    return {"jobs": len(jobs), "by_status": by_status,
+            "open_balance": round(open_bal, 2), "total_quoted": round(total_price, 2),
+            "total_cost": round(total_cost, 2), "estimated_profit": round(total_price - total_cost, 2),
+            "clients": len(d["clients"])}
+
+def clients_text(query=""):
+    r = list_clients(query)
+    if not r["clients"]:
+        return "👤 No hay clientes todavía. Dime el nombre para agregar uno."
+    lines = [f"👤 Clientes ({r['count']}):"]
+    for c in r["clients"][:30]:
+        extra = " · ".join(x for x in [c.get("phone"), c.get("email")] if x)
+        lines.append(f"• #{c['id']} {c['name']}" + (f" — {extra}" if extra else ""))
+    return "\n".join(lines)
+
+def jobs_text(status="", limit=15):
+    r = list_jobs(status=status)
+    if not r["jobs"]:
+        return "📋 No hay trabajos" + (f" con estado '{status}'" if status else "") + "."
+    lines = [f"📋 Trabajos ({r['count']}) — saldo abierto ${_bank_usd(r['open_balance'])}:"]
+    for j in r["jobs"][:limit]:
+        st = JOB_STATUS_ES.get(j["status"], j["status"])
+        due = f" · vence {j['due_date']}" if j.get("due_date") else ""
+        lines.append(f"• #{j['id']} {st} {j['title']} — {j['client_name']} · "
+                     f"${_bank_usd(j['price'])} (saldo ${_bank_usd(j['balance'])}){due}")
+    return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# PHASE 3 remaining: Inventory (v3.6)
+# Simple stock tracking + low-stock alerts in the morning brief.
+# ---------------------------------------------------------------------------
+I_KEY = "jarvis:inventory"
+
+def _iload():
+    d = kv_get(I_KEY, {"items": []})
+    d.setdefault("items", [])
+    _with_ids(d["items"])
+    return d
+def _isave(d): kv_set(I_KEY, d)
+
+def add_inventory_item(name, quantity=0, unit="ud", min_stock=0, cost=0, notes=""):
+    name = _text(name, "name", 200)
+    qty = _money(quantity, allow_zero=True)
+    mn = _money(min_stock, allow_zero=True)
+    cst = _money(cost, allow_zero=True)
+    d = _iload()
+    # avoid exact duplicates by name
+    existing = next((x for x in d["items"] if x["name"].casefold() == name.casefold()), None)
+    if existing:
+        existing["quantity"] = round(float(existing["quantity"]) + qty, 2)
+        existing["updated"] = _now().isoformat(timespec="minutes")
+        _isave(d)
+        return {**existing, "note": "Ya existía; sumé la cantidad."}
+    e = {"id": _allocate_id(d, "items"), "name": name, "quantity": qty, "unit": str(unit or "ud")[:20],
+         "min_stock": mn, "cost": cst, "notes": str(notes or "").strip()[:300],
+         "created": _now().isoformat(timespec="minutes"), "updated": _now().isoformat(timespec="minutes")}
+    d["items"].append(e); _isave(d)
+    return e
+
+def adjust_inventory(id, delta, note=""):
+    """Positive = add stock, negative = remove/use."""
+    delta = float(delta)
+    if not math.isfinite(delta):
+        raise ValueError("delta must be a number")
+    d = _iload()
+    for x in d["items"]:
+        if x["id"] == int(id):
+            new_q = round(float(x["quantity"]) + delta, 2)
+            if new_q < 0:
+                raise ValueError(f"no hay suficiente stock (hay {x['quantity']})")
+            x["quantity"] = new_q
+            x["updated"] = _now().isoformat(timespec="minutes")
+            if note:
+                x.setdefault("log", [])
+                x["log"] = (x["log"] + [{"delta": delta, "note": str(note)[:100],
+                                         "at": _now().isoformat(timespec="minutes")}])[-20:]
+            _isave(d)
+            low = " ⚠️ bajo mínimo" if x["min_stock"] and new_q <= x["min_stock"] else ""
+            return {**x, "note": f"Stock ahora: {new_q} {x['unit']}{low}"}
+    return {"error": f"item {id} not found"}
+
+def list_inventory(query="", low_only=False):
+    d = _iload(); rows = d["items"]
+    if query:
+        q = query.strip().lower()
+        rows = [x for x in rows if q in x["name"].lower()]
+    if _to_bool(low_only):
+        rows = [x for x in rows if x.get("min_stock") and float(x["quantity"]) <= float(x["min_stock"])]
+    rows = sorted(rows, key=lambda x: x["name"].lower())
+    return {"items": rows[:100], "count": len(rows),
+            "low_stock": sum(1 for x in d["items"] if x.get("min_stock") and float(x["quantity"]) <= float(x["min_stock"]))}
+
+def inventory_text(low_only=False):
+    r = list_inventory(low_only=low_only)
+    if not r["items"]:
+        return "📦 Inventario vacío." if not low_only else "📦 Nada bajo el mínimo."
+    title = "📦 Stock bajo mínimo:" if low_only else f"📦 Inventario ({r['count']}):"
+    lines = [title]
+    for x in r["items"][:40]:
+        low = " ⚠️" if x.get("min_stock") and float(x["quantity"]) <= float(x["min_stock"]) else ""
+        lines.append(f"• #{x['id']} {x['name']}: {x['quantity']} {x['unit']}{low}")
+    if r["low_stock"] and not low_only:
+        lines.append(f"\n⚠️ {r['low_stock']} ítem(s) bajo el mínimo. Usa /inventario bajo")
+    return "\n".join(lines)
+
+def inventory_brief_lines():
+    r = list_inventory(low_only=True)
+    if not r["items"]:
+        return []
+    lines = ["\n📦 Stock bajo:"]
+    lines += [f"• {x['name']}: {x['quantity']} {x['unit']} (mín {x['min_stock']})" for x in r["items"][:8]]
+    return lines
+
+# ---------------------------------------------------------------------------
 # EDIT / DELETE for any list.
 # ---------------------------------------------------------------------------
-KINDS = {"reminder":(_pload,_psave,"reminders"), "bill":(_pload,_psave,"bills"),
-         "income":(_bload,_bsave,"income"), "expense":(_bload,_bsave,"expenses"),
-         "event":(_eload,_esave,"events")}
-EDITABLE = {"reminder":["text","when","done","due","repeat"], "bill":["name","day","amount"],
-            "income":["amount","source","date"], "expense":["amount","category","note","date"],
-            "event":EVENT_EDITABLE}
+KINDS = {"reminder": (_pload, _psave, "reminders"), "bill": (_pload, _psave, "bills"),
+         "income": (_bload, _bsave, "income"), "expense": (_bload, _bsave, "expenses"),
+         "event": (_eload, _esave, "events"),
+         "client": (_cload, _csave, "clients"), "job": (_cload, _csave, "jobs"),
+         "inventory": (_iload, _isave, "items")}
+EDITABLE = {"reminder": ["text", "when", "done", "due", "repeat"], "bill": ["name", "day", "amount"],
+            "income": ["amount", "source", "date"], "expense": ["amount", "category", "note", "date"],
+            "event": EVENT_EDITABLE,
+            "client": ["name", "phone", "email", "notes", "tags"],
+            "job": ["title", "status", "price", "cost", "advance", "due_date", "notes", "location"],
+            "inventory": ["name", "quantity", "unit", "min_stock", "cost", "notes"]}
 
 def delete_entry(kind, id):
     if kind not in KINDS: return {"error":f"unknown kind {kind}"}
@@ -1740,13 +2080,16 @@ def collect_alerts():
     alerts = []; now = _now(); today = now.date()
     d = _pload()
     for r in d["reminders"]:
-        if r.get("done") or not r.get("due") or r.get("notified"):
+        if r.get("done") or not r.get("due"):
             continue
         try:
             due = _due_dt(r["due"])
         except Exception:
             continue
-        if due <= now:
+        # For non-repeating: skip if already notified.
+        # For repeating: always re-check if due <= now (handles crash between send and roll,
+        # or notified left True). mark_alert_sent will roll the due and clear notified.
+        if due <= now and (r.get("repeat") or not r.get("notified")):
             late = " (atrasado)" if (now - due).total_seconds() > 3600 else ""
             rep = f"\n🔁 Se repite: {r['repeat']}" if r.get("repeat") else ""
             alerts.append({"kind": "reminder", "id": r["id"], "due": r["due"],
@@ -1850,6 +2193,16 @@ def brief_text():
         lines += bank_brief_lines()   # v3.4: balances, no pings
     except Exception:
         pass
+    try:
+        lines += inventory_brief_lines()   # v3.6: low stock
+    except Exception:
+        pass
+    try:
+        js = jobs_summary()
+        if js.get("open_balance", 0) > 0:
+            lines.append(f"\n💼 Saldo por cobrar en trabajos: ${_bank_usd(js['open_balance'])}")
+    except Exception:
+        pass
     if u["open_reminders_without_date"]:
         lines.append(f"\n📝 Pendientes sin fecha: {u['open_reminders_without_date']}")
     if u["shopping_items"]:
@@ -1861,7 +2214,8 @@ def brief_text():
 def snapshot():
     with _data_lock:
         return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload(),
-                "calendar": _eload(), "bank": _kload()}
+                "calendar": _eload(), "bank": _kload(), "clients": _cload(),
+                "inventory": _iload(), "research": _rload()}
 
 def daily_backup():
     """One copy of all data per day, kept 30 days inside Redis."""
@@ -1901,6 +2255,16 @@ async def _tick():
         except Exception:
             await asyncio.to_thread(_unclaim, f"jarvis:backupclaim:{now.date().isoformat()}")
             raise
+    # Phase 5: market brief every MARKET_EVERY hours (opt-in)
+    if MARKET_ON and can_send:
+        slot = now.strftime("%Y%m%d") + f"-h{(now.hour // MARKET_EVERY) * MARKET_EVERY:02d}"
+        if await asyncio.to_thread(_claim, f"jarvis:market:{slot}", MARKET_EVERY * 3600 + 300):
+            try:
+                brief = await run_market_brief()
+                await _tg_send(TG_OWNER, "📊 Análisis de mercado (automático):\n\n" + brief)
+            except Exception as e:
+                _sched_state["last_error"] = f"market: {type(e).__name__}: {e}"
+                await asyncio.to_thread(_unclaim, f"jarvis:market:{slot}")
     _sched_state["last_tick"] = now.isoformat()
 
 async def _scheduler_loop():
@@ -1930,12 +2294,22 @@ HANDLERS.update({"bank_accounts":bank_accounts,"bank_transactions":bank_transact
 HANDLERS.update({"bank_books_proposal":bank_books_proposal,"bank_set_alerts":bank_set_alerts})
 HANDLERS.update({"add_event":add_event,"list_events":list_events,"find_events":find_events,
                  "complete_event":complete_event,"cancel_event":cancel_event})
+# v3.5 Phase 5 research (async handler special-cased in run_tool)
+HANDLERS.update({"research_topic": research_topic})
+# v3.6 Phase 2 + inventory
+HANDLERS.update({
+    "add_client": add_client, "list_clients": list_clients, "find_client": find_client,
+    "edit_client": edit_client, "add_job": add_job, "list_jobs": list_jobs,
+    "edit_job": edit_job, "record_job_payment": record_job_payment, "jobs_summary": jobs_summary,
+    "add_inventory_item": add_inventory_item, "adjust_inventory": adjust_inventory,
+    "list_inventory": list_inventory,
+})
 
 def _t(name, desc, props=None, req=None):
     return {"name":name,"description":desc,
             "input_schema":{"type":"object","properties":props or {},"required":req or []}}
 S={"type":"string"}; N={"type":"number"}; I={"type":"integer"}
-KIND={"type":"string","enum":["reminder","bill","income","expense","event"]}
+KIND={"type":"string","enum":["reminder","bill","income","expense","event","client","job","inventory"]}
 
 TOOLS = [
     _t("add_reminder","Add a reminder. To get an automatic Telegram alert, set due as "
@@ -2009,12 +2383,47 @@ TOOLS = [
        "morning brief only.",{"low_balance":N,"big_amount":N}),
     _t("cancel_event","Cancel an event. For a repeating event, pass date to skip only that day; without date "
        "the whole series is cancelled.",{"id":I,"date":S},["id"]),
+    # --- v3.5 Phase 5 research ---
+    _t("research_topic","Research a topic for the boss (competitors, social networks, video ideas, market "
+       "niche, suppliers, etc.). Returns a short practical summary in Spanish. Use when the boss asks to "
+       "investigate something that is not already in the built-in data.",
+       {"topic":S},["topic"]),
+    # --- v3.6 Clients & Jobs ---
+    _t("add_client","Register a client (customer). name required; phone, email, notes, tags optional.",
+       {"name":S,"phone":S,"email":S,"notes":S,"tags":S},["name"]),
+    _t("list_clients","List or search clients by name/phone/email/tags.",{"query":S}),
+    _t("find_client","Find one client by name or phone (returns error if none).",{"query":S},["query"]),
+    _t("edit_client","Edit a client by id. changes = {name, phone, email, notes, tags}.",
+       {"id":I,"changes":{"type":"object"}},["id","changes"]),
+    _t("add_job","Create a job/order for a client. price=selling price, cost=your cost, advance=deposit already paid, "
+       "balance is calculated. status: quote, confirmed, in_progress, delivered, invoiced, paid, cancelled. "
+       "due_date YYYY-MM-DD.",
+       {"client_id":I,"title":S,"price":N,"cost":N,"advance":N,"status":S,"due_date":S,"notes":S,"location":S},
+       ["client_id","title"]),
+    _t("list_jobs","List jobs. Filter by status, client_id or query text. Shows open_balance.",
+       {"status":S,"client_id":I,"query":S,"include_cancelled":{"type":"boolean"}}),
+    _t("edit_job","Edit a job by id. changes can include title, status, price, cost, advance, due_date, notes, location. "
+       "Balance is recalculated automatically.",
+       {"id":I,"changes":{"type":"object"}},["id","changes"]),
+    _t("record_job_payment","Register a payment received on a job (does NOT move real money). Reduces balance. "
+       "If balance reaches 0, status becomes paid.",
+       {"id":I,"amount":N,"note":S},["id","amount"]),
+    _t("jobs_summary","Totals: jobs by status, open balance, estimated profit (price - cost).",{}),
+    # --- v3.6 Inventory ---
+    _t("add_inventory_item","Add a stock item (or increase quantity if name already exists). min_stock triggers low-stock warning.",
+       {"name":S,"quantity":N,"unit":S,"min_stock":N,"cost":N,"notes":S},["name"]),
+    _t("adjust_inventory","Change stock quantity by delta (positive = add, negative = use/remove).",
+       {"id":I,"delta":N,"note":S},["id","delta"]),
+    _t("list_inventory","List inventory. query filters by name. low_only=true shows only items at or below min_stock.",
+       {"query":S,"low_only":{"type":"boolean"}}),
 ]
 
 async def run_tool(name, args):
     try:
         if name == "delegate":
             return await delegate(**args)
+        if name == "research_topic":
+            return await research_topic(**args)
         if name not in HANDLERS:
             return {"error": f"unknown tool {name}"}
         # storage calls are blocking; run them off the event loop
@@ -2063,7 +2472,17 @@ def system_prompt():
             "add_income / add_expense. Spending analysis is orientation, not financial advice.\n"
             "v3.4.1: to move many bank movements into the books use bank_books_proposal; ONLY the boss can "
             "approve it by typing /anotar N (you have no tool to approve; never say it was recorded until he "
-            "does). Before proposing, suggest categorizing 'uncategorized' expenses so they can go in.")
+            "does). Before proposing, suggest categorizing 'uncategorized' expenses so they can go in.\n"
+            "v3.5 RESEARCH: use research_topic for any investigation (competitors, social networks, video "
+            "ideas, niches, suppliers). The boss can also type /mercado for the last market brief (zero tokens "
+            "if cached). Periodic market analysis runs only if MARKET_ANALYSIS_ENABLED=true.\n"
+            "v3.6 CLIENTS & JOBS: manage customers and work orders. add_client → add_job (with price, cost, "
+            "advance/deposit, balance). Status flow: quote → confirmed → in_progress → delivered → invoiced → paid. "
+            "record_job_payment only records the payment in Jarvis (never moves bank money). "
+            "list_jobs / jobs_summary for pipeline and open balances. "
+            "INVENTORY: add_inventory_item, adjust_inventory (delta +/−), list_inventory. "
+            "Low-stock items appear in the morning brief. "
+            "Telegram shortcuts: /clientes, /trabajos, /inventario (zero tokens).")
 
 # ---------------------------------------------------------------------------
 # Conversation loop. Works on a copy of the history and only saves it when
@@ -2264,6 +2683,43 @@ async def telegram(request: Request, background: BackgroundTasks,
         # v3.3: /listo N [YYYY-MM-DD] marks calendar event N done (zero tokens)
         background.add_task(_tg_done, chat_id, arg)
         return {"ok": True}
+    if cmd in ("/mercado", "/market"):
+        # v3.5: last market brief (zero tokens if cached)
+        async def _mercado():
+            try:
+                await _tg_send(chat_id, await asyncio.to_thread(market_text))
+            except Exception:
+                pass
+        background.add_task(_mercado)
+        return {"ok": True}
+    if cmd in ("/clientes", "/cliente"):
+        async def _cli():
+            try:
+                await _tg_send(chat_id, await asyncio.to_thread(clients_text, arg.strip()))
+            except Exception as e:
+                try: await _tg_send(chat_id, f"⚠️ {type(e).__name__}")
+                except Exception: pass
+        background.add_task(_cli)
+        return {"ok": True}
+    if cmd in ("/trabajos", "/trabajo", "/jobs"):
+        async def _jobs():
+            try:
+                await _tg_send(chat_id, await asyncio.to_thread(jobs_text, arg.strip()))
+            except Exception as e:
+                try: await _tg_send(chat_id, f"⚠️ {type(e).__name__}")
+                except Exception: pass
+        background.add_task(_jobs)
+        return {"ok": True}
+    if cmd in ("/inventario", "/stock"):
+        async def _inv():
+            try:
+                low = arg.strip().lower() in ("bajo", "low", "minimo", "mínimo")
+                await _tg_send(chat_id, await asyncio.to_thread(inventory_text, low))
+            except Exception as e:
+                try: await _tg_send(chat_id, f"⚠️ {type(e).__name__}")
+                except Exception: pass
+        background.add_task(_inv)
+        return {"ok": True}
     # Answer Telegram right away; do the work in the background.
     background.add_task(_handle_tg, chat_id, text)
     return {"ok": True}
@@ -2280,10 +2736,11 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.4.2", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.6.0", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
-            "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar", "bank (read-only)"],
+            "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
+                        "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory"],
             "scheduler": {"enabled": SCHED_ON, "every_seconds": SCHED_EVERY,
                           "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
                           **_sched_state},
