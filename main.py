@@ -1,3 +1,5 @@
+# Jarvis 3.7.1 — Phase 4 step 1: money gate (one-time 6-digit codes, hard limits $100/$300,
+#   owner-only private chat, lockout, audit log /seguridad).
 # Jarvis 3.7.0 — Coinbase built in (read + buy/sell with double confirmation and limits), on top of 3.6.0.
 # v3.7: needs the 'cryptography' package (add one line to requirements.txt). Coinbase is OFF until its
 #       variables are set; trading is OFF until COINBASE_TRADING_ENABLED=true.
@@ -1655,6 +1657,12 @@ def books_proposal_text(arg=""):
     lines.append(f"\n✅ /anotar {r['proposal']}   ❌ /descartar {r['proposal']}  (vence en {PROPOSAL_DAYS} días)")
     return "\n".join(lines)
 
+def _books_audit(action, pid, result, detail=""):
+    try:
+        g = _gload(); gate_audit(g, action, f"libros#{pid}", result, detail); _gsave(g)
+    except Exception:
+        pass
+
 def approve_books_text(arg):
     ids = re.findall(r"\d+", arg or "")
     if not ids:
@@ -1662,7 +1670,9 @@ def approve_books_text(arg):
     try:
         r = approve_books_proposal(int(ids[0]))
     except ValueError as e:
+        _books_audit("anotar", ids[0], "rechazado", str(e))
         return f"⚠️ {_cap(str(e))}."
+    _books_audit("anotar", ids[0], "anotada", f"{r['recorded']} asientos")
     t = (f"✅ Propuesta #{r['approved']}: anoté {r['recorded']} en la contabilidad · ingresos "
          f"{_bank_usd(r['income_total'])} · gastos {_bank_usd(r['expense_total'])}.")
     if r["skipped"]:
@@ -2111,6 +2121,172 @@ def inventory_brief_lines():
     return ["\n📦 Reponer:"] + [f"• {x['name']}: {x['quantity']} {x['unit']} (mínimo {x['min_stock']})" for x in low[:8]]
 
 # ---------------------------------------------------------------------------
+# MONEY GATE (v3.7.1 — Phase 4, step 1). ONE gate for every money action, now and
+# later (Coinbase, Amazon cart...). Rules fixed in code:
+# - Only the owner's own Telegram user, in a private chat, can approve or confirm.
+#   Claude has NO tool for any of this.
+# - Double confirmation: /aprobar N -> 6-digit one-time code (only a salted hash is
+#   stored; valid 5 min; burned when used) -> /confirmar N CODE.
+# - 3 wrong codes on one item -> that item is cancelled.
+#   5 wrong codes in 60 min overall -> every approval is locked for 30 min.
+# - Hard ceilings: $100 per operation and $300 per day (Puerto Rico day).
+#   Env vars can only LOWER them, never raise them.
+# - Every attempt is written to an audit log (/seguridad shows it).
+# ---------------------------------------------------------------------------
+G_KEY = "jarvis:gate"
+HARD_MAX_ORDER_USD = 100.0
+HARD_MAX_DAY_USD = 300.0
+GATE_CODE_MIN = 5
+GATE_ITEM_MAX_FAILS = 3
+GATE_MAX_FAILS = 5
+GATE_FAIL_WINDOW_MIN = 60
+GATE_LOCK_MIN = 30
+TG_OWNER_USER = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip() or TG_OWNER   # private chat id == user id
+
+def _lower_only(env_names, hard):
+    """First env var that is set (> 0) wins, but never above the hard ceiling."""
+    for n in env_names:
+        v = _env_money(n, 0)
+        if v:
+            return min(float(v), hard)
+    return hard
+
+MONEY_MAX_ORDER = _lower_only(("MONEY_MAX_ORDER_USD", "COINBASE_MAX_ORDER_USD"), HARD_MAX_ORDER_USD)
+MONEY_MAX_DAY = _lower_only(("MONEY_MAX_DAY_USD", "COINBASE_MAX_DAY_USD"), HARD_MAX_DAY_USD)
+
+def _gload():
+    g = kv_get(G_KEY, {})
+    for k, v in (("codes", {}), ("fails", []), ("locked_until", None), ("spent", {}), ("audit", [])):
+        g.setdefault(k, v)
+    return g
+def _gsave(g): kv_set(G_KEY, g)
+
+def gate_audit(g, action, ref, result, detail=""):
+    g["audit"] = (g["audit"] + [{"at": _now().isoformat(timespec="seconds"), "action": action, "ref": str(ref),
+                                 "result": result, "detail": str(detail)[:200]}])[-500:]
+
+def gate_lock_left(g):
+    """Minutes left of a lockout (0 = not locked)."""
+    if g.get("locked_until"):
+        left = (datetime.datetime.fromisoformat(g["locked_until"]) - _now()).total_seconds()
+        if left > 0:
+            return int(left // 60) + 1
+        g["locked_until"] = None
+    return 0
+
+def gate_spent_today(g):
+    return round(float(g["spent"].get(_today().isoformat(), 0)), 2)
+
+def gate_limits_problem(g, usd):
+    try:
+        usd = float(usd)
+    except (TypeError, ValueError):
+        return "monto inválido"
+    if not math.isfinite(usd) or usd <= 0:
+        return "monto inválido"
+    if usd > MONEY_MAX_ORDER:
+        return f"pasa el límite por operación ({_bank_usd(MONEY_MAX_ORDER)})"
+    spent = gate_spent_today(g)
+    if spent + usd > MONEY_MAX_DAY:
+        return f"pasaría el límite del día ({_bank_usd(MONEY_MAX_DAY)}; ya van {_bank_usd(spent)})"
+    return ""
+
+def gate_add_spent(g, usd):
+    """Count money against today's limit (negative = give it back after a failed send)."""
+    day = _today().isoformat()
+    g["spent"][day] = round(max(0.0, float(g["spent"].get(day, 0)) + float(usd)), 2)
+    oldest = (_today() - datetime.timedelta(days=40)).isoformat()
+    g["spent"] = {k: v for k, v in g["spent"].items() if k >= oldest}
+
+def _code_hash(salt, ref, code):
+    return hashlib.sha256(f"{salt}|{ref}|{code}".encode()).hexdigest()
+
+def gate_issue_code(g, ref):
+    """New 6-digit one-time code for ref (replaces an older one). The code itself is never stored."""
+    now = _now()
+    g["codes"] = {k: c for k, c in g["codes"].items() if datetime.datetime.fromisoformat(c["until"]) > now}
+    code = f"{secrets.randbelow(10 ** 6):06d}"
+    salt = secrets.token_hex(8)
+    g["codes"][ref] = {"salt": salt, "hash": _code_hash(salt, ref, code), "fails": 0,
+                       "until": (now + datetime.timedelta(minutes=GATE_CODE_MIN)).isoformat(timespec="seconds")}
+    return code
+
+def gate_check_code(g, ref, code):
+    """-> {"ok": bool, "msg": str, "cancel": bool}. Burns the code when it is right."""
+    left = gate_lock_left(g)
+    if left:
+        return {"ok": False, "cancel": False,
+                "msg": f"las aprobaciones están bloqueadas {left} min más por códigos incorrectos"}
+    c = g["codes"].get(ref)
+    if not c:
+        return {"ok": False, "cancel": False, "msg": "no hay código activo; escribe /aprobar otra vez"}
+    if _now() > datetime.datetime.fromisoformat(c["until"]):
+        g["codes"].pop(ref, None)
+        return {"ok": False, "cancel": False, "msg": "el código venció; escribe /aprobar otra vez"}
+    if re.fullmatch(r"\d{6}", str(code or "")) and secrets.compare_digest(c["hash"], _code_hash(c["salt"], ref, code)):
+        g["codes"].pop(ref, None)                      # one use only
+        return {"ok": True, "cancel": False, "msg": ""}
+    now = _now()
+    since = now - datetime.timedelta(minutes=GATE_FAIL_WINDOW_MIN)
+    g["fails"] = [f for f in g["fails"] if datetime.datetime.fromisoformat(f) > since] + [now.isoformat(timespec="seconds")]
+    c["fails"] = c.get("fails", 0) + 1
+    if len(g["fails"]) >= GATE_MAX_FAILS:
+        g["locked_until"] = (now + datetime.timedelta(minutes=GATE_LOCK_MIN)).isoformat(timespec="seconds")
+        g["codes"] = {}
+        return {"ok": False, "cancel": True,
+                "msg": f"código incorrecto; demasiados intentos: bloqueé todas las aprobaciones {GATE_LOCK_MIN} min"}
+    if c["fails"] >= GATE_ITEM_MAX_FAILS:
+        g["codes"].pop(ref, None)
+        return {"ok": False, "cancel": True, "msg": "código incorrecto 3 veces; la descarté"}
+    return {"ok": False, "cancel": False, "msg": f"código incorrecto (intento {c['fails']} de {GATE_ITEM_MAX_FAILS})"}
+
+def is_owner_private(msg):
+    """True only for the owner's own Telegram user writing in a private chat (never a group, never a bot)."""
+    chat = msg.get("chat") or {}; frm = msg.get("from") or {}
+    return (bool(TG_OWNER) and bool(TG_OWNER_USER) and str(chat.get("id", "")) == TG_OWNER
+            and chat.get("type") == "private" and str(frm.get("id", "")) == TG_OWNER_USER
+            and not frm.get("is_bot"))
+
+def gate_practice_approve():
+    """/aprobar 0 — practice run of the real gate. Nothing is ever sent anywhere."""
+    with _data_lock:
+        g = _gload(); left = gate_lock_left(g)
+        if left:
+            gate_audit(g, "aprobar", "práctica", "bloqueado"); _gsave(g)
+            return f"⛔ Las aprobaciones están bloqueadas {left} min más por códigos incorrectos."
+        code = gate_issue_code(g, "practice#0"); gate_audit(g, "aprobar", "práctica", "código enviado"); _gsave(g)
+    return (f"🧪 PRÁCTICA (no se envía nada a ningún lado).\nPara confirmar escribe:\n/confirmar 0 {code}\n"
+            f"(vence en {GATE_CODE_MIN} min y sirve una sola vez). Los códigos malos SÍ cuentan para el bloqueo.")
+
+def gate_practice_confirm(code):
+    with _data_lock:
+        g = _gload(); chk = gate_check_code(g, "practice#0", code)
+        gate_audit(g, "confirmar", "práctica", "correcto" if chk["ok"] else "rechazado", chk["msg"]); _gsave(g)
+    return ("✅ Código correcto. Práctica completada: no se movió nada." if chk["ok"]
+            else f"⚠️ {_cap(chk['msg'])}.")
+
+MONEY_COMMANDS = ("/aprobar", "/confirmar", "/rechazar", "/anotar", "/descartar")
+
+def security_text():
+    """/seguridad — limits, today's total, lockout and the last approval attempts (zero tokens)."""
+    with _data_lock:
+        g = _gload()
+        left = gate_lock_left(g)
+        lines = ["🔐 Seguridad del dinero:",
+                 f"• Límites: {_bank_usd(MONEY_MAX_ORDER)} por operación · {_bank_usd(MONEY_MAX_DAY)} por día",
+                 f"• Usado hoy: {_bank_usd(gate_spent_today(g))}",
+                 f"• Aprobaciones: {'⛔ bloqueadas ' + str(left) + ' min' if left else '✅ activas'}",
+                 f"• Coinbase: {'conectado' if CB_ON else 'no conectado'} · "
+                 f"compra/venta {'ACTIVADA' if CB_TRADING else 'apagada'}",
+                 "• Solo tu usuario de Telegram en chat privado puede aprobar. Jarvis nunca aprueba solo."]
+        recent = g["audit"][-12:]
+        if recent:
+            lines.append("\nÚltimos intentos:")
+            lines += [f"• {a['at'][5:16].replace('T', ' ')} {a['action']} {a['ref']}: {a['result']}"
+                      + (f" ({a['detail'][:60]})" if a.get("detail") else "") for a in reversed(recent)]
+    return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
 # COINBASE (v3.7, mejoras #5 y #6 con las reglas de #20). Built into this same server.
 # - Read: balances, prices, recent trades (fills).
 # - Claude can only PREPARE a buy/sell. It has NO tool to approve or send one.
@@ -2128,10 +2304,9 @@ CB_KEY_NAME = os.getenv("COINBASE_API_KEY_NAME", "").strip()
 CB_SECRET = os.getenv("COINBASE_API_PRIVATE_KEY", "").replace("\\n", "\n").strip()
 CB_ON = bool(CB_KEY_NAME and CB_SECRET)
 CB_TRADING = os.getenv("COINBASE_TRADING_ENABLED", "false").strip().lower() in ("true", "1", "yes")
-CB_MAX_ORDER = _env_money("COINBASE_MAX_ORDER_USD", 100) or 0     # 0 = trading blocked
-CB_MAX_DAY = _env_money("COINBASE_MAX_DAY_USD", 300) or 0
+CB_MAX_ORDER = MONEY_MAX_ORDER   # v3.7.1: limits live in the money gate (hard $100 / $300)
+CB_MAX_DAY = MONEY_MAX_DAY
 CB_PROPOSAL_MIN = 10   # a prepared order is valid this many minutes (prices move)
-CB_CODE_MIN = 5        # the confirmation code is valid this many minutes
 
 def _xload():
     d = kv_get(X_KEY, {"orders": [], "log": [], "oseq": 0, "lseq": 0})
@@ -2275,21 +2450,6 @@ async def coinbase_fills(limit=20, product_id=""):
     added = await asyncio.to_thread(_save)
     return {"fills": fills, "count": len(fills), "added_to_log": added, "source": "Coinbase"}
 
-def _day_spent(d, day=None):
-    day = day or _today().isoformat()
-    return round(sum(o.get("usd_estimate", 0) for o in d["orders"]
-                     if o.get("status") in ("sending", "placed", "unknown") and str(o.get("sent_at", ""))[:10] == day), 2)
-
-def _limits_problem(d, usd):
-    if not CB_MAX_ORDER or not CB_MAX_DAY:
-        return "no hay límites puestos (COINBASE_MAX_ORDER_USD y COINBASE_MAX_DAY_USD); sin límites no envío órdenes"
-    if usd > CB_MAX_ORDER:
-        return f"pasa tu límite por orden ({_bank_usd(CB_MAX_ORDER)})"
-    spent = _day_spent(d)
-    if spent + usd > CB_MAX_DAY:
-        return f"pasaría tu límite del día ({_bank_usd(CB_MAX_DAY)}; ya van {_bank_usd(spent)})"
-    return ""
-
 async def coinbase_prepare_order(product_id, side, usd_amount=None, crypto_amount=None):
     """PREPARE (never send) a market buy/sell. Only the boss can send it: /aprobar N then /confirmar N CODE."""
     p = _product(product_id)
@@ -2335,7 +2495,7 @@ async def coinbase_prepare_order(product_id, side, usd_amount=None, crypto_amoun
             d["orders"] = ([x for x in d["orders"] if x["status"] == "pending"][-10:]
                            + [x for x in d["orders"] if x["status"] != "pending"][-50:] + [o])
             _xsave(d)
-            return o, _limits_problem(d, usd)
+            return o, gate_limits_problem(_gload(), usd)
     o, problem = await asyncio.to_thread(_save)
     out = {"order": o["id"], "product": p, "side": side, "amount": cfg["market_market_ioc"],
            "usd_estimate": usd, "estimate_from": how, "preview": preview,
@@ -2394,13 +2554,15 @@ def _cb_order_line(o):
     return (f"#{o['id']} {'🟢 COMPRA' if o['side'] == 'BUY' else '🔴 VENTA'} {what} ({o['product']}) · "
             f"aprox. {_bank_usd(o['usd_estimate'])}" + (f" · comisión aprox. ${fee}" if fee else ""))
 
-def _cb_get_pending(d, oid):
+def _cb_get_pending(d, oid, check_age=True):
     o = next((x for x in d["orders"] if x["id"] == int(oid)), None)
     if not o: raise ValueError(f"la orden #{oid} no existe")
     if o["status"] != "pending":
-        raise ValueError(f"la orden #{oid} ya está {o['status']}")
+        st = {"placed": "enviada", "sending": "enviándose", "failed": "fallida", "unknown": "sin confirmar",
+              "rejected": "descartada", "expired": "vencida"}.get(o["status"], o["status"])
+        raise ValueError(f"la orden #{oid} ya está {st}")
     age = (_now() - datetime.datetime.fromisoformat(o["created"])).total_seconds() / 60
-    if age > CB_PROPOSAL_MIN:
+    if check_age and age > CB_PROPOSAL_MIN:
         o["status"] = "expired"; _xsave(d)
         raise ValueError(f"la orden #{oid} venció (el precio cambia); pídeme prepararla otra vez")
     return o
@@ -2408,51 +2570,69 @@ def _cb_get_pending(d, oid):
 def cb_approve_text(arg):
     """/aprobar N — step 1 of 2: show details and a one-time code. Sends nothing."""
     ids = re.findall(r"\d+", arg or "")
-    if not ids: return "Usa /aprobar N (el número de la orden preparada)."
+    if not ids: return "Usa /aprobar N (el número de la orden preparada). /aprobar 0 = práctica."
+    if int(ids[0]) == 0:
+        return gate_practice_approve()
     with _data_lock:
-        d = _xload()
+        d = _xload(); g = _gload()
         try:
             o = _cb_get_pending(d, ids[0])
         except ValueError as e:
+            gate_audit(g, "aprobar", f"cb#{ids[0]}", "rechazado", str(e)); _gsave(g)
             return f"⚠️ {_cap(str(e))}."
+        ref = f"cb#{o['id']}"
+        left = gate_lock_left(g)
+        if left:
+            gate_audit(g, "aprobar", ref, "bloqueado"); _gsave(g)
+            return f"⛔ Las aprobaciones están bloqueadas {left} min más por códigos incorrectos."
         if not CB_TRADING:
+            gate_audit(g, "aprobar", ref, "rechazado", "compra/venta apagada"); _gsave(g)
             return ("⚠️ La compra/venta automática está apagada (COINBASE_TRADING_ENABLED). "
                     "Si quieres, hazla tú en la app de Coinbase con estos datos:\n" + _cb_order_line(o))
-        problem = _limits_problem(d, o["usd_estimate"])
+        problem = gate_limits_problem(g, o["usd_estimate"])
         if problem:
+            gate_audit(g, "aprobar", ref, "rechazado", problem); _gsave(g)
             return f"⛔ No la apruebo: {problem}.\n{_cb_order_line(o)}"
-        code = f"{secrets.randbelow(10000):04d}"
-        o["code_hash"] = hashlib.sha256(f"{o['uuid']}|{code}".encode()).hexdigest()
-        o["code_until"] = (_now() + datetime.timedelta(minutes=CB_CODE_MIN)).isoformat(timespec="seconds")
-        _xsave(d)
+        code = gate_issue_code(g, ref)
+        gate_audit(g, "aprobar", ref, "código enviado", f"{_bank_usd(o['usd_estimate'])}")
+        _gsave(g)
     return (f"🔐 Vas a enviar a Coinbase:\n{_cb_order_line(o)}\nEs a precio de mercado: el precio final puede variar "
             f"un poco.\n\nPara confirmar escribe exactamente:\n/confirmar {o['id']} {code}\n"
-            f"(vence en {CB_CODE_MIN} min). Si no confirmas, no se hace nada.")
+            f"(vence en {GATE_CODE_MIN} min y sirve una sola vez). Si no confirmas, no se hace nada.")
 
 async def cb_confirm_text(arg):
     """/confirmar N CODE — step 2 of 2: the only path that sends an order."""
     parts = re.findall(r"\d+", arg or "")
     if len(parts) < 2: return "Usa /confirmar N CÓDIGO (el código que te di en /aprobar)."
     oid, code = parts[0], parts[1]
+    if int(oid) == 0:
+        return await asyncio.to_thread(gate_practice_confirm, code)
     def _lock_it():
         with _data_lock:
-            d = _xload(); o = _cb_get_pending(d, oid)
-            if not o.get("code_hash"):
-                raise ValueError(f"primero escribe /aprobar {oid}")
-            if _now() > datetime.datetime.fromisoformat(o["code_until"]):
-                o.pop("code_hash", None); _xsave(d)
-                raise ValueError(f"el código venció; escribe /aprobar {oid} otra vez")
-            if not secrets.compare_digest(o["code_hash"], hashlib.sha256(f"{o['uuid']}|{code}".encode()).hexdigest()):
-                o["bad_codes"] = o.get("bad_codes", 0) + 1
-                if o["bad_codes"] >= 3:
-                    o["status"] = "rejected"; o.pop("code_hash", None)
-                _xsave(d)
-                raise ValueError("código incorrecto" + (" (orden descartada por 3 intentos)" if o["status"] == "rejected" else ""))
-            problem = _limits_problem(d, o["usd_estimate"])
+            d = _xload(); g = _gload(); ref = f"cb#{oid}"
+            try:
+                o = _cb_get_pending(d, oid, check_age=False)   # the 5-min code is the time limit now
+            except ValueError as e:
+                gate_audit(g, "confirmar", ref, "rechazado", str(e)); _gsave(g)
+                raise
+            chk = gate_check_code(g, ref, code)
+            if not chk["ok"]:
+                if chk["cancel"]:
+                    o["status"] = "rejected"
+                gate_audit(g, "confirmar", ref, "código incorrecto" if "incorrecto" in chk["msg"] else "rechazado", chk["msg"])
+                kv_set_many({X_KEY: d, G_KEY: g})
+                raise ValueError(chk["msg"])
+            if not CB_TRADING:
+                gate_audit(g, "confirmar", ref, "rechazado", "compra/venta apagada"); _gsave(g)
+                raise ValueError("la compra/venta automática está apagada; no envío nada")
+            problem = gate_limits_problem(g, o["usd_estimate"])
             if problem:
+                gate_audit(g, "confirmar", ref, "rechazado", problem); _gsave(g)
                 raise ValueError(f"no la envío: {problem}")
-            o["status"] = "sending"; o["sent_at"] = _now().isoformat(timespec="seconds"); o.pop("code_hash", None)
-            _xsave(d)   # marked BEFORE sending: a repeated /confirmar can never send it twice
+            o["status"] = "sending"; o["sent_at"] = _now().isoformat(timespec="seconds")
+            gate_add_spent(g, o["usd_estimate"])
+            gate_audit(g, "confirmar", ref, "enviando", f"{_bank_usd(o['usd_estimate'])}")
+            kv_set_many({X_KEY: d, G_KEY: g})   # saved BEFORE sending: it can never go twice
             return dict(o)
     try:
         o = await asyncio.to_thread(_lock_it)
@@ -2473,11 +2653,15 @@ async def cb_confirm_text(arg):
         extra = type(e).__name__
     def _finish():
         with _data_lock:
-            d = _xload()
+            d = _xload(); g = _gload()
             for x in d["orders"]:
                 if x["id"] == o["id"]:
                     x["status"] = status; x["result"] = extra
-            _xsave(d)
+            if status == "failed":
+                gate_add_spent(g, -o["usd_estimate"])   # nothing happened: give the limit back
+            gate_audit(g, "resultado", f"cb#{o['id']}", {"placed": "enviada", "failed": "fallida",
+                                                         "unknown": "sin confirmar"}[status], extra)
+            kv_set_many({X_KEY: d, G_KEY: g})
     await asyncio.to_thread(_finish)
     if status == "placed":
         return (f"✅ Orden enviada a Coinbase: {_cb_order_line(o)}\nId de Coinbase: {extra}\n"
@@ -2491,12 +2675,14 @@ def cb_reject_text(arg):
     ids = re.findall(r"\d+", arg or "")
     if not ids: return "Usa /rechazar N."
     with _data_lock:
-        d = _xload()
+        d = _xload(); g = _gload()
         try:
-            o = _cb_get_pending(d, ids[0])
+            o = _cb_get_pending(d, ids[0], check_age=False)
         except ValueError as e:
             return f"⚠️ {_cap(str(e))}."
-        o["status"] = "rejected"; o.pop("code_hash", None); _xsave(d)
+        o["status"] = "rejected"; g["codes"].pop(f"cb#{o['id']}", None)
+        gate_audit(g, "rechazar", f"cb#{o['id']}", "descartada")
+        kv_set_many({X_KEY: d, G_KEY: g})
     return f"❌ Orden #{o['id']} descartada. No se envió nada."
 
 async def cb_balances_text():
@@ -2755,7 +2941,7 @@ def snapshot():
     with _data_lock:
         return {"taken_at": _now().isoformat(), "personal": _pload(), "books": _bload(),
                 "calendar": _eload(), "bank": _kload(), "research": _rload(),
-                "clients": _cload(), "inventory": _iload(), "crypto": _xload()}
+                "clients": _cload(), "inventory": _iload(), "crypto": _xload(), "money_audit": _gload()["audit"]}
 
 def daily_backup():
     """One copy of all data per day, kept 30 days inside Redis."""
@@ -3055,7 +3241,7 @@ def system_prompt():
             "or trades. Prices/balances only from the coinbase_* tools, always with the time. You can PREPARE a "
             "buy/sell with coinbase_prepare_order, but you NEVER authorize, approve or send one, and no tool for "
             "that exists: the boss types /aprobar N and then /confirmar N CODE himself. Never say an order was "
-            "sent unless he tells you Jarvis confirmed it. Never suggest what to buy or sell or when: crypto info "
+            "sent unless he tells you Jarvis confirmed it. The boss can type /seguridad to see limits and attempts. Never suggest what to buy or sell or when: crypto info "
             "is general orientation, not financial advice (use research_topic for general info). Trades he did "
             "by himself go to record_crypto_trade (separate crypto log, not business income/expenses unless he "
             "says so). There is no tool to withdraw or send crypto. Shortcuts: /cripto, /cripto movimientos.")
@@ -3262,6 +3448,12 @@ async def _tg_cb_cmd(chat_id, cmd, arg):
     except Exception:
         pass
 
+async def _tg_security(chat_id):
+    try:
+        await _tg_send(chat_id, await asyncio.to_thread(security_text))
+    except Exception:
+        pass
+
 @app.post("/telegram")
 async def telegram(request: Request, background: BackgroundTasks,
                    x_telegram_bot_api_secret_token: str = Header(None)):
@@ -3291,6 +3483,9 @@ async def telegram(request: Request, background: BackgroundTasks,
         return {"ok": True}
     if not chat_id or not (text or doc) or not TG_OWNER or chat_id != TG_OWNER:
         return {"ok": True}
+    frm = msg.get("from") or {}
+    if str(frm.get("id", "")) != TG_OWNER_USER or frm.get("is_bot"):
+        return {"ok": True}     # v3.7.1: only the owner's own user, never someone else in the chat
     if not await asyncio.to_thread(_first_time, update.get("update_id")):
         return {"ok": True}
     if doc and not text:
@@ -3302,6 +3497,17 @@ async def telegram(request: Request, background: BackgroundTasks,
         return {"ok": True}
     cmd, _, arg = text.strip().partition(" ")
     cmd = cmd.lower().split("@")[0]
+    if cmd in MONEY_COMMANDS and not is_owner_private(msg):
+        def _deny():
+            with _data_lock:
+                g = _gload(); gate_audit(g, cmd, "-", "rechazado", "no es chat privado del dueño"); _gsave(g)
+        await asyncio.to_thread(_deny)
+        background.add_task(_tg_safe_send, chat_id, "⛔ Eso solo se aprueba en tu chat privado con Jarvis.")
+        return {"ok": True}
+    if cmd in ("/seguridad", "/security"):
+        # v3.7.1: money gate status + audit log (zero tokens)
+        background.add_task(_tg_security, chat_id)
+        return {"ok": True}
     if cmd in ("/calendario", "/cal", "/semana"):
         # v3.3: calendar list without Claude (zero tokens). /calendario 30 = next 30 days
         n = int(arg.strip()) if arg.strip().isdigit() else (7 if cmd == "/semana" else 14)
@@ -3344,7 +3550,7 @@ async def backup(x_api_key: str = Header(...)):
 
 @app.get("/")
 async def health():
-    return {"jarvis": "online", "version": "3.7.0", "storage": storage_mode(),
+    return {"jarvis": "online", "version": "3.7.1", "storage": storage_mode(),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
@@ -3353,6 +3559,7 @@ async def health():
                           "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
                           "market_brief": f"every {MARKET_EVERY}h" if MARKET_ON else "off",
                           **_sched_state},
-            "coinbase": {"connected": CB_ON, "trading": CB_TRADING, "max_order_usd": CB_MAX_ORDER,
-                         "max_day_usd": CB_MAX_DAY},
+            "coinbase": {"connected": CB_ON, "trading": CB_TRADING},
+            "money_gate": {"max_order_usd": MONEY_MAX_ORDER, "max_day_usd": MONEY_MAX_DAY,
+                           "owner_user_set": bool(TG_OWNER_USER), "code_minutes": GATE_CODE_MIN},
             "external_agents": {a: bool(u) for a, u in AGENTS.items()}}
