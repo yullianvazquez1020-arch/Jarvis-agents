@@ -38,7 +38,7 @@ def install(j):
     old_snapshot=j.snapshot
     def snapshot():
         with j._data_lock:return {**old_snapshot(),'growth':load()}
-    j.snapshot=snapshot
+    j.snapshot=snapshot;j.RESTORE_KEYS['growth']=KEY
     old_prompt=j.system_prompt
     j.system_prompt=lambda:old_prompt()+('\nJarvis 4.0 growth: prioritize measurable sales/cost results. Use growth_opportunities for existing business, '
       'sourcing_research and product_economics for Alibaba/Amazon, youtube_research and create_video_plan for ORIGINAL educational videos. '
@@ -67,7 +67,7 @@ def install(j):
         with j._data_lock:d=load();d['last_brief_day']=day;save(d)
     j._tick_v38=tick
     old_config=ext.system_configuration
-    def config():return {**old_config(),'version':'4.0.0','growth':growth_status()}
+    def config():return {**old_config(),'version':core.VERSION,'growth':growth_status()}
     ext.system_configuration=config;j.HANDLERS['system_configuration']=config
     old_cmd=ext.command
     async def command(chat_id,cmd,arg):
@@ -187,7 +187,7 @@ def prepare_growth_message(kind,id):
 
 def growth_status():
     fields=lambda names:all(os.getenv(n,'').strip() for n in names)
-    return {'version':'4.0.0','alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
+    return {'version':core.VERSION,'alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
       'amazon_credentials_configured':fields(['AMAZON_CLIENT_ID','AMAZON_CLIENT_SECRET','AMAZON_REFRESH_TOKEN','AMAZON_SELLER_ID','AMAZON_MARKETPLACE_ID']),
       'youtube_search_key_configured':bool(os.getenv('YOUTUBE_API_KEY','').strip()),
       'youtube_upload_credentials_configured':fields(['YOUTUBE_CLIENT_ID','YOUTUBE_CLIENT_SECRET','YOUTUBE_REFRESH_TOKEN']),
