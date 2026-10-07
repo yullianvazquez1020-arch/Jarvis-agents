@@ -1,0 +1,10 @@
+...............................................................desktop API failed to install: RuntimeError; desktop API off
+..DESKTOP_API_ENABLED=true but jarvis_desktop_api.py is missing; desktop API off
+........................................................................................................................................................................................................................telegram job 31 has an unknown format; not executed
+.....history rejected by the API, repairing session s: BadRequest: messages.1: `tool_use` ids were found without `tool_result` blocks
+...............................................................................external agent call marked down after 3 failures
+.......................................
+----------------------------------------------------------------------
+Ran 404 tests in 36.212s
+
+OK
