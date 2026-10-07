@@ -39,14 +39,51 @@ _SAFE_ENV = ("PATH", "LD_LIBRARY_PATH", "PYTHONPATH", "LANG", "LC_ALL", "SSL_CER
 
 _WORKER = r"""
 import json, resource, sys
-req = json.loads(sys.stdin.read(4000))
-from faster_whisper import WhisperModel
-m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
-                 download_root=req["models"])
-segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=1)
-text = " ".join(s.text.strip() for s in segs)
-print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
+stage = "import"
+try:
+    req = json.loads(sys.stdin.read(4000))
+    from faster_whisper import WhisperModel
+    stage = "model"
+    m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
+                     download_root=req["models"])
+    stage = "transcribe"
+    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=1)
+    text = " ".join(s.text.strip() for s in segs)
+    print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
+except Exception as exc:
+    # Never serialize exception messages, tracebacks, paths, URLs or credentials.
+    kind = type(exc).__name__
+    allowed = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
+               "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+               "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout"}
+    error = {"stage": stage, "kind": kind if kind in allowed else "Exception",
+             "missing_whisper": isinstance(exc, ModuleNotFoundError) and exc.name == "faster_whisper"}
+    print(json.dumps({"error": error}), flush=True)
+    sys.exit(1)
 """
+
+_ERROR_STAGES = {"import": "importar el transcriptor", "model": "descargar o cargar el modelo tiny",
+                 "transcribe": "transcribir el audio"}
+_ERROR_KINDS = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
+                "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+                "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout", "Exception"}
+
+
+def _worker_failure(code: int, out: bytes) -> str:
+    """Only allowlisted diagnostics cross the worker boundary; stderr remains private."""
+    try:
+        error = json.loads(out.decode().strip().splitlines()[-1])["error"]
+        stage = error["stage"] if error["stage"] in _ERROR_STAGES else "unknown"
+        kind = error["kind"] if error["kind"] in _ERROR_KINDS else "Exception"
+        missing = stage == "import" and kind == "ModuleNotFoundError" and error.get("missing_whisper") is True
+    except (ValueError, UnicodeError, IndexError, KeyError, TypeError):
+        stage, kind, missing = "unknown", "Exception", False
+    log.warning("local whisper worker failed: exit=%s stage=%s kind=%s", code, stage, kind)
+    if missing:
+        return "faster-whisper no está instalado"
+    if stage in _ERROR_STAGES:
+        return f"falló al {_ERROR_STAGES[stage]} ({kind}); revisa los registros de Render"
+    return f"el transcriptor terminó sin diagnóstico (exit={code}); no se confirmó la causa"
 
 
 def enabled() -> bool:
@@ -115,8 +152,7 @@ async def transcribe_local(raw: bytes) -> str:
         except asyncio.TimeoutError:
             raise ValueError("la transcripción local tardó demasiado") from None
         if code:
-            log.warning("local whisper worker failed: exit=%s", code)
-            raise ValueError("faster-whisper no está instalado o no cupo en memoria; no usé una API de pago")
+            raise ValueError(_worker_failure(code, out)) from None
         try:
             result = json.loads(out.decode().strip().splitlines()[-1])
         except (ValueError, IndexError):

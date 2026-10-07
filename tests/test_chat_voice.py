@@ -106,11 +106,66 @@ class ChatVoice(unittest.TestCase):
         self.assertTrue(all("api.telegram.org" in url for url, _ in FakeHTTP.posts))   # no other API called
 
     def test_not_installed_message_no_paid_api(self):
-        (Path(self.fake_pkg) / "faster_whisper.py").unlink()
-        with patch.dict(os.environ, {"PYTHONPATH": ""}):
-            self.voice()
+        (Path(self.fake_pkg) / "faster_whisper.py").write_text(
+            'raise ModuleNotFoundError("secret details", name="faster_whisper")')
+        self.voice()
         self.assertIn("faster-whisper no está instalado", self.sent[-1]); self.assertIn("No usé una API de pago", self.sent[-1])
+        self.assertEqual(self.sent[-1].count("No usé una API de pago"), 1)
         self.assertEqual(self.voices(), []); self.assertEqual(FakeHTTP.posts, [])
+
+    def test_dependency_import_failure_not_misreported_as_missing_whisper(self):
+        (Path(self.fake_pkg) / "faster_whisper.py").write_text(
+            'raise ImportError("private-token-and-path")')
+        with self.assertLogs(cv.log, level="WARNING") as logs:
+            self.voice()
+        self.assertIn("importar el transcriptor (ImportError)", self.sent[-1])
+        self.assertNotIn("no está instalado", self.sent[-1])
+        self.assertNotIn("private-token-and-path", str(logs.output) + str(self.sent))
+        self.assertEqual(self.voices(), [])
+
+    def test_model_failure_reports_stage_without_exception_contents(self):
+        (Path(self.fake_pkg) / "faster_whisper.py").write_text('''
+class WhisperModel:
+    def __init__(self, *a, **kw):
+        raise RuntimeError("https://private.example/?token=SECRET")
+''')
+        with self.assertLogs(cv.log, level="WARNING") as logs:
+            self.voice()
+        self.assertIn("descargar o cargar el modelo tiny (RuntimeError)", self.sent[-1])
+        self.assertIn("stage=model kind=RuntimeError", str(logs.output))
+        self.assertNotIn("SECRET", str(logs.output) + str(self.sent))
+        self.assertEqual(self.voices(), []); self.assertEqual(FakeHTTP.posts, [])
+
+    def test_lazy_transcription_failure_reports_stage(self):
+        (Path(self.fake_pkg) / "faster_whisper.py").write_text('''
+class WhisperModel:
+    def __init__(self, *a, **kw): pass
+    def transcribe(self, *a, **kw):
+        def segments():
+            raise ValueError("private audio contents")
+            yield
+        return segments(), None
+''')
+        self.voice()
+        self.assertIn("transcribir el audio (ValueError)", self.sent[-1])
+        self.assertNotIn("private audio contents", str(self.sent))
+        self.assertEqual(self.voices(), [])
+
+    def test_unknown_worker_exit_does_not_claim_memory_or_missing_package(self):
+        with self.assertLogs(cv.log, level="WARNING") as logs:
+            message = cv._worker_failure(-9, b"private traceback SECRET")
+        self.assertIn("exit=-9", message)
+        self.assertIn("no se confirmó la causa", message)
+        self.assertNotIn("memoria", message)
+        self.assertNotIn("SECRET", message + str(logs.output))
+
+    def test_worker_diagnostics_are_allowlisted(self):
+        for error in ({"stage": "SECRET", "kind": "SECRET"}, None, ["SECRET"],
+                      {"stage": "model", "kind": "SECRET", "missing_whisper": True}):
+            with self.subTest(error=error), self.assertLogs(cv.log, level="WARNING") as logs:
+                message = cv._worker_failure(1, json.dumps({"error": error}).encode())
+            self.assertNotIn("SECRET", message + str(logs.output))
+            self.assertNotIn("no está instalado", message)
 
     def test_not_while_producing_video(self):
         async def go():
