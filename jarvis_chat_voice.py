@@ -1,0 +1,226 @@
+# jarvis_chat_voice.py
+# Conversación por voz en Telegram. No narra videos y no llama APIs de pago.
+# Si falla la voz, el texto igual sale. El dictado no se ejecuta solo.
+#
+# Revisado (sobre 40b911c):
+#  * Apagado por defecto: LOCAL_VOICE_ENABLED=true lo prende, después de probar una nota corta (512 MB es justo).
+#  * Ya no se niega si OPENAI_API_KEY está puesta: este camino nunca la usa, así que no hace falta revisarla.
+#  * ffmpeg sale de imageio-ffmpeg (ya está en requirements, y es el que usan los videos); Render no trae
+#    ffmpeg del sistema.
+#  * Comparte el candado de /producirvideo: no carga Whisper mientras se produce un video, y viceversa.
+#  * Notas de hasta 60 s (se revisa la duración antes de descargar) y tiempo límite en cada paso.
+#  * Los procesos hijos no reciben las llaves de Jarvis (mismo criterio que jarvis_local_tts).
+#  * Telegram solo acepta notas de voz en OGG/Opus (o MP3/M4A): la respuesta se convierte a Opus. La frase
+#    fija se genera una sola vez y queda en caché, así no se carga Piper en cada nota.
+#  * Cada transcripción deja en el log la memoria máxima del proceso, para medir los 512 MB reales en Render.
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+MAX_AUDIO = 1_500_000
+MAX_SECONDS = 60
+MAX_CHARS = 500
+WHISPER_TIMEOUT = 90
+FFMPEG_TIMEOUT = 30
+REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
+log = logging.getLogger(__name__)
+
+# Variables que sí pasan a los procesos hijos (sin AGENT_API_KEY, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, etc.)
+_SAFE_ENV = ("PATH", "LD_LIBRARY_PATH", "PYTHONPATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
+             "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "HOME", "TMPDIR")
+
+_WORKER = r"""
+import json, resource, sys
+req = json.loads(sys.stdin.read(4000))
+from faster_whisper import WhisperModel
+m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
+                 download_root=req["models"])
+segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=1)
+text = " ".join(s.text.strip() for s in segs)
+print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
+"""
+
+
+def enabled() -> bool:
+    return os.getenv("LOCAL_VOICE_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
+def model_dir() -> Path:
+    return Path(os.getenv("WHISPER_MODEL_DIR", str(Path(__file__).parent / "whisper_models")))
+
+
+def _child_env() -> dict:
+    env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV}
+    env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", HF_HUB_DISABLE_TELEMETRY="1",
+               HF_HOME=str(model_dir() / "hf"))
+    return env
+
+
+def ffmpeg_exe() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        exe = shutil.which("ffmpeg")
+        if not exe:
+            raise ValueError("no encuentro ffmpeg (imageio-ffmpeg)") from None
+        return exe
+
+
+async def _run(args, timeout, stdin=None, env=None):
+    proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                env=env)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout)
+    except BaseException:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+        raise
+    return proc.returncode, out
+
+
+async def _ffmpeg(args, timeout=FFMPEG_TIMEOUT) -> int:
+    try:
+        code, _ = await _run([ffmpeg_exe(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y"] + args, timeout,
+                             env=_child_env())
+    except asyncio.TimeoutError:
+        raise ValueError("la conversión de audio tardó demasiado") from None
+    return code
+
+
+async def transcribe_local(raw: bytes) -> str:
+    if not raw or len(raw) > MAX_AUDIO:
+        raise ValueError("audio vacío o mayor de 1.5 MB")
+    with tempfile.TemporaryDirectory(prefix="jarvis-voz-") as tmp:
+        src = Path(tmp) / "nota.ogg"
+        wav = Path(tmp) / "nota.wav"
+        src.write_bytes(raw)
+        if await _ffmpeg(["-i", str(src), "-t", str(MAX_SECONDS), "-ac", "1", "-ar", "16000", str(wav)]) != 0:
+            raise ValueError("no pude convertir el audio")
+        model_dir().mkdir(parents=True, exist_ok=True)
+        try:
+            code, out = await _run([sys.executable, "-c", _WORKER], WHISPER_TIMEOUT,
+                                   stdin=json.dumps({"wav": str(wav), "models": str(model_dir())}).encode(),
+                                   env=_child_env())
+        except asyncio.TimeoutError:
+            raise ValueError("la transcripción local tardó demasiado") from None
+        if code:
+            log.warning("local whisper worker failed: exit=%s", code)
+            raise ValueError("faster-whisper no está instalado o no cupo en memoria; no usé una API de pago")
+        try:
+            result = json.loads(out.decode().strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            raise ValueError("respuesta inválida del transcriptor local") from None
+        log.warning("Local whisper ready: peak_memory_mb=%s", result.get("peak_memory_mb"))
+        text = " ".join(str(result.get("text", "")).split())
+        if not text:
+            raise ValueError("no entendí el audio")
+        return text[:4000]
+
+
+async def speak_local(text: str) -> bytes:
+    """WAV con la voz local (Piper, jarvis_local_tts)."""
+    text = " ".join(text.split())[:MAX_CHARS]
+    if not text:
+        raise ValueError("no hay texto para hablar")
+    import jarvis_local_tts
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = await jarvis_local_tts.local_narration({"language": "es", "scenes": [{"narration": text}]}, tmp)
+        return Path(paths[0]).read_bytes()
+
+
+async def to_opus(wav: bytes) -> bytes:
+    """Telegram sendVoice: OGG con Opus."""
+    with tempfile.TemporaryDirectory(prefix="jarvis-voz-") as tmp:
+        src, dst = Path(tmp) / "r.wav", Path(tmp) / "r.ogg"
+        src.write_bytes(wav)
+        if await _ffmpeg(["-i", str(src), "-ac", "1", "-c:a", "libopus", "-b:a", "32k", str(dst)]) != 0:
+            raise ValueError("no pude convertir la voz a Opus")
+        return dst.read_bytes()
+
+
+async def reply_voice() -> bytes:
+    """La frase fija se genera una vez y queda en caché (no carga Piper en cada nota)."""
+    cache = model_dir() / "respuesta-nota.ogg"
+    if cache.exists() and cache.stat().st_size > 0:
+        return cache.read_bytes()
+    ogg = await to_opus(await speak_local(REPLY_TEXT))
+    model_dir().mkdir(parents=True, exist_ok=True)
+    tmp = cache.with_suffix(".tmp")
+    tmp.write_bytes(ogg)
+    os.replace(tmp, cache)
+    return ogg
+
+
+def _heavy_lock(core):
+    """El mismo candado de /producirvideo: Whisper y el video nunca a la vez en 512 MB."""
+    growth = getattr(core, "_growth", None)
+    return getattr(growth, "_video_lock", None)
+
+
+async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
+    try:
+        seconds = int(voice.get("duration") or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds > MAX_SECONDS:
+        await core._tg_safe_send(chat_id, f"La nota dura {seconds} s. En local transcribo hasta {MAX_SECONDS} s; "
+                                          "mándala más corta. No usé una API de pago.")
+        return
+    lock = _heavy_lock(core)
+    if lock is not None and lock.locked():
+        await core._tg_safe_send(chat_id, "Estoy produciendo un video y no caben los dos en memoria. Mándame la nota "
+                                          "cuando termine. No usé una API de pago.")
+        return
+    async def work():
+        raw = await core._tg_file(voice["file_id"])
+        return await transcribe_local(raw)
+    try:
+        if lock is not None:
+            async with lock:
+                text = await work()
+        else:
+            text = await work()
+    except Exception as exc:
+        await core._tg_safe_send(chat_id, "No pude transcribir en local: " + str(exc)[:180] + ". No usé una API de pago.")
+        return
+    text = core._redact_secrets(text)[0]
+    with core._data_lock:
+        d = load()
+        n = {"id": alloc(d, "voices"), "text": text, "status": "pending", "created": stamp()}
+        d["voices"].append(n)
+        save(d)
+    await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\nRevisa monto y concepto antes de guardar. "
+                                 f"/dictado {n['id']} para procesarlo. No ejecuté nada.")
+    try:
+        if lock is not None and lock.locked():
+            raise RuntimeError("video en curso")
+        ogg = await reply_voice()
+        async with core.httpx.AsyncClient(timeout=60) as hc:
+            r = await hc.post(f"https://api.telegram.org/bot{core.TG_TOKEN}/sendVoice",
+                              data={"chat_id": chat_id}, files={"voice": ("respuesta.ogg", ogg, "audio/ogg")})
+            if r.status_code != 200:
+                raise RuntimeError("telegram no confirmó la voz")
+    except Exception:
+        await core._tg_safe_send(chat_id, "La respuesta escrita ya está arriba. La voz local no salió; no usé una API de pago.")
+
+
+def status() -> str:
+    if not enabled():
+        return "voz local apagada (LOCAL_VOICE_ENABLED=false)"
+    try:
+        import importlib.util
+        ok = importlib.util.find_spec("faster_whisper") is not None
+    except Exception:
+        ok = False
+    return "voz local activa (faster-whisper tiny)" if ok else "voz local prendida pero falta instalar faster-whisper"

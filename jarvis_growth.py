@@ -286,12 +286,32 @@ async def paper_backtest(product_id):
     return {'product':p,'source':'Coinbase Exchange public candles',**backtest_rows(rows)}
 
 # Platform adapters: only configured official APIs. No scraping/login automation.
+class ServiceHTTPError(ValueError):
+    """Same message as before (it is still a ValueError), plus what the service said: HTTP status, Google's
+    error reason and message. Never the request, the token or the full body."""
+    def __init__(self,msg,status=None,reason='',detail=''):
+        super().__init__(msg);self.status=status;self.reason=reason;self.detail=detail
+
+def _service_error_fields(r):
+    try:body=r.json()
+    except ValueError:return '',''
+    err=body.get('error') if isinstance(body,dict) else None
+    if isinstance(err,dict):
+        errs=err.get('errors') if isinstance(err.get('errors'),list) else []
+        reason=str((errs[0].get('reason') if errs and isinstance(errs[0],dict) else '') or err.get('status') or '')[:80]
+        detail=str(err.get('message') or '')
+    elif isinstance(err,str):reason,detail=err[:80],str(body.get('error_description') or '')
+    else:return '',''
+    return core._redact_secrets(reason)[0],core._redact_secrets(detail)[0][:300]
+
 async def _json_request(method,url,**kw):
     try:
         async with core.httpx.AsyncClient(timeout=60) as hc:r=await hc.request(method,url,**kw)
     except core.httpx.HTTPError:
         raise ValueError('No se pudo conectar con el servicio; revisa conexión/configuración') from None
-    if not 200<=r.status_code<300:raise ValueError(f'El servicio respondió HTTP {r.status_code}; revisa permisos/cuota/configuración')
+    if not 200<=r.status_code<300:
+        reason,detail=_service_error_fields(r)
+        raise ServiceHTTPError(f'El servicio respondió HTTP {r.status_code}; revisa permisos/cuota/configuración',r.status_code,reason,detail)
     try:body=r.json()
     except ValueError:raise ValueError('Respuesta del servicio no es JSON válido') from None
     if not isinstance(body,dict):raise ValueError('Respuesta del servicio inválida')
@@ -561,12 +581,37 @@ async def publish_youtube(id):
             p['status']='publishing';p['publish_approved_at']=stamp();save(d);p=dict(p)
         try:
             result=await _json_request('PUT','https://www.googleapis.com/youtube/v3/videos',params={'part':'status'},headers={'Authorization':'Bearer '+token},json={'id':p['youtube_id'],'status':{'privacyStatus':'public','selfDeclaredMadeForKids':True}})
-            state='published' if result.get('status',{}).get('privacyStatus')=='public' else 'uploaded_private'
-        except Exception:
-            with core._data_lock:d=load();next(x for x in d['video_plans'] if x['id']==int(id))['status']='unknown_publish';save(d)
-            raise ValueError('Publicación sin confirmar; revisa YouTube Studio') from None
-        with core._data_lock:d=load();next(x for x in d['video_plans'] if x['id']==int(id))['status']=state;save(d)
-        return {'status':state,'url':'https://www.youtube.com/watch?v='+p['youtube_id'],'note':'YouTube puede restringir proyectos API sin verificar a videos privados.'}
+            privacy=str(result.get('status',{}).get('privacyStatus') or '')
+            state='published' if privacy=='public' else 'uploaded_private'
+        except Exception as e:
+            # Revisado: igual que antes, nunca se da por publicada y no se reintenta sola; pero ahora se guarda
+            # lo que dijo Google (código, motivo y mensaje), sin token ni cuerpo de la petición.
+            err=_publish_error(e)
+            with core._data_lock:
+                d=load();x=next(x for x in d['video_plans'] if x['id']==int(id));x['status']='unknown_publish';x['publish_error']=err;save(d)
+            logging.getLogger(__name__).warning('youtube publish not confirmed: plan=%s kind=%s http=%s reason=%s',id,err['kind'],err.get('http_status'),err.get('reason'))
+            raise ValueError('Publicación sin confirmar; revisa YouTube Studio. '+_publish_error_text(err)) from None
+        with core._data_lock:
+            d=load();x=next(x for x in d['video_plans'] if x['id']==int(id));x['status']=state;x.pop('publish_error',None)
+            if state!='published':x['publish_note']=f'YouTube respondió privacyStatus={privacy or "?"}; el video sigue privado'
+            save(d)
+        out={'status':state,'url':'https://www.youtube.com/watch?v='+p['youtube_id'],'note':'YouTube puede restringir proyectos API sin verificar a videos privados.'}
+        if state!='published':out['youtube_privacy']=privacy or '?'
+        return out
+
+def _publish_error(e):
+    err={'at':stamp(),'kind':'other','error':type(e).__name__}
+    if isinstance(e,ServiceHTTPError):
+        err.update(kind='http',http_status=e.status,reason=e.reason,message=e.detail)
+    elif isinstance(e,ValueError) and 'conectar' in str(e):err['kind']='network'
+    return err
+
+def _publish_error_text(err):
+    if err['kind']=='http':
+        t=f"Google respondió HTTP {err.get('http_status')}"+(f" ({err['reason']})" if err.get('reason') else '')
+        return t+(f": {err['message']}" if err.get('message') else '')+'. Guardado en /video del plan.'
+    if err['kind']=='network':return 'No hubo respuesta de Google (red). Guardado en /video del plan.'
+    return f"Error {err.get('error')}. Guardado en /video del plan."
 
 async def growth_command(chat_id,cmd,arg):
     try:
@@ -575,6 +620,8 @@ async def growth_command(chat_id,cmd,arg):
         elif cmd=='/backtest':value=await paper_backtest(arg or 'BTC-USD')
         elif cmd=='/producirvideo':value=await render_plan(int(arg),chat_id)
         elif cmd=='/mejorarvideo':
+            # Revisado: si ya se produce un video, no crear una revisión huérfana que nunca se renderiza.
+            if _video_lock.locked():raise ValueError('Ya estoy produciendo un video; espera a que termine')
             upgraded=improve_video_plan(int(arg));value=await render_plan(upgraded['id'],chat_id)
         elif cmd=='/subiryoutube':value=await upload_youtube(int(arg))
         elif cmd=='/publicaryoutube':value=await publish_youtube(int(arg))

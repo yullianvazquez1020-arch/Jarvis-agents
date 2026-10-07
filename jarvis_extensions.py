@@ -309,6 +309,13 @@ def approve_receipt(id,discard=False):
     return f"Gasto #{inc['id']} registrado: ${inc['amount']:,.2f}."
 
 async def voice_message(chat_id,voice):
+    # Voz local (jarvis_chat_voice): solo si STT_AGENT_URL está vacía y LOCAL_VOICE_ENABLED=true. Si existe la URL,
+    # el camino de siempre sigue igual. Nunca usa una API de pago; el dictado queda pendiente hasta /dictado.
+    if not os.getenv('STT_AGENT_URL','').strip():
+        try:import jarvis_chat_voice
+        except ImportError:jarvis_chat_voice=None
+        if jarvis_chat_voice and jarvis_chat_voice.enabled():
+            return await jarvis_chat_voice.handle_voice(core,chat_id,voice,load,alloc,stamp,save)
     try:
         url=_service_url('STT_AGENT_URL')
         if not url:raise ValueError('Falta STT_AGENT_URL: servicio de transcripción local o externo compatible')
