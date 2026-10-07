@@ -106,6 +106,22 @@ class ChatVoice(unittest.TestCase):
         self.assertEqual(cv.speak_local.await_count, 1)                    # Piper loaded once, then cache
         self.assertTrue(all("api.telegram.org" in url for url, _ in FakeHTTP.posts))   # no other API called
 
+    def test_reply_holds_video_lock_during_synthesis(self):
+        async def checked(text):
+            self.assertTrue(j._growth._video_lock.locked())
+            return await self.fake_speak(text)
+        with patch.object(cv, "speak_local", new=AsyncMock(side_effect=checked)):
+            self.voice()
+        self.assertFalse(j._growth._video_lock.locked())
+        self.assertTrue(any(url.endswith("/sendVoice") for url, _ in FakeHTTP.posts))
+
+    def test_synthesis_failure_releases_video_lock_and_keeps_dictation(self):
+        with patch.object(cv, "speak_local", new=AsyncMock(side_effect=ValueError("test failure"))):
+            self.voice()
+        self.assertFalse(j._growth._video_lock.locked())
+        self.assertEqual(self.voices()[0]["status"], "pending")
+        self.assertIn("La respuesta escrita ya está arriba", self.sent[-1])
+
     def test_not_installed_message_no_paid_api(self):
         (Path(self.fake_pkg) / "faster_whisper.py").write_text(
             'raise ModuleNotFoundError("secret details", name="faster_whisper")')
