@@ -6,7 +6,7 @@ ROOT=__import__('pathlib').Path(__file__).resolve().parents[1];sys.path.insert(0
 spec=importlib.util.spec_from_file_location('jarvis', ROOT/'main.py'); j=importlib.util.module_from_spec(spec);sys.modules['jarvis']=j;spec.loader.exec_module(j)
 class Tests(unittest.TestCase):
  def setUp(self):
-  j.DATA_DIR=__import__('pathlib').Path(tempfile.mkdtemp());j.USE_REDIS=False;j._seen_updates.clear();j._fence.update(mode="off",leader=True)
+  j.DATA_DIR=__import__('pathlib').Path(tempfile.mkdtemp());j.USE_REDIS=False;j._seen_updates.clear(); j._rate_hits.clear();j._fence.update(mode="off",leader=True)
  def test_real_trading_disabled(self): self.assertFalse(j.CB_TRADING)
  def test_money_invalid(self):
   for v in [True,-1,0,'nan','inf',1e15]:

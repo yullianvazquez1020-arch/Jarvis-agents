@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis</title>
+  <link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+  <header class="top" aria-label="Estado">
+    <div class="brand"><span id="dot" class="dot" title="Servidor"></span>JARVIS</div>
+    <dl class="status">
+      <div><dt>Hora PR</dt><dd id="st-clock">--:--</dd></div>
+      <div><dt>Versión</dt><dd id="st-version">—</dd></div>
+      <div><dt>Datos</dt><dd id="st-storage">—</dd></div>
+      <div><dt>IA</dt><dd id="st-ai">—</dd></div>
+      <div><dt>Cripto</dt><dd id="st-mode">—</dd></div>
+      <div><dt>Coinbase</dt><dd id="st-cb">—</dd></div>
+      <div><dt>Trading real</dt><dd id="st-real">—</dd></div>
+      <div><dt>Micrófono</dt><dd id="st-mic">apagado</dd></div>
+    </dl>
+    <div class="chips">
+      <span id="chip-role" class="chip">…</span>
+      <span id="chip-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
+      <a class="chip link" href="/hud" target="_blank" rel="noopener">Abrir HUD (2.º monitor)</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="voice" aria-label="Conversación">
+      <div id="state" class="state" role="status" aria-live="polite">Listo</div>
+      <div id="reply" class="reply" aria-live="polite">Pulsa Hablar o escribe abajo.</div>
+      <div class="row">
+        <span id="reply-meta" class="small"></span>
+        <button id="reveal" type="button" class="ghost" hidden>Mostrar</button>
+      </div>
+
+      <label class="label" for="transcript">Lo que entendí (puedes corregirlo)</label>
+      <textarea id="transcript" rows="2" maxlength="1000" placeholder="Habla o escribe aquí…"></textarea>
+      <div class="row">
+        <button id="send" type="button">Enviar <kbd>Enter</kbd></button>
+        <button id="cancel" type="button" class="ghost" disabled>Cancelar</button>
+        <label class="check"><input id="review" type="checkbox"> Revisar antes de enviar</label>
+      </div>
+      <div id="owner-note" class="note" hidden>
+        Esta ventana solo muestra. <button id="claim" type="button" class="link">Usar esta ventana para voz</button>
+      </div>
+      <div id="processing" class="small"></div>
+    </section>
+
+    <section class="work" aria-label="Detalle">
+      <nav class="tabs" aria-label="Paneles">
+        <button type="button" data-panel="agenda">Agenda</button>
+        <button type="button" data-panel="cobros">Cobros</button>
+        <button type="button" data-panel="practica">Práctica</button>
+        <button type="button" data-panel="estado">Estado</button>
+      </nav>
+      <h2 id="panel-title">Detalle</h2>
+      <div id="panel-badge" class="badge" hidden></div>
+      <div id="panel-asof" class="small"></div>
+      <ul id="panel-lines" class="lines"></ul>
+
+      <div id="pair" class="pair" hidden>
+        <h3>Conectar con tu Jarvis</h3>
+        <p>Este equipo todavía no está emparejado.</p>
+        <button id="pair-start" type="button">Emparejar</button>
+        <p id="pair-code" class="code" hidden></p>
+        <p id="pair-msg" class="small"></p>
+      </div>
+    </section>
+
+    <aside class="alerts" aria-label="Avisos">
+      <div class="alerts-head">AVISOS
+        <button id="alert-silence" type="button" class="ghost">Silencio</button>
+        <button id="alert-repeat" type="button" class="ghost">Repetir</button>
+      </div>
+      <ol id="alert-list" class="alert-list"><li class="small">Sin avisos.</li></ol>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <button id="talk" class="talk" type="button">Hablar <kbd>Espacio</kbd></button>
+    <span id="mic-dot" class="mic" aria-live="polite">● micrófono apagado</span>
+    <button id="mic-off" type="button" class="ghost">Apagar micrófono</button>
+    <button id="stop" type="button" class="ghost">Detener audio <kbd>Esc</kbd></button>
+    <button id="repeat" type="button" class="ghost">Repetir</button>
+    <label class="check"><input id="discreet" type="checkbox"> Modo discreto</label>
+    <label class="check">Velocidad <input id="rate" type="range" min="0.7" max="1.4" step="0.05"></label>
+    <label class="check"><input id="convo" type="checkbox"> Conversación</label>
+  </footer>
+
+  <script src="/ui/mask.js"></script>
+  <script src="/ui/wav.js"></script>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Jarvis desktop companion — configuration for THE MAC (never put these in Render).
+# Copy to ~/.jarvis-desktop/config.env and edit. Environment variables override this file.
+# No secrets go here: the device token is saved by the pairing flow in ~/.jarvis-desktop/device.json (0600).
+
+# Your Jarvis on Render (HTTPS). Leave empty and set VOICE_DEMO=true to try the panel with example data.
+JARVIS_SERVER_URL=https://jarvis-agents.onrender.com
+VOICE_DEMO=false
+
+# Only this machine can open the panel.
+VOICE_BIND_HOST=127.0.0.1
+VOICE_PORT=8765
+
+# Speech-to-text. "none" = type your questions. "whisper_cpp" only AFTER measuring it on this Mac.
+VOICE_STT_BACKEND=none
+# VOICE_WHISPER_BIN=/Users/YOU/whisper.cpp/build/bin/whisper-cli
+# VOICE_STT_MODEL_PATH=/Users/YOU/whisper.cpp/models/ggml-base.bin   (multilingual; never a .en model)
+# VOICE_STT_THREADS=4
+
+# Text-to-speech. "macos_say" uses voices already in macOS (offline). "piper" needs the piper program + a voice.
+VOICE_TTS_BACKEND=none
+# VOICE_TTS_VOICE=Paulina          (macos_say: a Spanish voice listed by `say -v '?'`; piper: path to .onnx)
+# VOICE_PIPER_BIN=/usr/local/bin/piper
+
+# Phase 2 (not implemented yet): keep false.
+VOICE_WAKE_WORD_ENABLED=false
+# Keep recordings? false = every temporary audio file is deleted right after transcription.
+VOICE_RETAIN_AUDIO=false

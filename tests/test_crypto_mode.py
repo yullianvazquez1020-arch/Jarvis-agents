@@ -27,7 +27,7 @@ class NoNetwork:
 class ModeBase(unittest.TestCase):
     def setUp(self):
         j.DATA_DIR = Path(tempfile.mkdtemp()); j.USE_REDIS = False
-        j._fence.update(mode="off", leader=True); j._seen_updates.clear()
+        j._fence.update(mode="off", leader=True); j._seen_updates.clear(); j._rate_hits.clear()
         j._mode_mem["block_real"] = False
         self.stack = ExitStack()
         self.stack.enter_context(patch.object(j.httpx, "AsyncClient", NoNetwork))

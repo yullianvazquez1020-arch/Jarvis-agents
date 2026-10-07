@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis · HUD</title>
+  <link rel="stylesheet" href="/ui/app.css">
+</head>
+<body class="hud-page">
+  <header class="top">
+    <div class="brand"><span id="dot" class="dot"></span>JARVIS · HUD <span class="small">solo lectura</span></div>
+    <div class="chips">
+      <span id="hud-clock" class="chip">--:--</span>
+      <span id="hud-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
+      <span id="hud-updated" class="chip">…</span>
+      <button id="hud-refresh" type="button" class="ghost">Actualizar</button>
+      <label class="check"><input id="hud-reveal" type="checkbox"> Mostrar montos</label>
+    </div>
+  </header>
+  <main id="grid" class="grid" aria-label="Tarjetas"></main>
+  <p class="small hud-note">Tocar una tarjeta abre el detalle en la ventana principal. Desde aquí no se cambia nada.</p>
+  <script src="/ui/mask.js"></script>
+  <script src="/ui/hud.js"></script>
+</body>
+</html>

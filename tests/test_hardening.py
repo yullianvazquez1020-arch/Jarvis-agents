@@ -53,6 +53,8 @@ class FakeRedis:
                     return '' if raw.startswith('{"state": "') else 'BADFORMAT'
                 self.d[keys[1]] = '{"state": "running", "started": "' + argv[1] + '", ' + raw[len(prefix):]
                 return self.d[keys[1]]
+            if script == j._TAKE_LEADER:                       # 4.0.5 (1.8)
+                self.d[keys[0]] = argv[0]; return 'OK'
             if script == j._ENQUEUE:
                 if argv[2] == '1' and self.d.get(keys[2]) != argv[3]: return 'FENCED'
                 if keys[0] in self.d: return 'DUP'
@@ -64,7 +66,7 @@ class FakeRedis:
 class Base(unittest.TestCase):
     def setUp(self):
         j.DATA_DIR = __import__('pathlib').Path(tempfile.mkdtemp()); j.USE_REDIS = False
-        j._fence.update(mode='off', leader=True); j._seen_updates.clear(); j.conversations.clear()
+        j._fence.update(mode='off', leader=True); j._seen_updates.clear(); j._rate_hits.clear(); j.conversations.clear()
         j._tg_stats.update(recovered=0, interrupted=0, stale=0)
 
     def tg(self, text, update_id=1, chat_type='private', user=123):

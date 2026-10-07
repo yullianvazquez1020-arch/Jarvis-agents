@@ -15,7 +15,7 @@ class ReviewTests(unittest.TestCase):
         j.DATA_DIR = Path(tempfile.mkdtemp())
         j.USE_REDIS = False
         j._fence.update(mode='off', leader=True)
-        j._seen_updates.clear()
+        j._seen_updates.clear(); j._rate_hits.clear()
         j.conversations.clear()
 
     def msg(self, text, user=123, chat_type='private'):

@@ -1,0 +1,7 @@
+# The desktop companion uses ONLY the Python standard library (Python 3.8 or newer).
+# Nothing to pip install. These are separate from Render's requirements.txt on purpose.
+#
+# Optional programs, installed only after measuring them on the Mac (see docs/VOICE_DESKTOP.md):
+#   whisper.cpp  (speech-to-text)   https://github.com/ggml-org/whisper.cpp
+#   piper        (text-to-speech)   https://github.com/OHF-Voice/piper1-gpl
+# macOS already includes `say` with Spanish voices (offline), the suggested starting point.

@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 
 MAIN = Path(__file__).resolve().parents[1] / "main.py"
-NAMES = ("_ENQUEUE", "_CLAIM_JOB", "_FENCED_SET", "_TG_QUEUED_PREFIX")
+NAMES = ("_ENQUEUE", "_CLAIM_JOB", "_FENCED_SET", "_TG_QUEUED_PREFIX", "_TAKE_LEADER")
 
 
 def load_scripts(main_path=MAIN):
@@ -59,7 +59,7 @@ def run_checks(call, s=None):
     try:
         check("no Lua script uses optional libraries (cjson, cmsgpack, struct, bit)",
               not any(lib + "." in s[n] for lib in ("cjson", "cmsgpack", "struct", "bit")
-                       for n in ("_ENQUEUE", "_CLAIM_JOB", "_FENCED_SET")))
+                       for n in ("_ENQUEUE", "_CLAIM_JOB", "_FENCED_SET", "_TAKE_LEADER")))
         call(["SET", leader, me, "EX", "300"])
         msg = {"chat": {"id": 1, "type": "private"}, "from": {"id": 1}, "text": TRICKY}
         raw = s["_tg_job_json"]({"id": 1, "msg": msg, "state": "queued", "at": "2026-10-06T18:00:00-04:00"})
@@ -101,6 +101,15 @@ def run_checks(call, s=None):
         check("unknown job format is refused (BADFORMAT) and left untouched",
               r == "BADFORMAT" and call(["GET", other_job]) == legacy, repr(r))
 
+        # 4.0.5 (1.8): two processes take over; only the LAST one can write afterwards
+        a = call(["EVAL", s["_TAKE_LEADER"], "1", leader, "boot-a"])
+        b = call(["EVAL", s["_TAKE_LEADER"], "1", leader, "boot-b"])
+        wa = call(["EVAL", s["_FENCED_SET"], "1", leader, "boot-a", data, '{"by": "a"}'])
+        wb = call(["EVAL", s["_FENCED_SET"], "1", leader, "boot-b", data, '{"by": "b"}'])
+        check("atomic take-over: last leader writes, the previous one is fenced",
+              a == "OK" and b == "OK" and wa == "FENCED" and wb == "OK" and call(["GET", data]) == '{"by": "b"}',
+              f"{a!r} {b!r} {wa!r} {wb!r}")
+        call(["SET", leader, me, "EX", "300"])
         w = call(["EVAL", s["_FENCED_SET"], "1", leader, me, data, '{"ok": 1}'])
         f = call(["EVAL", s["_FENCED_SET"], "1", leader, intruder, data, '{"ok": 0}'])
         check("fenced write: active instance writes, old one is refused",

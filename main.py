@@ -1,3 +1,9 @@
+# Jarvis 4.0.5 — corrections and hardening (see CAMBIOS_4_0_5.md): conditional desktop import, read-only allowlist
+#   in run_tool, bank ceiling warnings, atomic leadership, rate limits, device token expiry + audit, delegation
+#   breaker, HUD/alerts for the desktop, /exportar CSV, normalized bank search, optional currency.
+# Jarvis 4.0.4 — optional read-only desktop API (/desktop/v1, DESKTOP_API_ENABLED=false by default) for the
+#   Mac voice/monitor companion in desktop/. Tools of that channel are filtered in run() and storage writes are
+#   blocked by _WRITE_BLOCK. Telegram, /chat and money controls are unchanged.
 # Jarvis 4.0.3 — crypto mode chosen in Telegram: PRACTICE (default, separate simulated account) or REAL
 #   (Coinbase). CRYPTO_PRACTICE_ONLY stays the top lock; real also needs credentials + COINBASE_TRADING_ENABLED
 #   and the owner's /cripto modo real + /confirmar modo CODE. Each order still needs /aprobar + /confirmar.
@@ -208,20 +214,23 @@ async def _lifespan(app):
         _mode_mem["block_real"] = True
         _sched_state["last_error"] = f"crypto mode: {type(e).__name__}"
     recovery = asyncio.create_task(_tg_recover_inbox())
+    crypto_recovery = asyncio.create_task(_crypto_recover())   # 4.0.5 (1.6)
     # start the proactive engine when the server boots, stop it on shutdown
     task = asyncio.create_task(_scheduler_loop())
     try:
         yield
     finally:
-        task.cancel(); recovery.cancel()
+        task.cancel(); recovery.cancel(); crypto_recovery.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await recovery
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await crypto_recovery
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.0.3"
+VERSION = "4.0.5"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -332,14 +341,19 @@ class StaleInstance(RuntimeError):
 _FENCED_SET = ("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 'FENCED' end "
                "return redis.call('MSET', unpack(ARGV, 2))")
 
+# 4.0.5 (1.8): take-over in ONE atomic script (no gap between SET and the check). NX is not used on purpose:
+# a new deploy MUST displace the old process, and NX would keep the old one as leader forever. Instead the last
+# process to run this script owns LEADER_KEY, and every write (_FENCED_SET, _ENQUEUE, _CLAIM_JOB) compares
+# LEADER_KEY inside Redis: a process that is no longer the leader gets StaleInstance and writes nothing.
+_TAKE_LEADER = ("redis.call('SET', KEYS[1], ARGV[1]) "
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then return 'OK' end return 'NO'")
+
 def fence_take_leadership():
     """Called once at boot by the new process. Safe to call when Upstash is off."""
     if not USE_REDIS:
         _fence.update(mode="off", leader=True); return _fence
-    _redis(["SET", LEADER_KEY, INSTANCE_ID])
     try:
-        probe = _redis(["EVAL", "if redis.call('GET', KEYS[1]) == ARGV[1] then return 'OK' end return 'NO'",
-                        "1", LEADER_KEY, INSTANCE_ID])
+        probe = _redis(["EVAL", _TAKE_LEADER, "1", LEADER_KEY, INSTANCE_ID])
         if probe != "OK":
             raise RuntimeError("Redis leadership could not be verified")
         _fence.update(mode="on", leader=True)
@@ -365,7 +379,20 @@ def _require_leader():
         raise StaleInstance("newer instance active or write protection unavailable")
 
 
+# v4.1-desktop: a read-only channel runs its tools inside this context; any business write then fails in the
+# storage layer itself (not only in the prompt). Default None = unrestricted, as before.
+_WRITE_BLOCK = contextvars.ContextVar("jarvis_write_block", default=None)
+
+class ReadOnlyViolation(PermissionError):
+    pass
+
+def _check_writable():
+    who = _WRITE_BLOCK.get()
+    if who:
+        raise ReadOnlyViolation(f"canal de solo lectura ({who}): no se permite guardar ni cambiar datos")
+
 def kv_set(key, value):
+    _check_writable()
     data = json.dumps(value, ensure_ascii=False, allow_nan=False)
     if USE_REDIS:
         _redis_write([key, data])
@@ -374,6 +401,7 @@ def kv_set(key, value):
 
 def kv_set_many(values):
     """Save several keys together. Redis MSET is atomic; local files use a journal."""
+    _check_writable()
     if USE_REDIS:
         pairs = []
         for key, value in values.items():
@@ -512,10 +540,33 @@ def external_agents_status():
     out = {}
     for a, u in AGENTS.items():
         u = (u or "").strip()
-        out[a] = {"configured": bool(u), "never_delegated": a in NEVER_DELEGATE,
+        out[a] = {"configured": bool(u), "never_delegated": a in NEVER_DELEGATE, "down": bool(_agent_down(a)),
                   "problem": (_agent_url_problem(u) if u else "") or ("" if not u or EXTERNAL_AGENT_KEY else
                              "falta EXTERNAL_AGENT_KEY")}
     return out
+
+# 4.0.5 (2.4): at most DELEG_MAX delegations in flight; an agent that fails DELEG_FAILS times in a row is marked
+# down for DELEG_DOWN_MIN minutes and is not called again on every message. In memory (one worker); a restart
+# clears it, which is a fresh chance, never an automatic retry of a past action.
+DELEG_MAX = 3
+DELEG_FAILS = 3
+DELEG_DOWN_MIN = 30
+_deleg = {"active": 0, "agents": {}}
+
+def _agent_down(agent):
+    h = _deleg["agents"].get(agent) or {}
+    until = h.get("down_until")
+    return until if until and until > time.time() else None
+
+def _agent_result(agent, ok):
+    h = _deleg["agents"].setdefault(agent, {"fails": 0, "down_until": None})
+    if ok:
+        h.update(fails=0, down_until=None)
+    else:
+        h["fails"] += 1
+        if h["fails"] >= DELEG_FAILS:
+            h["down_until"] = time.time() + DELEG_DOWN_MIN * 60
+            logger.warning("external agent %s marked down after %d failures", agent, h["fails"])
 
 async def delegate(agent: str, instruction: str, *, approved_action_id=None):
     """Send an owner-approved instruction to an external agent. Never call this from the AI."""
@@ -532,18 +583,31 @@ async def delegate(agent: str, instruction: str, *, approved_action_id=None):
         return {"error": problem}
     if not EXTERNAL_AGENT_KEY or (API_KEY and secrets.compare_digest(EXTERNAL_AGENT_KEY, API_KEY)):
         return {"error": "Falta EXTERNAL_AGENT_KEY propia (distinta de AGENT_API_KEY). No envío la clave maestra."}
+    down = _agent_down(agent)
+    if down:
+        return {"error": f"el agente '{agent}' está marcado caído tras {DELEG_FAILS} fallos seguidos; "
+                         f"no lo intento hasta las {datetime.datetime.fromtimestamp(down, TZ):%H:%M}"}
+    if _deleg["active"] >= DELEG_MAX:
+        return {"error": f"ya hay {DELEG_MAX} delegaciones en curso; espera a que terminen"}
     path, key = AGENT_ENDPOINT.get(agent, ("/ask", "message"))
     headers = {"x-api-key": EXTERNAL_AGENT_KEY, "x-jarvis-action-id": str(approved_action_id)}
-    async with httpx.AsyncClient(timeout=90, follow_redirects=False) as hc:
-        try:
-            if key:
-                r = await hc.post(url + path, headers=headers, json={key: instruction})
-            else:
-                r = await hc.post(url + path, headers=headers)
-            r.raise_for_status()
-            return _redact_any(r.json())
-        except Exception:
-            return {"error": "External agent request failed; no result confirmed"}
+    _deleg["active"] += 1
+    try:
+        async with httpx.AsyncClient(timeout=90, follow_redirects=False) as hc:
+            try:
+                if key:
+                    r = await hc.post(url + path, headers=headers, json={key: instruction})
+                else:
+                    r = await hc.post(url + path, headers=headers)
+                r.raise_for_status()
+                out = _redact_any(r.json())
+                _agent_result(agent, True)
+                return out
+            except Exception:
+                _agent_result(agent, False)
+                return {"error": "External agent request failed; no result confirmed"}
+    finally:
+        _deleg["active"] -= 1
 
 # ---------------------------------------------------------------------------
 # PERSONAL: reminders, shopping list, bills.
@@ -615,25 +679,48 @@ def _bload():
     return d
 def _bsave(d): kv_set(B_KEY, d)
 
-def add_income(amount, source="", date=""):
-    amount=_money(amount); date=_valid_date(date) if date else _today().isoformat()
+# 4.0.5 (4.3): optional currency per entry. USD by default and NOT stored when USD (old entries stay identical).
+# Jarvis never converts: totals, net profit and the tax estimate are USD only; other currencies are listed apart.
+def _currency(c):
+    c = str(c or "USD").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", c):
+        raise ValueError("currency debe ser un código de 3 letras, ej. USD, EUR, MXN")
+    return c
+
+def _is_usd(x):
+    return x.get("currency", "USD") == "USD"
+
+def add_income(amount, source="", date="", currency="USD"):
+    amount=_money(amount); date=_valid_date(date) if date else _today().isoformat(); cur=_currency(currency)
     d=_bload(); e={"id":_allocate_id(d, "income"),"amount":amount,"source":source,"date":date}
+    if cur != "USD": e["currency"] = cur
     d["income"].append(e); _bsave(d); return e
-def add_expense(amount, category="other", note="", date=""):
-    amount=_money(amount); date=_valid_date(date) if date else _today().isoformat()
+def add_expense(amount, category="other", note="", date="", currency="USD"):
+    amount=_money(amount); date=_valid_date(date) if date else _today().isoformat(); cur=_currency(currency)
     d=_bload(); category = category if category in EXPENSE_CATEGORIES else "other"
     e={"id":_allocate_id(d, "expenses"),"amount":amount,"category":category,"note":note,"date":date}
+    if cur != "USD": e["currency"] = cur
     d["expenses"].append(e); _bsave(d); return e
 def list_books(): return _bload()
 def finances_summary():
     d=_bload()
-    inc=sum(x["amount"] for x in d["income"]); exp=sum(x["amount"] for x in d["expenses"])
+    inc=sum(x["amount"] for x in d["income"] if _is_usd(x)); exp=sum(x["amount"] for x in d["expenses"] if _is_usd(x))
     by_cat={}
     for x in d["expenses"]:
-        by_cat[x["category"]]=by_cat.get(x["category"],0)+x["amount"]
-    return {"total_income":round(inc,2),"total_expenses":round(exp,2),"net_profit":round(inc-exp,2),
+        if _is_usd(x):
+            by_cat[x["category"]]=by_cat.get(x["category"],0)+x["amount"]
+    other={}
+    for kind in ("income", "expenses"):
+        for x in d[kind]:
+            if not _is_usd(x):
+                o = other.setdefault(x["currency"], {"income": 0.0, "expenses": 0.0}); o[kind] = round(o[kind] + x["amount"], 2)
+    out={"currency":"USD","total_income":round(inc,2),"total_expenses":round(exp,2),"net_profit":round(inc-exp,2),
             "expenses_by_category":{k:round(v,2) for k,v in by_cat.items()},
             "entries":{"income":len(d["income"]),"expenses":len(d["expenses"])}}
+    if other:
+        out["other_currencies"] = other
+        out["note"] = "Totales solo en USD. Las otras monedas se muestran aparte; Jarvis no convierte."
+    return out
 def tax_estimate(rate_percent=0):
     rate_percent=float(rate_percent)
     if not math.isfinite(rate_percent) or not 0 <= rate_percent <= 100: raise ValueError("rate must be 0-100")
@@ -1408,7 +1495,8 @@ def import_statement(file_name, raw, label=""):
             if t["amount"] > 0: tin += t["amount"]
             else: tout += -t["amount"]
             row = {"id": tid, "acct": key, "date": t["date"], "amount": round(t["amount"], 2),
-                   "desc": t["desc"], "category": _categorize(t["desc"], t["amount"], d["rules"]), "imp": imp_id}
+                   "desc": t["desc"], "category": _categorize(t["desc"], t["amount"], d["rules"]), "imp": imp_id,
+                   "norm": _search_norm(t["desc"])}   # 4.0.5 (4.2)
             if t.get("fitid"): row["src"] = "fitid"
             if t.get("bal") is not None: row["bal"] = t["bal"]
             d["tx"].append(row); by_id[tid] = row; claimed.add(tid)
@@ -1430,7 +1518,11 @@ def import_statement(file_name, raw, label=""):
     d["tx"].sort(key=lambda t: (t["date"], t["id"]))
     dropped = max(0, len(d["tx"]) - BANK_MAX_TX)
     if dropped:
+        gone = d["tx"][:dropped]
         d["tx"] = d["tx"][dropped:]
+        # 4.0.5 (1.4): remember what was dropped so /banco, the brief and the import reply can say it
+        d["dropped_log"] = (d.get("dropped_log", []) + [{"at": _now().isoformat(timespec="minutes"), "n": dropped,
+                            "from": gone[0]["date"], "to": gone[-1]["date"]}])[-20:]
     d["imports"] = (d["imports"] + [{"id": imp_id, "file": _norm_desc(file_name)[:60],
                                      "at": _now().isoformat(timespec="minutes"),
                                      "label": label, "new": sum(r["new"] for r in report)}])[-30:]
@@ -1443,7 +1535,29 @@ def import_statement(file_name, raw, label=""):
 
 def _limit_note(r):
     n = r.get("dropped_oldest", 0) + sum(a.get("too_old", 0) for a in r["accounts"])
-    return (f"\nℹ️ Guardo los últimos {BANK_MAX_TX} movimientos; {n} más viejos no se guardaron." if n else "")
+    return (f"\n⚠️ Llegué al tope de {BANK_MAX_TX:,} movimientos guardados: {n} de los más viejos no quedaron "
+            "guardados. Antes de la próxima importación usa /exportar movimientos para tener tu copia." if n else "")
+
+BANK_WARN_AT = int(BANK_MAX_TX * 0.9)
+
+def bank_capacity_note(d=None, brief=False):
+    """4.0.5 (1.4): '' or one warning line about the 3,000-movement ceiling (zero tokens)."""
+    d = d if d is not None else _kload()
+    n = len(d["tx"]); recent = [x for x in d.get("dropped_log", [])
+                                 if (_now() - datetime.datetime.fromisoformat(x["at"])).days <= (7 if brief else 30)]
+    if recent:
+        tot = sum(x["n"] for x in recent)
+        return (f"⚠️ Banco: al pasar el tope de {BANK_MAX_TX:,} movimientos borré {tot} de los más viejos "
+                f"(del {recent[0]['from']} al {recent[-1]['to']}). Usa /exportar movimientos antes de importar más.")
+    if n >= BANK_WARN_AT:
+        return (f"⚠️ Banco: tienes {n:,} de {BANK_MAX_TX:,} movimientos guardados. Al pasar el tope borraré los más "
+                "viejos: guarda una copia con /exportar movimientos.")
+    return ""
+
+def bank_storage_bytes(d=None):
+    """Size of the bank record as stored (to measure before ever raising BANK_MAX_TX)."""
+    d = d if d is not None else _kload()
+    return len(json.dumps(d, ensure_ascii=False).encode())
 
 def import_text(r):
     lines = []
@@ -1521,13 +1635,29 @@ def bank_accounts():
     return {"accounts": out, "read_only": True,
             "imports": [{k: i[k] for k in ("id", "file", "at", "label", "new")} for i in d["imports"][-10:]]}
 
+def _search_norm(text):
+    """4.0.5 (4.2): description normalized for search: no accents, no case, no punctuation, single spaces."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(text or "").lower())
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", t)).strip()
+
+def _desc_match(t, words, compact):
+    """Every query word must start some word of the description; 'homedepot' also finds 'HOME DEPOT #123'."""
+    norm = t.get("norm") or _search_norm(t["desc"])          # rows imported before 4.0.5 are normalized on the fly
+    dw = norm.split()
+    if all(any(x.startswith(w) for x in dw) for w in words):
+        return True
+    return bool(compact) and compact in norm.replace(" ", "")
+
 def bank_transactions(query="", start="", end="", month="", account="", direction="", category="",
                       min_amount=None, limit=30):
     d = _kload(); s, e = _period(month, start, end); keys = _acct_filter(d, account)
-    q = (query or "").strip().lower(); lim = max(1, min(int(limit or 30), 100))
+    qn = _search_norm(query); words = qn.split(); compact = qn.replace(" ", "")
+    lim = max(1, min(int(limit or 30), 100))
     mn = abs(float(min_amount)) if min_amount not in (None, "") else None
     rows = [t for t in d["tx"] if s <= t["date"] <= e
-            and (not keys or t["acct"] in keys) and (not q or q in t["desc"].lower())
+            and (not keys or t["acct"] in keys) and (not words or _desc_match(t, words, compact))
             and (not category or t["category"] == category)
             and (direction not in ("in", "entrada") or t["amount"] > 0)
             and (direction not in ("out", "salida") or t["amount"] < 0)
@@ -1645,6 +1775,9 @@ def bank_text():
     newest = max((t["date"] for t in d["tx"]), default=None)
     if newest:
         lines.append(f"Datos hasta: {newest}. Para poner al día, mándame un archivo nuevo.")
+    cap = bank_capacity_note(d)
+    if cap:
+        lines.append("\n" + cap)
     return "\n".join(lines)
 
 def movements_text(n=10):
@@ -1665,6 +1798,9 @@ def bank_brief_lines():
             out.append(f"• {a['name']}" + (f" ••{a['last4']}" if a.get("last4") else "")
                        + f": {_bank_usd(a['balance'])}" + (f" (dato de hace {old} días)" if old > 1 else "")
                        + (" ⚠️ bajo tu mínimo" if _low_note(a, _bank_settings(d)) else ""))
+    cap = bank_capacity_note(d, brief=True)
+    if cap:
+        out.append(cap)
     return (["\n🏦 Banco:"] + out) if out else []
 
 async def _tg_file(file_id):
@@ -2546,7 +2682,7 @@ def gate_practice_confirm(code):
 
 MONEY_COMMANDS = ("/aprobar", "/confirmar", "/rechazar", "/anotar", "/descartar")
 # v3.8: sending to clients and resetting practice also require the owner's private chat
-PRIVATE_COMMANDS = MONEY_COMMANDS + ("/enviar", "/noenviar", "/practica")
+PRIVATE_COMMANDS = MONEY_COMMANDS + ("/enviar", "/noenviar", "/practica", "/exportar")   # 4.0.5: exports too
 
 def security_text():
     """/seguridad — limits, today's total, lockout and the last approval attempts (zero tokens)."""
@@ -3294,6 +3430,59 @@ async def cb_confirm_text(arg):
         return await _sim_execute(o)
     return await _real_execute(o)
 
+_REAL_SENDING_HERE = set()       # order ids this process is sending right now (never swept)
+SENDING_STALE_S = 300           # a real send finishes in < 30 s; older "sending" means the process died
+
+def crypto_sending_sweep(now=None):
+    """4.0.5 (1.6): orders left "sending" by a crash or a deploy. Real -> "unknown" (it may have reached Coinbase:
+    the owner checks before repeating; the day's limit stays counted). Practice -> "failed" (the simulated fill and
+    the order are saved together, so nothing happened). -> list of (order, new_status) changed."""
+    now = now or _now(); changed = []
+    with _data_lock:
+        d = _xload(); g = _gload()
+        for o in d["orders"]:
+            if o.get("status") != "sending" or o["id"] in _REAL_SENDING_HERE:
+                continue
+            try:
+                age = (now - datetime.datetime.fromisoformat(o.get("sent_at") or o["created"])).total_seconds()
+            except (KeyError, TypeError, ValueError):
+                age = SENDING_STALE_S + 1
+            if age < SENDING_STALE_S:
+                continue
+            if _omode(o) == "practice":
+                o["status"] = "failed"; o["result"] = "reinicio durante la simulación; no se ejecutó nada"
+            else:
+                o["status"] = "unknown"
+                o["result"] = "reinicio durante el envío: revisa Coinbase antes de repetir; no se reenvía sola"
+            gate_audit(g, "recuperación", _oref(o), o["status"], o["result"])
+            changed.append((dict(o), o["status"]))
+        if changed:
+            kv_set_many({X_KEY: d, G_KEY: g})
+    return changed
+
+def crypto_sending_text(changed):
+    out = []
+    for o, st in changed:
+        if st == "unknown":
+            out.append(f"⚠️ Me reinicié mientras enviaba la orden #{o['id']} a Coinbase ({_cb_order_line(o)}). Puede que "
+                       "SÍ se haya enviado. Revisa la app de Coinbase ANTES de repetirla. No la repetí ni la repetiré sola.")
+        else:
+            out.append(f"ℹ️ La orden de práctica #{o['id']} se interrumpió por un reinicio; no se ejecutó nada.")
+    return "\n".join(out)
+
+async def _crypto_recover():
+    """Boot pass now and again after the stale window (an old instance may still be finishing a send)."""
+    try:
+        for wait in (5, SENDING_STALE_S + 60):
+            await asyncio.sleep(wait)
+            changed = await asyncio.to_thread(crypto_sending_sweep)
+            if changed and TG_TOKEN and TG_OWNER:
+                await _tg_safe_send(TG_OWNER, crypto_sending_text(changed))
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        _sched_state["last_error"] = f"crypto recovery: {type(e).__name__}"
+
 def _order_set(oid, status, result):
     d = _xload()
     for x in d["orders"]:
@@ -3354,7 +3543,7 @@ async def _real_execute(o):
         return (f"⛔ [{MODE_SHORT['real']}] No envié la orden #{o['id']}: {bad}. No se movió dinero. "
                 "Si aparece como 'enviándose', revísala con /seguridad antes de repetir.")
     status, extra = "unknown", ""
-    token = _REAL_SEND.set(o["uuid"])
+    token = _REAL_SEND.set(o["uuid"]); _REAL_SENDING_HERE.add(o["id"])
     try:
         r = await _cb("POST", CB_ORDER_PATH,
                       body={"client_order_id": o["uuid"], "product_id": o["product"], "side": o["side"],
@@ -3368,7 +3557,7 @@ async def _real_execute(o):
     except Exception as e:
         extra = type(e).__name__
     finally:
-        _REAL_SEND.reset(token)
+        _REAL_SEND.reset(token); _REAL_SENDING_HERE.discard(o["id"])
     def _finish():
         with _data_lock:
             d = _order_set(o["id"], status, extra); g = _gload()
@@ -3893,6 +4082,81 @@ def collections_text():
         return "💰 Nada pendiente por cobrar. 👌"
     lines.append("\nPara avisarle a un cliente: pídeme \"prepárale un mensaje a X\" (tú apruebas con /enviar).")
     return "\n".join(lines)
+
+# ---------------------------------------------------------------------------
+# 4.0.5 (4.1) /exportar movimientos | libros | trabajos -> CSV file in the owner's private Telegram chat.
+# Accounts appear only as name + last 4 digits (Jarvis never stores full numbers). Text cells that a spreadsheet
+# would run as a formula (= + - @) are neutralized; numbers stay numbers.
+# ---------------------------------------------------------------------------
+EXPORT_KINDS = {"movimientos": "movimientos", "banco": "movimientos", "libros": "libros", "contabilidad": "libros",
+                "trabajos": "trabajos", "clientes": "trabajos"}
+
+def _csv_cell(v):
+    if isinstance(v, bool):
+        return "sí" if v else "no"
+    if isinstance(v, (int, float)):
+        return v
+    t = _redact_secrets(str(v if v is not None else ""))[0].replace("\r", " ").replace("\n", " ")
+    if t[:1] in ("=", "+", "-", "@", "\t"):
+        try:
+            float(t.replace(",", ""))
+        except ValueError:
+            t = "'" + t
+    return t
+
+def export_csv(kind):
+    """-> (filename, bytes, rows). Read-only."""
+    import csv, io
+    kind = EXPORT_KINDS.get(str(kind or "").strip().lower())
+    if not kind:
+        raise ValueError("usa /exportar movimientos, /exportar libros o /exportar trabajos")
+    buf = io.StringIO(); w = csv.writer(buf)
+    if kind == "movimientos":
+        d = _kload(); names = {k: a["name"] + (f" ••{a['last4']}" if a.get("last4") else "") for k, a in d["accounts"].items()}
+        w.writerow(["fecha", "cuenta", "descripcion", "monto", "categoria", "saldo_corrido", "importacion"])
+        rows = sorted(d["tx"], key=lambda t: (t["date"], t["id"]))
+        for t in rows:
+            w.writerow([_csv_cell(x) for x in (t["date"], names.get(t["acct"], "cuenta"), t["desc"], t["amount"],
+                                               t["category"], t.get("bal", ""), t.get("imp", ""))])
+    elif kind == "libros":
+        d = _bload()
+        w.writerow(["tipo", "id", "fecha", "monto", "moneda", "categoria_o_fuente", "nota"])
+        rows = ([("ingreso", x) for x in d["income"]] + [("gasto", x) for x in d["expenses"]])
+        rows.sort(key=lambda r: (r[1].get("date", ""), r[0], r[1]["id"]))
+        for typ, x in rows:
+            w.writerow([_csv_cell(v) for v in (typ, x["id"], x.get("date", ""), x["amount"], x.get("currency", "USD"),
+                                               x.get("source") if typ == "ingreso" else x.get("category"),
+                                               x.get("note", ""))])
+    else:
+        d = _cload()
+        w.writerow(["id", "cliente", "trabajo", "estado", "precio", "costo", "adelanto", "pagado", "balance", "vence"])
+        rows = sorted(d["jobs"], key=lambda x: x["id"])
+        for x in rows:
+            w.writerow([_csv_cell(v) for v in (x["id"], x.get("client_name", ""), x.get("title", ""), x.get("status", ""),
+                                               x.get("price", 0), x.get("cost", 0), x.get("advance", 0), x.get("paid", 0),
+                                               x.get("balance", 0), x.get("due_date", ""))])
+    name = f"jarvis-{kind}-{_today().isoformat()}.csv"
+    return name, ("\ufeff" + buf.getvalue()).encode("utf-8"), len(rows)   # BOM so Excel reads the accents
+
+async def _tg_send_document(chat_id, filename, raw, caption="", mime="text/csv"):
+    async with httpx.AsyncClient(timeout=60) as hc:
+        r = await hc.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument",
+                          data={"chat_id": chat_id, "caption": _redact_secrets(caption)[0][:900]},
+                          files={"document": (filename, raw, mime)})
+    if r.status_code != 200 or r.json().get("ok") is not True:
+        raise ValueError("Telegram no confirmó el archivo")
+
+async def _tg_export(chat_id, arg):
+    try:
+        def _make():
+            with _data_lock:
+                return export_csv(arg.split()[0] if arg.strip() else "")
+        name, raw, n = await asyncio.to_thread(_make)
+        await _tg_send_document(chat_id, name, raw, f"📤 {n} fila(s). Las cuentas van solo con los últimos 4 dígitos.")
+    except ValueError as e:
+        await _tg_safe_send(chat_id, f"⚠️ {_cap(str(e))}.")
+    except Exception as e:
+        await _tg_safe_send(chat_id, f"⚠️ No pude exportar ({type(e).__name__}).")
 
 # ---------------------------------------------------------------------------
 # BANK WEEKLY REPORT (v3.8, mejora #3). Sent by itself once a week (default Monday 8 AM).
@@ -4845,10 +5109,13 @@ TOOLS = [
        "early for next month's due date, pass that month (see upcoming).",{"id":I,"month":S},["id"]),
     _t("upcoming","Agenda: dated reminders and unpaid bills in the next N days (default 7).",{"days":I}),
     _t("overview","All reminders, shopping list and bills, with ids."),
-    _t("add_income","Log business income. date is YYYY-MM-DD, default today.",{"amount":N,"source":S,"date":S},["amount"]),
+    _t("add_income","Log business income. date is YYYY-MM-DD, default today. currency: 3-letter code, default USD; "
+       "set it ONLY if the boss says another currency. Never convert.",
+       {"amount":N,"source":S,"date":S,"currency":S},["amount"]),
     _t("add_expense","Log a business expense. date is YYYY-MM-DD, default today. category: "
-       +", ".join(EXPENSE_CATEGORIES)+".",
-       {"amount":N,"category":S,"note":S,"date":S},["amount"]),
+       +", ".join(EXPENSE_CATEGORIES)+". currency: 3-letter code, default USD; set it ONLY if the boss says "
+       "another currency. Never convert.",
+       {"amount":N,"category":S,"note":S,"date":S,"currency":S},["amount"]),
     _t("list_books","All income and expense entries, with ids."),
     _t("finances_summary","Totals: income, expenses, net profit, expenses by category."),
     _t("tax_estimate","Tax set-aside estimate on net profit; ask the boss for rate_percent.",{"rate_percent":N},["rate_percent"]),
@@ -4978,7 +5245,19 @@ TOOLS = [
        {"product_id":S},["product_id"]),
 ]
 
-async def run_tool(name, args):
+# 4.0.5 (1.2): explicit allowlist for read-only channels (desktop/voice). A tool that is not here is refused in
+# run_tool() BEFORE its handler, whatever the model or the caller asks; _WRITE_BLOCK stays as the second lock in
+# kv_set / kv_set_many. A new tool never reaches a read-only channel until someone adds it here on purpose.
+READ_ONLY_TOOLS = frozenset({
+    "upcoming", "overview", "list_books", "finances_summary", "tax_estimate", "list_events", "find_events",
+    "bank_accounts", "bank_transactions", "bank_summary", "bank_weekly_report", "list_clients", "find_client",
+    "list_jobs", "jobs_summary", "list_inventory", "crypto_log_summary", "list_client_messages", "paper_status",
+    "paper_trades", "list_notes", "get_note", "list_documents", "list_recurring_invoices", "list_external_actions",
+    "list_product_candidates", "growth_status"})
+
+async def run_tool(name, args, read_only=None):
+    if read_only and name not in READ_ONLY_TOOLS:
+        return {"error": f"la herramienta {name} no está en la lista de solo lectura de este canal"}
     try:
         if name in ASYNC_TOOLS:
             return await ASYNC_TOOLS[name](**args)
@@ -5107,7 +5386,18 @@ async def _ai_call(history):
     return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt(),
                                         tools=TOOLS, messages=history)
 
-async def run(session: str, message: str) -> str:
+async def _ai_call_scoped(history, tools, extra_system):
+    """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
+    return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt() + extra_system,
+                                        tools=tools, messages=history)
+
+async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
+    """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
+    tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
+    storage write made by the tools of this turn (see _WRITE_BLOCK)."""
+    if allowed_tools is not None:
+        allowed_tools = frozenset(allowed_tools)
+        scoped_tools = [t for t in TOOLS if t["name"] in allowed_tools]
     await asyncio.to_thread(_require_leader)
     clean, found = _redact_secrets(message)
     warn = ""
@@ -5127,7 +5417,8 @@ async def run(session: str, message: str) -> str:
         tools_executed = False
         for _ in range(10):
             try:
-                r = await _ai_call(history)
+                r = await (_ai_call(history) if allowed_tools is None
+                           else _ai_call_scoped(history, scoped_tools, extra_system))
             except BadRequestError as e:
                 _ai_state["last_error"] = f"BadRequest: {str(getattr(e, 'message', e))[:200]}"
                 if not repaired and not tools_executed and _is_history_error(e) and len(history) > 1:
@@ -5155,7 +5446,16 @@ async def run(session: str, message: str) -> str:
             for b in r.content:
                 if b.type == "tool_use":
                     tools_executed = True  # never replay this request after any attempted action
-                    out = _redact_any(await run_tool(b.name, _redact_any(b.input)))
+                    if allowed_tools is not None and b.name not in allowed_tools:
+                        out = {"error": f"la herramienta {b.name} no está permitida en este canal"}
+                    elif read_only:
+                        token = _WRITE_BLOCK.set(read_only)
+                        try:
+                            out = _redact_any(await run_tool(b.name, _redact_any(b.input), read_only=read_only))
+                        finally:
+                            _WRITE_BLOCK.reset(token)
+                    else:
+                        out = _redact_any(await run_tool(b.name, _redact_any(b.input)))
                     results.append({"type": "tool_result", "tool_use_id": b.id,
                                     "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
             history.append({"role": "user", "content": results})
@@ -5185,10 +5485,29 @@ def _key_ok(given, expected):
 _FAIL_MSG = ("Tuve un error con esa respuesta. Algunas acciones pudieron haberse guardado; "
              "revisa con /hoy o pregúntame antes de repetirla.")
 
+# 4.0.5 (2.1): at most RATE_PER_MIN messages per minute per key (/chat) or per chat (Telegram webhook), so a
+# leaked key or a loop cannot burn Anthropic tokens. In memory: one worker, one process.
+RATE_PER_MIN = _env_int("RATE_LIMIT_PER_MIN", 30, 1, 120)
+_rate_hits = {}
+
+def _rate_ok(bucket, now=None):
+    now = time.monotonic() if now is None else now
+    q = [t for t in _rate_hits.get(bucket, []) if now - t < 60]
+    if len(q) >= RATE_PER_MIN:
+        _rate_hits[bucket] = q
+        return False
+    q.append(now); _rate_hits[bucket] = q
+    if len(_rate_hits) > 1000:                       # bounded: drop idle buckets
+        for k in [k for k, v in _rate_hits.items() if not v or now - v[-1] >= 60]:
+            _rate_hits.pop(k, None)
+    return True
+
 @app.post("/chat")
 async def chat(req: Chat, x_api_key: str = Header(...)):
     if not _key_ok(x_api_key, API_KEY):
         raise HTTPException(401, "Bad API key")
+    if not _rate_ok("chat:" + hashlib.sha256(x_api_key.encode()).hexdigest()[:16]):
+        raise HTTPException(429, f"Más de {RATE_PER_MIN} mensajes por minuto; espera un momento")
     try:
         reply = await run(req.session, req.message)
     except Exception as e:
@@ -5197,6 +5516,32 @@ async def chat(req: Chat, x_api_key: str = Header(...)):
     return {"reply": reply}
 
 _seen_updates: set = set()
+# 4.0.5 (1.7): local-files mode (no Redis). The recent ids are kept in order, the OLDEST is evicted one by one
+# (never the whole set), and the list is saved to a local file so a restart does not forget them.
+TG_SEEN_KEY = "jarvis:tg:seen"
+TG_SEEN_MAX = 2000
+_seen_order: list = []
+_seen_state = {"dir": None}
+
+def _seen_load():
+    if _seen_state["dir"] != str(DATA_DIR):          # (re)load when the data folder changes (tests, first use)
+        ids = kv_get(TG_SEEN_KEY, [])
+        ids = [i for i in ids if isinstance(i, int) and not isinstance(i, bool)][-TG_SEEN_MAX:] if isinstance(ids, list) else []
+        _seen_order[:] = ids; _seen_updates.clear(); _seen_updates.update(ids)
+        _seen_state["dir"] = str(DATA_DIR)
+
+def _seen_has(update_id):
+    _seen_load()
+    return update_id in _seen_updates
+
+def _seen_add(update_id):
+    _seen_load()
+    if update_id in _seen_updates:
+        return
+    _seen_updates.add(update_id); _seen_order.append(update_id)
+    while len(_seen_order) > TG_SEEN_MAX:
+        _seen_updates.discard(_seen_order.pop(0))
+    kv_set(TG_SEEN_KEY, _seen_order)
 
 def _first_time(update_id) -> bool:
     """True only the first time we see a Telegram update (Telegram retries)."""
@@ -5205,11 +5550,9 @@ def _first_time(update_id) -> bool:
     if USE_REDIS:
         return _redis(["SET", f"jarvis:tg:upd:{update_id}", "1", "NX", "EX", "86400"]) is not None
     with _data_lock:
-        if update_id in _seen_updates:
+        if _seen_has(update_id):
             return False
-        _seen_updates.add(update_id)
-        if len(_seen_updates) > 2000:
-            _seen_updates.clear(); _seen_updates.add(update_id)
+        _seen_add(update_id)
         return True
 
 # ---------------------------------------------------------------------------
@@ -5252,12 +5595,11 @@ def _tg_enqueue(update_id, msg):
             _fence["leader"] = False; raise StaleInstance("newer instance active")
         return "new" if r == "NEW" else "dup"
     with _data_lock:
-        if update_id in _seen_updates: return "dup"
+        if _seen_has(update_id): return "dup"
         inbox = kv_get(TG_INBOX_KEY, {})
         if str(update_id) in inbox: return "dup"
         inbox[str(update_id)] = job; kv_set(TG_INBOX_KEY, inbox)
-        _seen_updates.add(update_id)
-        if len(_seen_updates) > 2000: _seen_updates.clear(); _seen_updates.add(update_id)
+        _seen_add(update_id)
     return "new"
 
 def _tg_job_get(update_id):
@@ -5598,12 +5940,22 @@ async def diagnostics_text():
                     and ms["effective"] != "real" else "")
                  + (f" · ⚠️ {ms['problem']}" if ms["problem"] else ""))
     lines.append(f"• Práctica cripto: {'activa (dinero simulado)' if PAPER_ON else 'apagada'}")
+    lines.append(f"• Escritorio/voz: {DESKTOP_STATUS}")
+    # 4.0.5 (1.5): chat context lives only in memory on purpose (it may hold sensitive text); say so plainly
+    lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
+                 "ni un reinicio; tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
+    try:
+        kd = await asyncio.to_thread(_kload)
+        lines.append(f"• Banco guardado: {len(kd['tx']):,} de {BANK_MAX_TX:,} movimientos · "
+                     f"{bank_storage_bytes(kd) / 1024:.0f} KB en almacenamiento")
+    except Exception as e:
+        lines.append(f"• Banco guardado: no pude medirlo ({type(e).__name__})")
     lines.append(f"• Mensajes a clientes: SMS {'listo' if SMS_ON else 'no configurado'} · email "
                  f"{'listo' if EMAIL_ON else 'no configurado'} · siempre con /enviar")
     stt = bool(os.getenv("STT_AGENT_URL", "").strip()); tts = bool(os.getenv("TTS_AGENT_URL", "").strip())
     lines.append(f"• Voz: dictado {'configurado (sin verificar)' if stt else 'no configurado'} · audio "
                  f"{'configurado (sin verificar)' if tts else 'no configurado'}")
-    ext = [f"{a}{'⚠️' if v['problem'] else ''}" for a, v in external_agents_status().items() if v["configured"]]
+    ext = [f"{a}{'⚠️' if v['problem'] else ''}{' (caído)' if v['down'] else ''}" for a, v in external_agents_status().items() if v["configured"]]
     lines.append(f"• Agentes externos: {', '.join(ext) or 'ninguno'} · clave propia "
                  f"{'sí' if EXTERNAL_AGENT_KEY and EXTERNAL_AGENT_KEY != API_KEY else 'NO'}")
     return "\n".join(lines)
@@ -5623,6 +5975,7 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
              "/mercado · /seguridad · /diagnostico\n"
+             "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
              "Para lo demás, escríbeme normal.")
 
 async def _tg_v38_cmd(chat_id, cmd, arg):
@@ -5689,7 +6042,16 @@ async def telegram(request: Request, background: BackgroundTasks,
     update_id = update.get("update_id")
     if not isinstance(update_id, int) or isinstance(update_id, bool):
         return {"ok": True}
+    if not _rate_ok("tg:" + chat_id):
+        # 4.0.5 (2.1): 429 before queueing anything; Telegram keeps the update and retries later (nothing is lost)
+        raise HTTPException(429, "Too many messages; Telegram will retry")
     cmd, _, arg = text.strip().partition(" ")
+    # 4.0.5 (1.6) TRADE-OFF, on purpose: /confirmar is handled inline and NEVER enters the durable queue, so the
+    # one-time code is never written to storage. Consequences, accepted and covered:
+    #   * dedupe is _first_time() (Redis SET NX, or the bounded local list), not the queue;
+    #   * if the process dies before handling it, the code is simply lost: the owner asks for a new one (/aprobar);
+    #   * if it dies DURING a real send, the order stays "sending"; crypto_sending_sweep() later marks it "unknown"
+    #     and tells the owner to check Coinbase before repeating. Nothing is ever resent automatically.
     if cmd.lower().split("@")[0] == "/confirmar":
         if not is_owner_private(msg):
             return {"ok": True}
@@ -5745,7 +6107,7 @@ async def _tg_route(msg, background):
     cmd, _, arg = text.strip().partition(" ")
     cmd = cmd.lower().split("@")[0]
     cmd = {"/mensaje": "/mensajes", "/no_enviar": "/noenviar", "/paper": "/practica", "/práctica": "/practica",
-           "/help": "/ayuda", "/start": "/ayuda"}.get(cmd, cmd)   # v3.8 aliases
+           "/help": "/ayuda", "/start": "/ayuda", "/export": "/exportar"}.get(cmd, cmd)   # v3.8 aliases
     if cmd in _extensions.COMMANDS:
         if not is_owner_private(msg):
             background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
@@ -5817,6 +6179,10 @@ async def _tg_route(msg, background):
         # v3.7: Coinbase. /aprobar + /confirmar are the ONLY way an order is sent (owner's own messages)
         background.add_task(_tg_cb_cmd, chat_id, cmd, arg.strip())
         return {"ok": True}
+    if cmd == "/exportar":
+        # 4.0.5 (4.1): CSV of movements, books or jobs, only in the owner's private chat (PRIVATE_COMMANDS)
+        background.add_task(_tg_export, chat_id, arg.strip())
+        return {"ok": True}
     if cmd in ("/clientes", "/cliente", "/trabajos", "/trabajo", "/inventario", "/stock"):
         # v3.6: clients / jobs / inventory without Claude (zero tokens)
         background.add_task(_tg_v36_cmd, chat_id, cmd, arg.strip())
@@ -5849,6 +6215,7 @@ async def restore(req: RestoreReq, x_api_key: str = Header(...)):
     except StaleInstance:
         raise HTTPException(503, "Jarvis is restarting; retry")
 
+@app.get("/health")
 @app.get("/")
 async def health():
     return {"jarvis": "online", "version": VERSION, "storage": storage_mode(),
@@ -5875,7 +6242,8 @@ async def health():
             "money_gate": {"max_order_usd": MONEY_MAX_ORDER, "max_day_usd": MONEY_MAX_DAY,
                            "owner_user_set": bool(TG_OWNER_USER), "code_minutes": GATE_CODE_MIN},
             "external_agents": {a: bool(u) for a, u in AGENTS.items()},
-            "external_agent_key_separate": bool(EXTERNAL_AGENT_KEY) and EXTERNAL_AGENT_KEY != API_KEY}
+            "external_agent_key_separate": bool(EXTERNAL_AGENT_KEY) and EXTERNAL_AGENT_KEY != API_KEY,
+            "desktop_api": {"enabled": bool(_desktop.ENABLED), "status": DESKTOP_STATUS}}
 
 # Additive feature module; loaded after all core handlers and routes exist.
 import sys as _sys
@@ -5884,3 +6252,31 @@ _extensions.install(_sys.modules[__name__])
 
 import jarvis_growth as _growth
 _growth.install(_sys.modules[__name__])
+
+# Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
+# 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its
+# install fails, a no-op stub is used: Jarvis and Telegram start exactly as before and /diagnostico says why.
+import types as _types
+
+def _desktop_stub():
+    return _types.SimpleNamespace(ENABLED=False, install=lambda module: None, STUB=True)
+
+def _desktop_load(enabled_env=None):
+    """-> (module or stub, human status). Never raises."""
+    raw = os.getenv("DESKTOP_API_ENABLED", "false") if enabled_env is None else enabled_env
+    if str(raw).strip().lower() not in ("true", "1", "yes"):
+        return _desktop_stub(), "apagado"
+    try:
+        import jarvis_desktop_api as module
+    except ImportError:
+        logger.warning("DESKTOP_API_ENABLED=true but jarvis_desktop_api.py is missing; desktop API off")
+        return _desktop_stub(), "módulo ausente (falta jarvis_desktop_api.py)"
+    try:
+        module.install(_sys.modules[__name__])
+        module.ENABLED = True
+        return module, "activo (solo lectura)"
+    except Exception as e:
+        logger.warning("desktop API failed to install: %s; desktop API off", type(e).__name__)
+        return _desktop_stub(), f"error al cargar ({type(e).__name__}); apagado"
+
+_desktop, DESKTOP_STATUS = _desktop_load()

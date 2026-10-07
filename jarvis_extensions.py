@@ -211,9 +211,17 @@ def business_report(month='',client_id=None):
     else:
         inc=[x for x in books['income'] if x['date'].startswith(month)];exp=[x for x in books['expenses'] if x['date'].startswith(month)]
         scope='Negocio completo';note='Ingresos y gastos registrados en los libros del mes.'
+    # 4.0.5 (4.3): totals are USD only; other currencies are reported apart, never converted
+    other={}
+    for kind,rows in (('income',inc),('expenses',exp)):
+        for x in rows:
+            if x.get('currency','USD')!='USD':
+                o=other.setdefault(x['currency'],{'income':0.0,'expenses':0.0});o[kind]=round(o[kind]+x['amount'],2)
+    inc=[x for x in inc if x.get('currency','USD')=='USD'];exp=[x for x in exp if x.get('currency','USD')=='USD']
     cats={}
     for x in exp:cats[x['category']]=round(cats.get(x['category'],0)+x['amount'],2)
     income=round(sum(x['amount'] for x in inc),2);expenses=round(sum(x['amount'] for x in exp),2)
+    if other:note+=' Totales en USD; otras monedas aparte: '+', '.join(f"{c} ingresos {v['income']:,.2f} / gastos {v['expenses']:,.2f}" for c,v in other.items())+'.'
     return {'month':month,'scope':scope,'income':income,'expenses':expenses if client_id is None else None,
       'net':round(income-expenses,2) if client_id is None else None,'categories':cats,
       'job_balance':round(sum(core._job_balance(x) for x in jobs if x['status'] not in ('cancelled','quote')),2),
