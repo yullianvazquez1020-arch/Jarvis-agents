@@ -3,6 +3,7 @@ Produces review MP4, not a promise of production quality or monetization.
 """
 import math, os, re, shutil, subprocess, tempfile, textwrap, time, wave
 from pathlib import Path
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 
 def _ffmpeg():
@@ -11,6 +12,7 @@ def _ffmpeg():
     import imageio_ffmpeg
     return imageio_ffmpeg.get_ffmpeg_exe()
 
+@lru_cache(maxsize=32)
 def font(size):
     for path in ('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf'):
         if Path(path).exists():return ImageFont.truetype(path,size)
@@ -23,79 +25,135 @@ def _duration(path,ffmpeg):
     return int(m[1])*3600+int(m[2])*60+float(m[3])
 
 def _animal(d,kind,x,y,size,t):
-    """Original vector characters; no downloaded or licensed character assets."""
-    def box(a,b,c,e): return (x+a*size,y+b*size,x+c*size,y+e*size)
-    ink='#173A56'
+    """Hand-drawn original characters with independent facial and limb motion."""
+    def box(a,b,c,e):return (x+a*size,y+b*size,x+c*size,y+e*size)
+    def ellipse(a,b,c,e,color,outline=None):d.ellipse(box(a,b,c,e),fill=color,outline=outline,width=max(2,int(size*.018)))
+    ink='#243D50';blink=t%3.6>3.42;step=math.sin(t*7)
+    def eye(a,b,w=.16):
+        if blink:d.arc(box(a,b,a+w,b+.09),0,180,fill=ink,width=3)
+        else:
+            ellipse(a,b,a+w,b+.2,'#FFFEF5',ink)
+            ellipse(a+w*.35,b+.04,a+w*.75,b+.16,ink)
+            ellipse(a+w*.4,b+.045,a+w*.53,b+.075,'white')
     if kind=='coqui':
-        for side in (0, .65):
-            d.ellipse(box(side,.58,side+.35,.96),fill='#36A85C',outline=ink,width=2)
-        d.ellipse(box(.15,.22,.85,.87),fill='#58C77E',outline=ink,width=3)
-        for side in (.2,.6):
-            d.ellipse(box(side,.08,side+.22,.35),fill='#58C77E',outline=ink,width=2)
-            d.ellipse(box(side+.05,.13,side+.17,.28),fill='white')
-            d.ellipse(box(side+.09,.16,side+.14,.25),fill=ink)
-        d.arc(box(.32,.42,.69,.66),0,180,fill=ink,width=3)
+        # Splayed toes, warm belly, cheek blush and a waving foreleg.
+        for side in (.04,.69):
+            ellipse(side,.64,side+.28,.92,'#33A875',ink)
+            for n in range(3):ellipse(side+n*.065,.85,side+.11+n*.065,.97,'#43BE83',ink)
+        ellipse(.19,.29,.81,.88,'#54C88E',ink)
+        ellipse(.3,.56,.7,.82,'#BDEDA0')
+        ellipse(.12,.2,.88,.65,'#68D99B',ink)
+        for side in (.2,.61):
+            ellipse(side-.045,.085,side+.23,.37,'#68D99B',ink);eye(side,.12)
+        ellipse(.19,.46,.31,.52,'#F2B5A6');ellipse(.69,.46,.81,.52,'#F2B5A6')
+        d.arc(box(.33,.4,.67,.58),0,180,fill=ink,width=3)
+        d.line((x+.74*size,y+.61*size,x+.94*size,y+(.45+.09*math.sin(t*5))*size),fill=ink,width=5)
+        ellipse(.87,.38+.09*math.sin(t*5),.98,.5+.09*math.sin(t*5),'#68D99B',ink)
     elif kind=='crab':
         for k in range(3):
-            d.line([(x+.25*size,y+(.5+k*.1)*size),(x+.04*size,y+(.59+k*.12)*size)],fill=ink,width=4)
-            d.line([(x+.75*size,y+(.5+k*.1)*size),(x+.96*size,y+(.59+k*.12)*size)],fill=ink,width=4)
-        d.ellipse(box(.17,.32,.83,.85),fill='#F27855',outline=ink,width=3)
-        for side in (.3,.61):
-            d.line([(x+(side+.04)*size,y+.4*size),(x+(side+.04)*size,y+.22*size)],fill=ink,width=4)
-            d.ellipse(box(side,.1,side+.14,.26),fill='white',outline=ink,width=2)
-            d.ellipse(box(side+.05,.14,side+.09,.23),fill=ink)
-        for side in (0,.77):
-            d.ellipse(box(side,.14,side+.23,.42),fill='#F27855',outline=ink,width=2)
-        d.arc(box(.35,.49,.65,.69),0,180,fill=ink,width=3)
+            h=(.62+k*.09);swing=.035*math.sin(t*8+k)
+            for side,direction in ((.25,-1),(.75,1)):
+                d.line([(x+side*size,y+h*size),(x+(side+direction*.15)*size,y+(h+.06+swing)*size),(x+(side+direction*.22)*size,y+(h+.13)*size)],fill=ink,width=4)
+        ellipse(.15,.34,.85,.85,'#E45A39',ink);ellipse(.18,.34,.82,.75,'#FF9C59')
+        ellipse(.3,.58,.7,.79,'#FFD593')
+        for side in (.3,.56):
+            d.line((x+(side+.07)*size,y+.43*size,x+(side+.07)*size,y+.2*size),fill=ink,width=4);eye(side,.12)
+        for side in (.0,.79):
+            h=.19+.05*step
+            ellipse(side,h,side+.22,h+.29,'#FF8C55',ink)
+            d.polygon([(x+(side+.1)*size,y+h*size),(x+(side+.16)*size,y+(h+.12)*size),(x+(side+.2)*size,y+h*size)],fill='#E5F5EF')
+        ellipse(.23,.5,.32,.55,'#F66A61');ellipse(.68,.5,.77,.55,'#F66A61')
+        d.arc(box(.36,.55,.64,.7),0,180,fill=ink,width=3)
     else:
-        d.polygon([(x+.7*size,y+.56*size),(x+1.14*size,y+.76*size),(x+.74*size,y+.79*size)],fill='#65BA75',outline=ink)
+        tail=[(x+.69*size,y+.6*size),(x+1.09*size,y+(.73+.06*step)*size),(x+.81*size,y+.81*size)]
+        d.polygon(tail,fill='#419975',outline=ink)
         for k in range(6):
-            d.polygon([(x+(.24+k*.09)*size,y+.38*size),(x+(.27+k*.09)*size,y+.2*size),(x+(.31+k*.09)*size,y+.4*size)],fill='#2F8253')
-        d.ellipse(box(.19,.35,.92,.84),fill='#72C98D',outline=ink,width=3)
-        d.ellipse(box(.07,.23,.43,.63),fill='#72C98D',outline=ink,width=3)
-        d.ellipse(box(.17,.3,.26,.41),fill='white');d.ellipse(box(.2,.32,.24,.4),fill=ink)
-        for side in (.34,.72): d.ellipse(box(side,.68,side+.17,.96),fill='#4EAA71',outline=ink,width=2)
-        d.arc(box(.1,.39,.32,.53),0,160,fill=ink,width=2)
+            d.polygon([(x+(.31+k*.08)*size,y+.4*size),(x+(.35+k*.08)*size,y+.24*size),(x+(.4+k*.08)*size,y+.44*size)],fill='#F4BD54')
+        ellipse(.24,.37,.91,.84,'#68C3A0',ink);ellipse(.31,.59,.79,.8,'#C5E9A1')
+        for side in (.33,.71):ellipse(side,.71+.015*step,side+.17,.94+.015*step,'#459B79',ink)
+        ellipse(.05,.24,.46,.66,'#82D7A8',ink);eye(.19,.3,.15)
+        ellipse(.09,.48,.18,.53,'#F3B7A5');d.arc(box(.12,.46,.34,.6),0,160,fill=ink,width=3)
+        for k in range(3):ellipse(.48+k*.1,.47,.52+k*.1,.51,'#3C9974')
+
+def _fit_text(d,text,x,y,max_width,size,color):
+    while size>16 and d.textlength(text,font=font(size))>max_width:size-=1
+    d.text((x,y),text,font=font(size),fill=color,anchor='mm')
+
+def _background(d,character,t,index):
+    beach=character=='crab';garden=character=='iguana'
+    # Layered gradients, moving clouds and a different environment per animal.
+    top=(110,203,235);bottom=(230,250,232)
+    for y in range(0,540,4):
+        u=y/540;color=tuple(round(a+(b-a)*u) for a,b in zip(top,bottom))
+        d.rectangle((0,y,960,y+4),fill=color)
+    d.ellipse((818,66,894,142),fill='#FFF0AD');d.ellipse((828,76,884,132),fill='#FFDA67')
+    for k in range(4):
+        cx=(k*290+t*9+index*65)%1200-120
+        d.ellipse((cx,125,cx+125,160),fill='#F5FEFA');d.ellipse((cx+30,102,cx+92,162),fill='#F5FEFA')
+    d.polygon([(0,300),(175,194),(355,295),(560,186),(785,290),(960,212),(960,540),(0,540)],fill='#94D4B6')
+    d.ellipse((-210,270,710,590),fill='#59B98F');d.ellipse((450,268,1230,580),fill='#77CCA1')
+    if beach:
+        d.rectangle((0,300,960,540),fill='#F6DFAD')
+        d.rectangle((0,278,960,306),fill='#59C4CC')
+        for k in range(7):
+            x=k*165+math.sin(t*1.4)*18;d.arc((x,279,x+112,303),0,180,fill='#DEF8EF',width=3)
+        for x,y in ((90,360),(850,365),(140,460),(815,448)):d.arc((x,y,x+22,y+15),180,360,fill='#D5B67C',width=3)
+    else:
+        d.ellipse((-80,312,1040,700),fill='#92D67B')
+        d.ellipse((90,348,870,495),fill='#B4DD8B')
+        for k in range(12):
+            x=25+k*82;y=375+(k%3)*24
+            d.line((x,y,x+3,y-15),fill='#54A575',width=2)
+            if garden or k%3==0:
+                for dx,dy in ((-5,0),(5,0),(0,-5),(0,5)):d.ellipse((x+dx-4,y-22+dy-4,x+dx+4,y-22+dy+4),fill='#FFB3A1')
+                d.ellipse((x-3,y-25,x+3,y-19),fill='#FFE37B')
+    for x,sign in ((35,1),(912,-1)):
+        sway=math.sin(t*1.8)*5
+        d.line((x,333,x+sign*12,225),fill='#668B66',width=8)
+        for k in range(4):
+            d.ellipse((x-42+sway,217+k*13,x+48+sway,237+k*13),fill='#3A9F79')
+    # A small original butterfly crosses the sky, away from lesson text.
+    bx=170+(t*24)%580;by=174+math.sin(t*2)*13;wing=5+abs(math.sin(t*9))*7
+    d.ellipse((bx-wing,by-7,bx,by+7),fill='#FFB276');d.ellipse((bx,by-7,bx+wing,by+7),fill='#FFE094')
+    d.line((bx,by-7,bx,by+7),fill='#5C6E69',width=2)
 
 def frame(scene,title,index,total,t,width=960,height=540):
-    im=Image.new('RGB',(width,height),'#D9F3FA');d=ImageDraw.Draw(im)
-    # Tropical landscape with parallax clouds and layered hills.
-    d.ellipse((815,100,890,175),fill='#FFD56D')
-    for k in range(3):
-        cx=(k*360+t*7)%1150-100
-        d.ellipse((cx,115,cx+110,150),fill='white');d.ellipse((cx+25,96,cx+80,150),fill='white')
-    d.polygon([(0,310),(160,220),(340,310),(540,210),(780,305),(960,245),(960,540),(0,540)],fill='#A2DCC0')
-    d.ellipse((-180,305,600,640),fill='#62BC91');d.ellipse((420,305,1180,650),fill='#7EC99B')
-    d.rounded_rectangle((22,18,width-22,91),20,fill='#173A56')
-    d.text((width//2,54),title[:55],font=font(27),fill='white',anchor='mm')
-    # Leaf clusters frame the lesson without covering captions.
-    for x in (24,895):
-        d.line((x+20,200,x+20,345),fill='#388460',width=7)
-        for k in range(3): d.ellipse((x-8,195+k*35,x+44,223+k*35),fill='#3B9B6B')
-    count=scene['count'];visible=min(count,1+int(t/.9));size=min(130,520/max(count,1));gap=18
-    totalwidth=count*size+(count-1)*gap;start=width/2-totalwidth/2
+    im=Image.new('RGB',(960,540));d=ImageDraw.Draw(im);character=scene.get('character','shapes')
+    _background(d,character,t,index)
+    d.rounded_rectangle((24,18,936,78),22,fill='#244B62')
+    _fit_text(d,title,480,48,860,27,'#FFFBEA')
+    count=scene['count'];visible=min(count,1+int(t/.95));size=min(190,640/max(count,1));gap=26
+    totalwidth=count*size+(count-1)*gap;start=480-totalwidth/2
     for k in range(visible):
-        x=start+k*(size+gap);y=215+math.sin(t*2+k)*6
-        d.ellipse((x+8,335,x+size+12,352),fill='#51A780')
-        character=scene.get('character','shapes')
-        if character in ('coqui','crab','iguana'):_animal(d,character,x,y,size,t)
-        elif character=='friends':_animal(d,('coqui','crab','iguana')[k%3],x,y,size,t)
+        kind=('coqui','crab','iguana')[k%3] if character=='friends' else character
+        age=max(0,t-k*.95);entry=min(age/.45,1);ease=1-(1-entry)**3
+        x=start+k*(size+gap);ground=367
+        if kind=='crab':x+=math.sin(age*1.5+k)*16
+        jump=max(0,math.sin(age*3+k))*20 if kind=='coqui' else math.sin(age*2+k)*3
+        y=ground-size-jump+(1-ease)*42
+        d.ellipse((x+size*.12,ground-9,x+size*.94,ground+6),fill='#80AF80' if character!='crab' else '#D7C18F')
+        if kind in ('coqui','crab','iguana'):_animal(d,kind,x,y,size,age+k*.55)
         else:
             box=(x,y,x+size,y+size);color=scene['color']
-            if scene['shape']=='circle': d.ellipse(box,fill=color,outline='#173A56',width=3)
-            elif scene['shape']=='square': d.rounded_rectangle(box,12,fill=color,outline='#173A56',width=3)
-            elif scene['shape']=='triangle': d.polygon([(x+size/2,y),(x+size,y+size),(x,y+size)],fill=color,outline='#173A56')
+            if scene['shape']=='circle':d.ellipse(box,fill=color,outline='#244B62',width=3)
+            elif scene['shape']=='square':d.rounded_rectangle(box,18,fill=color,outline='#244B62',width=3)
+            elif scene['shape']=='triangle':d.polygon([(x+size/2,y),(x+size,y+size),(x,y+size)],fill=color,outline='#244B62')
             else:
                 points=[]
                 for n in range(10):
                     a=-math.pi/2+n*math.pi/5;r=size*(.5 if n%2==0 else .23);points.append((x+size/2+r*math.cos(a),y+size/2+r*math.sin(a)))
-                d.polygon(points,fill=color,outline='#173A56')
-        d.text((x+size/2,365),str(k+1),font=font(22),fill='#173A56',anchor='mm')
-    d.rounded_rectangle((75,389,width-75,480),19,fill='#FFFDF4')
-    for n,line in enumerate(textwrap.wrap(scene['text'],width=43)[:2]):
-        d.text((width//2,414+n*33),line,font=font(29),fill='#173A56',anchor='mm')
-    d.rounded_rectangle((34,500,width-34,515),7,fill='#DDE9E8');length=(width-68)*(index+min(t/scene['duration'],1))/total
-    d.rounded_rectangle((34,500,34+max(8,length),515),7,fill='#25A89C')
+                d.polygon(points,fill=color,outline='#244B62')
+        d.ellipse((x+size/2-18,366,x+size/2+18,402),fill='#FFFAE9',outline='#D5C88F',width=2)
+        d.text((x+size/2,384),str(k+1),font=font(24),fill='#244B62',anchor='mm')
+    d.rounded_rectangle((55,415,905,492),22,fill='#FFFBEA',outline='#D2DBC0',width=2)
+    lines=textwrap.wrap(scene['text'],width=44)[:2]
+    for n,line in enumerate(lines):_fit_text(d,line,480,453+(n-(len(lines)-1)/2)*31,810,30,'#244B62')
+    d.rounded_rectangle((55,512,905,522),5,fill='#DBEEE1');length=850*(index+min(t/scene['duration'],1))/total
+    d.rounded_rectangle((55,512,55+max(8,length),522),5,fill='#249F93')
+    # Brief, gentle scene fades instead of abrupt cuts; no frame history in memory.
+    fade=min(1,t/.3,max(0,(scene['duration']-t)/.3))
+    if fade<1:im=Image.blend(Image.new('RGB',im.size,'#FFFBEA'),im,fade)
+    if (width,height)!=(960,540):im=im.resize((width,height),Image.Resampling.LANCZOS)
     return im
 
 def render_video(plan,output,audio_paths=None):

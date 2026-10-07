@@ -13,3 +13,8 @@ Piper 1.3.0 (GPLv3) ejecuta un proceso aislado, con un hilo de CPU. Ese proceso 
 Atribución del modelo/dataset: Piper sharvard, corpus Sharvard, University of Edinburgh, CC BY 3.0. https://datashare.ed.ac.uk/handle/10283/574 ; https://creativecommons.org/licenses/by/3.0/ ; modelo: https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_ES/sharvard/medium . Esta atribución se incluye en la descripción del cuento y en los metadatos MP4. La voz es sintética.
 
 Verificación: rutas sin llamadas de pago, sin respaldo automático a OpenAI, descarga cacheada sin red, validación de textos e idioma, seis audios reales y video H.264 + AAC. La calidad se revisa en la vista previa antes de subir.
+
+## Ilustración y movimiento revisados
+El render local usa personajes originales con vientre, mejillas y ojos con brillo; parpadeos, saludo y saltos del coquí, patas y pinzas móviles del juey, y cola de la iguana. La playa tiene olas para los jueyes y el jardín flores para las iguanas. Hay entradas suaves y breves fundidos entre escenas, nubes y mariposa móvil. El título se ajusta al ancho disponible sin cortar palabras. Sigue siendo animación 2D vectorial a 960 × 540, 12 fps, sin proveedores de imágenes ni nuevas dependencias o llamadas pagadas.
+
+La nueva vista previa se obtiene con `/mejorarvideo 5`; no cambia el video ya publicado. El identificador nuevo se recibe en Telegram y requiere su propio comando de subida tras revisar.
