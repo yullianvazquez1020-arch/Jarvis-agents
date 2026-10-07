@@ -442,10 +442,14 @@ def voice_response_error(response):
 
 async def video_narration(plan,temp):
     """Use the existing adapter first, then explicitly configured OpenAI video speech."""
+    provider=os.getenv('VIDEO_TTS_PROVIDER','piper').strip().lower()
+    if provider=='piper':
+        from jarvis_local_tts import local_narration
+        return await local_narration(plan,temp)
+    if provider=='none':return []
     url=ext._service_url('TTS_AGENT_URL')
-    provider=os.getenv('VIDEO_TTS_PROVIDER','openai' if os.getenv('OPENAI_API_KEY','').strip() else 'none').strip().lower()
     if not url and provider=='none':return []
-    if not url and provider!='openai':raise ValueError('VIDEO_TTS_PROVIDER debe ser openai o none')
+    if not url and provider!='openai':raise ValueError('VIDEO_TTS_PROVIDER debe ser piper, openai o none')
     key=os.getenv('OPENAI_API_KEY','').strip()
     if not url and not key:raise ValueError('Falta OPENAI_API_KEY para narrar el video')
     audio=[]
@@ -481,7 +485,7 @@ def improve_video_plan(id):
                 ('Tres iguanas: ¡uno, dos, tres!','Las iguanas descansan cerca del jardín. Mira y cuenta conmigo: uno, dos, tres. ¡Tres iguanas!','iguana',3),
                 ('Ayudar también es aprender','Los tres amigos se reúnen. El coquí saluda, el juey comparte y la iguana escucha. Cuando nos ayudamos, todos aprendemos.','friends',3),
                 ('Hoy contamos: uno, dos y tres','Recordemos: un coquí, dos jueyes y tres iguanas. ¡Lo hiciste muy bien! Cuenta con alguien de tu familia y comparte lo que aprendiste.','friends',3)]
-            p=validate_plan({'title':source['title'],'description':'Cuento original para aprender a contar y compartir. Ilustraciones originales y narración generada por inteligencia artificial.','language':'es','scenes':[
+            p=validate_plan({'title':source['title'],'description':'Cuento original para aprender a contar y compartir. Ilustraciones originales y narración generada por inteligencia artificial. Voz: Piper sharvard F, corpus Sharvard, University of Edinburgh, CC BY 3.0. https://datashare.ed.ac.uk/handle/10283/574','language':'es','scenes':[
                 {'text':text,'narration':narration,'character':character,'color':'#58C77E','shape':'circle','count':count,'seconds':8}
                 for text,narration,character,count in rows]})
         else:p=validate_plan(source)

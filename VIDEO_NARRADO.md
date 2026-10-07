@@ -1,13 +1,15 @@
-# Videos con narración y personajes originales
+# Narración local de Jarvis
 
-`/mejorarvideo ID` crea una revisión nueva y envía su MP4 a Telegram. El video original conserva su estado y enlace de YouTube. La revisión debe subirse explícitamente con `/subiryoutube NUEVO_ID` y publicarse explícitamente después de revisarla.
+La narración de video usa Piper por defecto (`VIDEO_TTS_PROVIDER=piper`). Genera los WAV en CPU, sin enviar el texto a OpenAI ni usar una API de inferencia. No hay precio por solicitud de voz. Render y las otras conexiones de IA que ya existan mantienen sus propios costos.
 
-Para el cuento «Tres amigos de Puerto Rico: coquí, juey e iguana», la revisión contiene seis escenas originales de conteo y cooperación, con ilustraciones vectoriales de los animales, fondo tropical, nubes y movimiento suave. Es una animación 2D sencilla, no video 3D.
+En el servicio existente se dejó OPENAI_API_KEY vacía, TTS_AGENT_URL vacía y VIDEO_TTS_PROVIDER=piper. Esto desactiva los análisis y revisiones de OpenAI. Los análisis pueden seguir usando la conexión de Claude existente; no se ha convertido toda la inteligencia de Jarvis a local. No se añadieron créditos, tarjetas ni servicios nuevos.
 
-Narración: primero se usa TTS_AGENT_URL si está configurado. Si no hay adaptador y existe OPENAI_API_KEY, se usa el endpoint de voz oficial de OpenAI con gpt-4o-mini-tts y coral, español latinoamericano para planes es e inglés para planes en. VIDEO_TTS_PROVIDER=none permite desactivar este uso; VIDEO_TTS_VOICE permite cambiar la voz incorporada. No se necesitan nuevas credenciales para OpenAI.
+`/mejorarvideo 1` crea otra revisión de la historia y envía la vista previa. Conserva el video original y su enlace privado. Subir/publicar requiere los comandos explícitos anteriores.
 
-Cada escena consume una petición de voz de pago y una reserva del límite diario compartido SPECIALIST_DAILY_CALL_LIMIT (30 por defecto). La revisión de seis escenas usa seis peticiones. Los errores no se convierten silenciosamente en un video sin voz. Se declara voz generada por IA en la vista previa y descripción del cuento.
+Voz: es_ES-sharvard-medium, locutora F (speaker_id 1), español de España. No es la voz anterior ni se promete acento boricua. Modelo público descargado una vez por instancia y validado con SHA-256. Después, la síntesis usa los archivos locales. Las descargas pueden repetirse al reemplazar una instancia efímera.
 
-Verificación: pruebas del esquema, conservación del original, solicitudes de voz y límites con proveedor simulado, rechazo de error de voz, y codificación real de MP4 H.264 + AAC con WAV sintético. La calidad de la voz real y el nuevo video se revisan en Telegram al ejecutarlo con las credenciales del servicio.
+Piper 1.3.0 (GPLv3) ejecuta un proceso aislado, con un hilo de CPU. Ese proceso termina antes de codificar el video. La prueba real de seis escenas alcanzó aproximadamente 276 MB de memoria. Fallar la voz local no activa una API de pago. La instalación actual solo admite planes en español.
 
-Corrección de compatibilidad: el MP3 también se admite cuando OpenAI devuelve application/octet-stream. Se exige firma MP3 para ese formato binario; JSON y archivos vacíos se rechazan. Los errores HTTP informan problemas de credenciales, permisos o cuota sin copiar el cuerpo del proveedor ni secretos. Prueba de regresión: MP3 real recibido como binario, procesado por video_narration y codificado a MP4 H.264 + AAC.
+Atribución del modelo/dataset: Piper sharvard, corpus Sharvard, University of Edinburgh, CC BY 3.0. https://datashare.ed.ac.uk/handle/10283/574 ; https://creativecommons.org/licenses/by/3.0/ ; modelo: https://huggingface.co/rhasspy/piper-voices/tree/main/es/es_ES/sharvard/medium . Esta atribución se incluye en la descripción del cuento y en los metadatos MP4. La voz es sintética.
+
+Verificación: rutas sin llamadas de pago, sin respaldo automático a OpenAI, descarga cacheada sin red, validación de textos e idioma, seis audios reales y video H.264 + AAC. La calidad se revisa en la vista previa antes de subir.

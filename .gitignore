@@ -9,3 +9,4 @@ venv/
 jarvis_*.json
 *.pem
 *.key
+piper_models/

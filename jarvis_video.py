@@ -132,7 +132,7 @@ def render_video(plan,output,audio_paths=None):
                     result=subprocess.run([ffmpeg,'-y','-v','error','-i',audio_paths[i],'-af','apad','-t',str(s['duration']),'-ar','44100','-ac','1','-c:a','pcm_s16le',str(part)],capture_output=True,timeout=60)
                     if result.returncode:raise ValueError('No pude preparar narración')
                     with wave.open(str(part),'rb') as src:dest.writeframes(src.readframes(src.getnframes()))
-            result=subprocess.run([ffmpeg,'-y','-v','error','-i',str(video),'-i',str(joined),'-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-movflags','+faststart',str(destination)],capture_output=True,timeout=90)
+            result=subprocess.run([ffmpeg,'-y','-v','error','-i',str(video),'-i',str(joined),'-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-metadata','comment='+plan.get('description','')[:3000],'-movflags','+faststart',str(destination)],capture_output=True,timeout=90)
             if result.returncode:raise ValueError('No pude unir narración')
         else:shutil.copyfile(video,destination)
         shutil.copyfile(destination,output)
