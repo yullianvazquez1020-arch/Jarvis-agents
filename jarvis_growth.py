@@ -1,7 +1,7 @@
 """Revenue workflows, original content production and paper-trading evaluation.
 No purchasing funds or account credentials are supplied by this module.
 """
-import asyncio, calendar, datetime as dt, hashlib, io, json, math, os, re, tempfile, uuid
+import asyncio, calendar, datetime as dt, hashlib, io, json, logging, math, os, re, tempfile, uuid
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlencode, quote, urlsplit
@@ -419,6 +419,27 @@ def _plan(id):
 def _video_path(id):
     root=core.DATA_DIR/'jarvis_videos';root.mkdir(parents=True,exist_ok=True);return root/f'video-{int(id)}.mp4'
 
+def voice_response_error(response):
+    """Diagnose failures without exposing provider bodies or credentials."""
+    status=response.status_code
+    if status!=200:
+        reason={400:'Revisa la configuración del modelo y la voz',401:'Revisa OPENAI_API_KEY o la clave del servicio TTS',403:'La clave no tiene permiso para generar voz',429:'Revisa el saldo y los límites del proveedor de voz'}.get(status,'El proveedor de voz no pudo completar la petición')
+        if status==429:
+            try:code=response.json().get('error',{}).get('code')
+            except Exception:code=None
+            if code=='insufficient_quota':reason='OpenAI indica cuota o saldo insuficiente; revisa la facturación de la API'
+        return f'Servicio de voz: HTTP {status}. {reason}. No se produjo un video silencioso'
+    body=response.content
+    if not body or len(body)>5*1024*1024:return 'Servicio de voz devolvió audio vacío o demasiado grande'
+    mime=response.headers.get('content-type','').split(';')[0].strip().lower()
+    # OpenAI speech uses a binary response, also advertised by its official SDK.
+    if mime=='application/octet-stream':
+        mp3=body.startswith(b'ID3') or (len(body)>2 and body[0]==255 and body[1]&224==224)
+        if mp3:return None
+        return 'Servicio de voz devolvió un archivo binario que no es MP3'
+    if mime in ('audio/mpeg','audio/mp3','audio/ogg','audio/wav','audio/x-wav'):return None
+    return 'Servicio de voz devolvió un formato de archivo no reconocido'
+
 async def video_narration(plan,temp):
     """Use the existing adapter first, then explicitly configured OpenAI video speech."""
     url=ext._service_url('TTS_AGENT_URL')
@@ -436,12 +457,14 @@ async def video_narration(plan,temp):
                 # Every paid request uses the existing persistent daily call budget.
                 core._connections.reserve('openai_video_tts')
                 language='Latin American Spanish' if plan.get('language','es')=='es' else 'English'
-                r=await hc.post('https://api.openai.com/v1/audio/speech',headers={'Authorization':'Bearer '+key},json={
+                r=await hc.post('https://api.openai.com/v1/audio/speech',headers={'Authorization':'Bearer '+key,'Accept':'application/octet-stream'},json={
                     'model':'gpt-4o-mini-tts','voice':os.getenv('VIDEO_TTS_VOICE','coral'),
                     'input':scene['narration'],'response_format':'mp3',
                     'instructions':f'Speak in {language}. Warm, expressive female storyteller for preschool children. Clear words, gentle energy, natural pauses. Read only the supplied text. No music or sound effects.'})
-            if r.status_code!=200 or r.headers.get('content-type','').split(';')[0] not in ('audio/mpeg','audio/ogg','audio/wav','audio/x-wav') or not r.content or len(r.content)>5*1024*1024:
-                raise ValueError('Servicio de voz no devolvió audio válido; no se produjo un video silencioso')
+            error=voice_response_error(r)
+            if error:
+                logging.getLogger(__name__).warning('video speech rejected: provider=%s status=%s bytes=%s reason=%s','adapter' if url else 'openai',r.status_code,len(r.content),error)
+                raise ValueError(error)
             path=Path(temp)/f'{i}.audio';path.write_bytes(r.content);audio.append(str(path))
     return audio
 

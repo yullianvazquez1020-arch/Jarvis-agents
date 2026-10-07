@@ -36,6 +36,18 @@ class VideoUpgradeTests(base.GrowthTests):
         with tempfile.TemporaryDirectory() as temp,patch.dict(os.environ,{'OPENAI_API_KEY':'fake','TTS_AGENT_URL':'','VIDEO_TTS_PROVIDER':'openai'}),patch.object(g.core.httpx,'AsyncClient') as client,patch.object(g.core._connections,'reserve'):
             client.return_value.__aenter__.return_value=hc
             with self.assertRaises(ValueError):asyncio.run(g.video_narration(base.plan(),temp))
+    def test_voice_error_diagnostics_do_not_expose_provider_body(self):
+        import httpx
+        r=httpx.Response(429,json={'error':{'code':'insufficient_quota','message':'secret-key-private'}})
+        error=g.voice_response_error(r)
+        self.assertIn('saldo insuficiente',error);self.assertNotIn('secret-key',error)
+        for status in (400,401,403,500):
+            self.assertIn(f'HTTP {status}',g.voice_response_error(httpx.Response(status,text='private data')))
+    def test_binary_json_is_rejected(self):
+        import httpx
+        for data in (b'{"error":"private"}',b'',b'not audio'):
+            self.assertIsNotNone(g.voice_response_error(httpx.Response(200,content=data,headers={'content-type':'application/octet-stream'})))
+        self.assertIsNone(g.voice_response_error(httpx.Response(200,content=b'\xff\xfb\x90\x00',headers={'content-type':'application/octet-stream'})))
     def test_actual_video_contains_audio(self):
         p=base.plan()
         for s in p['scenes']:s.update(character='coqui',seconds=4)
@@ -43,10 +55,17 @@ class VideoUpgradeTests(base.GrowthTests):
             audio=Path(temp)/'voice.wav'
             with wave.open(str(audio),'wb') as w:
                 w.setparams((1,2,44100,0,'NONE','not compressed'));w.writeframes(b'\0\0'*44100)
-            out=Path(temp)/'preview.mp4';r=render_video(p,out,[str(audio)]*3)
-            self.assertTrue(r['narration']);self.assertGreater(out.stat().st_size,1000)
-            import subprocess
+            import subprocess, httpx
             from jarvis_video import _ffmpeg
+            mp3=Path(temp)/'speech.mp3'
+            subprocess.run([_ffmpeg(),'-y','-v','error','-i',str(audio),str(mp3)],check=True,timeout=30)
+            response=httpx.Response(200,content=mp3.read_bytes(),headers={'content-type':'application/octet-stream'})
+            hc=AsyncMock();hc.post.return_value=response
+            with patch.dict(os.environ,{'OPENAI_API_KEY':'fake','TTS_AGENT_URL':'','VIDEO_TTS_PROVIDER':'openai'}),patch.object(g.core.httpx,'AsyncClient') as client,patch.object(g.core._connections,'reserve'):
+                client.return_value.__aenter__.return_value=hc
+                paths=asyncio.run(g.video_narration(p,temp))
+            out=Path(temp)/'preview.mp4';r=render_video(p,out,paths)
+            self.assertTrue(r['narration']);self.assertGreater(out.stat().st_size,1000)
             info=subprocess.run([_ffmpeg(),'-i',str(out)],capture_output=True,text=True).stderr
             self.assertIn('Audio: aac',info);self.assertIn('Video: h264',info)
 
