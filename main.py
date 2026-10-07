@@ -316,7 +316,8 @@ def _recover_local():
                          json.dumps(value, ensure_ascii=False, allow_nan=False))
         journal.unlink()
 
-def kv_get(key, default):
+def _kv_raw(key, default):
+    """Stored value exactly as saved (sealed values stay sealed)."""
     if USE_REDIS:
         v = _redis(["GET", key])
         return json.loads(v) if v else default
@@ -326,6 +327,54 @@ def kv_get(key, default):
         return default
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+# Fase A (revisada): keys that jarvis_seal.py seals. Kept here too so that, if that file is missing from a
+# deploy, Jarvis still refuses to overwrite sealed data in clear (every other key is never affected).
+_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary"})
+_seal_warned = set()
+
+def _seal_module():
+    try:
+        import jarvis_seal
+        return jarvis_seal
+    except ImportError:
+        return None
+
+def kv_get(key, default):
+    raw = _kv_raw(key, default)
+    seal = _seal_module()
+    if seal is None:                             # module missing: a sealed blob is unreadable, never returned
+        return default if isinstance(raw, str) and raw.startswith("sealed:") else raw
+    if key not in seal.SEALED_KEYS:
+        return raw
+    try:
+        return seal.open_value(key, raw, default)
+    except Exception as e:                       # no/other key or damaged: never hand a sealed blob to callers
+        if key not in _seal_warned:
+            _seal_warned.add(key); logger.warning("sealed %s not readable: %s", key, type(e).__name__)
+        return default
+
+def _seal_for_write(key, value):
+    """Fase A (revisada): seal only the sensitive keys. A missing jarvis_seal.py or a missing key never blocks
+    other writes (money gate, queue, books). Sealed data is never overwritten in clear."""
+    seal = _seal_module()
+    sealed_keys = seal.SEALED_KEYS if seal else _SEALED_FALLBACK
+    if key not in sealed_keys:
+        return value
+    if seal is None or seal.key_state() == "missing":
+        current = _kv_raw(key, None)
+        if isinstance(current, str) and current.startswith("sealed:"):
+            raise RuntimeError(f"{key} está sellado y falta la llave o jarvis_seal.py: no lo piso en claro")
+        return value                              # no key configured: stays in clear, like every other key
+    return seal.seal_value(key, value)            # invalid key -> SealError: refuse rather than store in clear
+
+def _seal_status():
+    seal = _seal_module()
+    if seal is None:
+        return "módulo ausente (jarvis_seal.py)"
+    return {"ok": "activo (AES-256-GCM: historial y perfil)",
+            "missing": "sin DATA_ENCRYPTION_KEY: historial y perfil en claro",
+            "invalid": "DATA_ENCRYPTION_KEY inválida: no se guardan historial ni perfil"}[seal.key_state()]
 
 # v4.0.1 (H): write fencing across instances. During a Render deploy the old and the new process overlap;
 # the per-process RLock cannot protect a read-modify-write that spans both. The newest process takes the
@@ -393,6 +442,7 @@ def _check_writable():
 
 def kv_set(key, value):
     _check_writable()
+    value = _seal_for_write(key, value)
     data = json.dumps(value, ensure_ascii=False, allow_nan=False)
     if USE_REDIS:
         _redis_write([key, data])
@@ -402,6 +452,7 @@ def kv_set(key, value):
 def kv_set_many(values):
     """Save several keys together. Redis MSET is atomic; local files use a journal."""
     _check_writable()
+    values = {k: _seal_for_write(k, v) for k, v in values.items()}
     if USE_REDIS:
         pairs = []
         for key, value in values.items():
@@ -3331,6 +3382,24 @@ def _mode_mismatch(o, ms):
         return f"la orden #{o['id']} es de antes del último cambio de modo"
     return ""
 
+def _profile_ceiling():
+    """Fase A (revisada): per-order ceiling from the owner's profile. It can only LOWER the hard limit, never
+    raise it. -> (ceiling_usd, reason). No profile / no techo_usd -> the hard limit. 0 -> nothing goes through.
+    A damaged value (text, NaN, negative, bool) blocks orders until it is fixed: fail closed, never an exception."""
+    prof = kv_get("jarvis:profile", {})
+    raw = prof.get("techo_usd") if isinstance(prof, dict) else None
+    if raw is None or raw == "":
+        return float(MONEY_MAX_ORDER), ""
+    try:
+        if isinstance(raw, bool):
+            raise ValueError
+        v = float(raw)
+    except (TypeError, ValueError):
+        return 0.0, "el techo guardado en tu perfil no es un número; corrígelo"
+    if not math.isfinite(v) or v < 0:
+        return 0.0, "el techo guardado en tu perfil no es válido; corrígelo"
+    return min(v, float(MONEY_MAX_ORDER)), ""
+
 def cb_approve_text(arg):
     """/aprobar N — step 1 of 2: show details and a one-time code. Sends nothing."""
     ids = re.findall(r"\d+", arg or "")
@@ -3363,6 +3432,12 @@ def cb_approve_text(arg):
         if problem:
             gate_audit(g, "aprobar", ref, "rechazado", problem); _gsave(g)
             return f"⛔ No la apruebo: {problem}.\n{_cb_order_line(o)}"
+        techo, why = _profile_ceiling()
+        if float(o["usd_estimate"]) > techo:
+            gate_audit(g, "aprobar", ref, "rechazado", f"techo del perfil {techo:.2f}" + (f" ({why})" if why else ""))
+            _gsave(g)
+            return (f"⛔ No la apruebo: pasa el techo de tu perfil (${techo:.2f})"
+                    + (f" — {why}" if why else "") + f".\n{_cb_order_line(o)}")
         code = gate_issue_code(g, ref)
         gate_audit(g, "aprobar", ref, "código enviado", f"{_bank_usd(o['usd_estimate'])}")
         _gsave(g)
@@ -3415,6 +3490,11 @@ async def cb_confirm_text(arg):
             if problem:
                 gate_audit(g, "confirmar", ref, "rechazado", problem); _gsave(g)
                 raise ValueError(f"no la ejecuto: {problem}")
+            techo, why = _profile_ceiling()
+            if float(o["usd_estimate"]) > techo:
+                gate_audit(g, "confirmar", ref, "rechazado", f"techo del perfil {techo:.2f}" + (f" ({why})" if why else ""))
+                _gsave(g)
+                raise ValueError(f"no la ejecuto: pasa el techo del perfil (${techo:.2f})" + (f" — {why}" if why else ""))
             o["status"] = "sending"; o["sent_at"] = _now().isoformat(timespec="seconds")
             if mode == "real":
                 gate_add_spent(g, o["usd_estimate"])
@@ -5391,6 +5471,20 @@ async def _ai_call_scoped(history, tools, extra_system):
     return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt() + extra_system,
                                         tools=tools, messages=history)
 
+async def _phase_a_remember_turn(session, user_text, reply):
+    """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
+    also answers the Telegram webhook). Never raises: a failed save never breaks the chat."""
+    remember = globals().get("phase_a_remember")
+    if not remember:
+        return
+    def _save():
+        remember(session, "user", user_text)
+        remember(session, "assistant", reply)
+    try:
+        await asyncio.to_thread(_save)
+    except Exception as e:
+        logger.warning("history not saved: %s", type(e).__name__)
+
 async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
@@ -5406,6 +5500,12 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 "guardé. Borra ese mensaje del chat y, si era una clave real, cámbiala.\n\n")
         if not clean.replace("[", "").strip(" .]\n"):
             return warn.strip()
+    local = globals().get("phase_a_local")
+    if local is not None and allowed_tools is None and not read_only:
+        hit = await asyncio.to_thread(local, clean)          # may read the (sealed) profile: off the event loop
+        if hit:
+            await _phase_a_remember_turn(session, clean, hit)
+            return warn + hit
     if not AI_READY:
         return warn + AI_OFF_MSG
     lock = _locks.setdefault(session, asyncio.Lock())
@@ -5439,6 +5539,8 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 text = _redact_secrets(text)[0] or "(sin respuesta)"
                 history.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
                 conversations[session] = history
+                if allowed_tools is None:
+                    await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
                 return warn + note + text
             history.append({"role": "assistant", "content": content})
@@ -5941,6 +6043,9 @@ async def diagnostics_text():
                  + (f" · ⚠️ {ms['problem']}" if ms["problem"] else ""))
     lines.append(f"• Práctica cripto: {'activa (dinero simulado)' if PAPER_ON else 'apagada'}")
     lines.append(f"• Escritorio/voz: {DESKTOP_STATUS}")
+    _g = globals()                                   # Fase A (revisada): estado real de los ganchos
+    lines.append(f"• HTTPS/host: {_g.get('TRANSIT_STATUS', 'no cargado')} · Fase A: {_g.get('PHASE_A_STATUS', 'no cargada')}"
+                 f" · sellado: {_seal_status()}")
     # 4.0.5 (1.5): chat context lives only in memory on purpose (it may hold sensitive text); say so plainly
     lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
                  "ni un reinicio; tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
@@ -5955,6 +6060,12 @@ async def diagnostics_text():
     stt = bool(os.getenv("STT_AGENT_URL", "").strip()); tts = bool(os.getenv("TTS_AGENT_URL", "").strip())
     lines.append(f"• Voz: dictado {'configurado (sin verificar)' if stt else 'no configurado'} · audio "
                  f"{'configurado (sin verificar)' if tts else 'no configurado'}")
+    if not stt:                                       # voz local (jarvis_chat_voice), solo sin STT_AGENT_URL
+        try:
+            import jarvis_chat_voice
+            lines.append(f"• Voz local: {jarvis_chat_voice.status()}")
+        except ImportError:
+            pass
     ext = [f"{a}{'⚠️' if v['problem'] else ''}{' (caído)' if v['down'] else ''}" for a, v in external_agents_status().items() if v["configured"]]
     lines.append(f"• Agentes externos: {', '.join(ext) or 'ninguno'} · clave propia "
                  f"{'sí' if EXTERNAL_AGENT_KEY and EXTERNAL_AGENT_KEY != API_KEY else 'NO'}")
@@ -6286,3 +6397,22 @@ def _desktop_load(enabled_env=None):
         return _desktop_stub(), f"error al cargar ({type(e).__name__}); apagado"
 
 _desktop, DESKTOP_STATUS = _desktop_load()
+
+
+# 4.2.0 Fase A: tránsito HTTPS, historial/perfil, atajos locales, borrador de llamada.
+# Revisado: si un gancho no carga, Jarvis arranca igual y /diagnostico lo dice (antes solo quedaba en el log).
+TRANSIT_STATUS = PHASE_A_STATUS = "no cargado"
+try:
+    import jarvis_transit
+    jarvis_transit.install_transit(app)
+    TRANSIT_STATUS = "activo" + (f" (host {jarvis_transit.PUBLIC_HOST})" if jarvis_transit.PUBLIC_HOST else "")
+except Exception as _e:
+    TRANSIT_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("transit off: %s", type(_e).__name__)
+try:
+    import jarvis_phase_a as _phase_a
+    _phase_a.install(__import__("sys").modules[__name__])
+    PHASE_A_STATUS = "activa"
+except Exception as _e:
+    PHASE_A_STATUS = f"apagada ({type(_e).__name__})"
+    logger.warning("phase A off: %s", type(_e).__name__)

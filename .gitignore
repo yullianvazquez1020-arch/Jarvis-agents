@@ -10,3 +10,4 @@ jarvis_*.json
 *.pem
 *.key
 piper_models/
+whisper_models/
