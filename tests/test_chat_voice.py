@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -105,6 +106,22 @@ class ChatVoice(unittest.TestCase):
         self.assertEqual(cv.speak_local.await_count, 1)                    # Piper loaded once, then cache
         self.assertTrue(all("api.telegram.org" in url for url, _ in FakeHTTP.posts))   # no other API called
 
+    def test_reply_holds_video_lock_during_synthesis(self):
+        async def checked(text):
+            self.assertTrue(j._growth._video_lock.locked())
+            return await self.fake_speak(text)
+        with patch.object(cv, "speak_local", new=AsyncMock(side_effect=checked)):
+            self.voice()
+        self.assertFalse(j._growth._video_lock.locked())
+        self.assertTrue(any(url.endswith("/sendVoice") for url, _ in FakeHTTP.posts))
+
+    def test_synthesis_failure_releases_video_lock_and_keeps_dictation(self):
+        with patch.object(cv, "speak_local", new=AsyncMock(side_effect=ValueError("test failure"))):
+            self.voice()
+        self.assertFalse(j._growth._video_lock.locked())
+        self.assertEqual(self.voices()[0]["status"], "pending")
+        self.assertIn("La respuesta escrita ya está arriba", self.sent[-1])
+
     def test_not_installed_message_no_paid_api(self):
         (Path(self.fake_pkg) / "faster_whisper.py").write_text(
             'raise ModuleNotFoundError("secret details", name="faster_whisper")')
@@ -166,6 +183,25 @@ class WhisperModel:
                 message = cv._worker_failure(1, json.dumps({"error": error}).encode())
             self.assertNotIn("SECRET", message + str(logs.output))
             self.assertNotIn("no está instalado", message)
+
+    def test_real_audio_decoder_accepts_whisper_metadata_errors(self):
+        # Real dependency boundary: PyAV 19 raises TypeError here before inference.
+        # A generated WAV avoids network access, model downloads and private audio.
+        from faster_whisper.audio import decode_audio
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = str(Path(tmp) / "decoder.wav")
+            with wave.open(wav, "wb") as stream:
+                stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+                stream.writeframes(b"\x00\x00" * 1600)
+            audio = decode_audio(wav)
+        self.assertEqual(audio.shape, (1600,))
+
+    def test_type_error_is_reported_without_raw_details(self):
+        with self.assertLogs(cv.log, level="WARNING") as logs:
+            message = cv._worker_failure(1, json.dumps({"error": {
+                "stage": "transcribe", "kind": "TypeError", "message": "SECRET"}}).encode())
+        self.assertIn("transcribir el audio (TypeError)", message)
+        self.assertNotIn("SECRET", message + str(logs.output))
 
     def test_not_while_producing_video(self):
         async def go():

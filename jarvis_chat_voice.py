@@ -54,7 +54,7 @@ except Exception as exc:
     # Never serialize exception messages, tracebacks, paths, URLs or credentials.
     kind = type(exc).__name__
     allowed = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
-               "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+               "ValueError", "TypeError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
                "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout"}
     error = {"stage": stage, "kind": kind if kind in allowed else "Exception",
              "missing_whisper": isinstance(exc, ModuleNotFoundError) and exc.name == "faster_whisper"}
@@ -65,7 +65,7 @@ except Exception as exc:
 _ERROR_STAGES = {"import": "importar el transcriptor", "model": "descargar o cargar el modelo tiny",
                  "transcribe": "transcribir el audio"}
 _ERROR_KINDS = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
-                "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+                "ValueError", "TypeError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
                 "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout", "Exception"}
 
 
@@ -239,9 +239,13 @@ async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
     await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\nRevisa monto y concepto antes de guardar. "
                                  f"/dictado {n['id']} para procesarlo. No ejecuté nada.")
     try:
-        if lock is not None and lock.locked():
-            raise RuntimeError("video en curso")
-        ogg = await reply_voice()
+        if lock is not None:
+            if lock.locked():
+                raise RuntimeError("video en curso")
+            async with lock:
+                ogg = await reply_voice()
+        else:
+            ogg = await reply_voice()
         async with core.httpx.AsyncClient(timeout=60) as hc:
             r = await hc.post(f"https://api.telegram.org/bot{core.TG_TOKEN}/sendVoice",
                               data={"chat_id": chat_id}, files={"voice": ("respuesta.ogg", ogg, "audio/ogg")})
