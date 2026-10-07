@@ -230,7 +230,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.0.5"
+VERSION = "4.1.0"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -6052,13 +6052,16 @@ async def telegram(request: Request, background: BackgroundTasks,
     #   * if the process dies before handling it, the code is simply lost: the owner asks for a new one (/aprobar);
     #   * if it dies DURING a real send, the order stays "sending"; crypto_sending_sweep() later marks it "unknown"
     #     and tells the owner to check Coinbase before repeating. Nothing is ever resent automatically.
-    if cmd.lower().split("@")[0] == "/confirmar":
+    if cmd.lower().split("@")[0] in ("/confirmar", "/confirmarred"):
         if not is_owner_private(msg):
             return {"ok": True}
         try:
             await asyncio.to_thread(_require_leader)
             if await asyncio.to_thread(_first_time, update_id):
-                await _tg_cb_cmd(chat_id, "/confirmar", arg.strip())
+                if cmd.lower().split("@")[0] == "/confirmarred":
+                    await _connections.command(chat_id, "/confirmarred", arg.strip())
+                else:
+                    await _tg_cb_cmd(chat_id, "/confirmar", arg.strip())
         except StaleInstance:
             raise HTTPException(503, "Jarvis is restarting; Telegram will retry")
         return {"ok": True}
@@ -6252,6 +6255,9 @@ _extensions.install(_sys.modules[__name__])
 
 import jarvis_growth as _growth
 _growth.install(_sys.modules[__name__])
+
+import jarvis_connections as _connections
+_connections.install(_sys.modules[__name__])
 
 # Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
 # 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its
