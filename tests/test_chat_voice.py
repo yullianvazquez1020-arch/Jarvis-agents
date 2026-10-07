@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -166,6 +167,25 @@ class WhisperModel:
                 message = cv._worker_failure(1, json.dumps({"error": error}).encode())
             self.assertNotIn("SECRET", message + str(logs.output))
             self.assertNotIn("no está instalado", message)
+
+    def test_real_audio_decoder_accepts_whisper_metadata_errors(self):
+        # Real dependency boundary: PyAV 19 raises TypeError here before inference.
+        # A generated WAV avoids network access, model downloads and private audio.
+        from faster_whisper.audio import decode_audio
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = str(Path(tmp) / "decoder.wav")
+            with wave.open(wav, "wb") as stream:
+                stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+                stream.writeframes(b"\x00\x00" * 1600)
+            audio = decode_audio(wav)
+        self.assertEqual(audio.shape, (1600,))
+
+    def test_type_error_is_reported_without_raw_details(self):
+        with self.assertLogs(cv.log, level="WARNING") as logs:
+            message = cv._worker_failure(1, json.dumps({"error": {
+                "stage": "transcribe", "kind": "TypeError", "message": "SECRET"}}).encode())
+        self.assertIn("transcribir el audio (TypeError)", message)
+        self.assertNotIn("SECRET", message + str(logs.output))
 
     def test_not_while_producing_video(self):
         async def go():

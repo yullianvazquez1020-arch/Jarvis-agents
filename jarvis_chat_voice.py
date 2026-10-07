@@ -54,7 +54,7 @@ except Exception as exc:
     # Never serialize exception messages, tracebacks, paths, URLs or credentials.
     kind = type(exc).__name__
     allowed = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
-               "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+               "ValueError", "TypeError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
                "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout"}
     error = {"stage": stage, "kind": kind if kind in allowed else "Exception",
              "missing_whisper": isinstance(exc, ModuleNotFoundError) and exc.name == "faster_whisper"}
@@ -65,7 +65,7 @@ except Exception as exc:
 _ERROR_STAGES = {"import": "importar el transcriptor", "model": "descargar o cargar el modelo tiny",
                  "transcribe": "transcribir el audio"}
 _ERROR_KINDS = {"ImportError", "ModuleNotFoundError", "MemoryError", "OSError", "RuntimeError",
-                "ValueError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
+                "ValueError", "TypeError", "PermissionError", "FileNotFoundError", "HfHubHTTPError",
                 "LocalEntryNotFoundError", "ConnectError", "ConnectTimeout", "ReadTimeout", "Exception"}
 
 
