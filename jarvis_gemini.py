@@ -26,6 +26,7 @@ def configuration():
         "connection_verified": False,
         "mode": "explicit_text_review_only",
         "daily_request_limit": DAILY_REQUESTS,
+        "entrypoint": "main:app",
     }
 
 
@@ -38,7 +39,6 @@ async def generate(core, text):
         raise HTTPException(400, "El texto contiene credenciales o datos protegidos; no se envió")
     if not clean.strip():
         raise HTTPException(400, "Texto vacío")
-    # Persistent atomic claims: failed requests consume their slot too. No retries.
     import asyncio
     day = core._today().isoformat()
     claimed = False
@@ -83,7 +83,6 @@ async def generate(core, text):
     except HTTPException:
         raise
     except Exception:
-        # Do not expose exception strings, provider bodies, credentials or submitted text.
         raise HTTPException(502, "Gemini no produjo una respuesta válida; no se reintentó") from None
     answer, _ = core._redact_secrets(answer)
     return {"provider": "gemini", "model": config["model"], "text": answer,
@@ -91,13 +90,15 @@ async def generate(core, text):
 
 
 def install(core):
+    if getattr(core, "_gemini_installed", False):
+        return
+    core._gemini_installed = True
     core._SECRET_ENVS = tuple(dict.fromkeys((*core._SECRET_ENVS, "GEMINI_API_KEY",
                                            "GOOGLE_API_KEY", "GEMINI_REVIEW_ACCESS_KEY",
                                            "DATA_ENCRYPTION_KEY")))
 
     def authenticate(given):
         expected = os.getenv("GEMINI_REVIEW_ACCESS_KEY", "").strip()
-        # This limited review credential must never be the master or provider credential.
         other_secrets = {os.getenv(name, "").strip() for name in core._SECRET_ENVS
                          if name != "GEMINI_REVIEW_ACCESS_KEY"}
         other_secrets.add(core.API_KEY)
@@ -115,3 +116,7 @@ def install(core):
     async def review(body: ReviewRequest, x_api_key: str = Header(default="")):
         authenticate(x_api_key)
         return await generate(core, body.text)
+
+
+def attach(core):
+    install(core)
