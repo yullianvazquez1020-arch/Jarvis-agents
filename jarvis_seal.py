@@ -87,6 +87,32 @@ def seal_value(key: str, value):
     return seal(value)
 
 
+def fingerprint() -> str | None:
+    """Huella pública de la llave (8 hex): HMAC-SHA256(llave, etiqueta fija). No revela la llave; sirve para que
+    el dueño compruebe que la llave de Render es la misma de su respaldo. None si falta o es inválida."""
+    if key_state() != "ok":
+        return None
+    import hashlib
+    import hmac
+    return hmac.new(_key(), b"jarvis-seal-fingerprint-v1", hashlib.sha256).hexdigest()[:8]
+
+
+def inspect(value) -> str:
+    """Estado de un valor guardado, sin devolver su contenido:
+    'vacio' | 'claro' | 'cifrado' (abre con la llave actual) | 'sin_llave' | 'ilegible' (otra llave o alterado)."""
+    if value is None:
+        return "vacio"
+    if not is_sealed(value):
+        return "claro"
+    if key_state() != "ok":
+        return "sin_llave"
+    try:
+        open_seal(value)
+        return "cifrado"
+    except (SealError, ValueError):
+        return "ilegible"
+
+
 def open_value(key: str, value, default):
     if key not in SEALED_KEYS or value is None:
         return default if value is None else value

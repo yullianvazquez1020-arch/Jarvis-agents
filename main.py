@@ -348,11 +348,15 @@ def kv_get(key, default):
     if key not in seal.SEALED_KEYS:
         return raw
     try:
-        return seal.open_value(key, raw, default)
+        value = seal.open_value(key, raw, default)
     except Exception as e:                       # no/other key or damaged: never hand a sealed blob to callers
         if key not in _seal_warned:
             _seal_warned.add(key); logger.warning("sealed %s not readable: %s", key, type(e).__name__)
+        _seal_ok.pop((key, _seal_fp(seal)), None)
         return default
+    if raw is None or seal.is_sealed(raw):          # opened with this key (or absent): writes may replace it.
+        _seal_ok[(key, _seal_fp(seal))] = True    # Clear data is not marked: its first seal takes a backup.
+    return value
 
 def _seal_for_write(key, value):
     """Fase A (revisada): seal only the sensitive keys. A missing jarvis_seal.py or a missing key never blocks
@@ -361,18 +365,619 @@ def _seal_for_write(key, value):
     sealed_keys = seal.SEALED_KEYS if seal else _SEALED_FALLBACK
     if key not in sealed_keys:
         return value
-    if seal is None or seal.key_state() == "missing":
+    if seal is None or seal.key_state() == "missing" or _seal_paused["on"]:
         current = _kv_raw(key, None)
         if isinstance(current, str) and current.startswith("sealed:"):
-            raise RuntimeError(f"{key} está sellado y falta la llave o jarvis_seal.py: no lo piso en claro")
+            raise SealGuardError(f"{key} está sellado y falta la llave o jarvis_seal.py: no lo piso en claro")
         return value                              # no key configured: stays in clear, like every other key
+    if seal.key_state() == "ok":
+        _seal_guard(seal, key)                    # cifrado 4.2: never replace data this key cannot open
     return seal.seal_value(key, value)            # invalid key -> SealError: refuse rather than store in clear
+
+# --- Cifrado 4.2: protección completa del historial y del perfil (jarvis_seal.py) ---------------------------------
+# Lo que ya estaba sellado con OTRA llave, o dañado, nunca se pisa: antes, una llave equivocada en Render
+# hacía que el siguiente turno reemplazara el historial ilegible por uno nuevo y el original se perdía.
+# La migración de datos en claro es explícita (/cifrado migrar), verificable y con respaldo temporal. Nada de esto
+# genera ni guarda una llave: DATA_ENCRYPTION_KEY la pone el dueño en Render.
+SEAL_META_KEY = "jarvis:seal:meta"            # huella de la llave usada en la última migración (no es secreto)
+SEAL_BACKUP_HOURS = 72                        # respaldo en claro previo a cifrar; /cifrado limpiar lo borra antes
+SEAL_QUARANTINE_DAYS = 30                     # copia (cifrada, con fecha) de lo que se reemplaza o descarta
+SEAL_QUARANTINE_MAX = 5                       # copias por dato; la más vieja se borra al pasar de 5
+_seal_ok = {}                                 # (llave de datos, huella) -> verificado legible en este proceso
+_seal_paused = {"on": False}                  # /cifrado revertir: no sellar hasta reiniciar sin la llave
+_seal_notice = {"sent": False}                # aviso único en el chat cuando un guardado se rechaza
+
+class SealGuardError(RuntimeError):
+    """A sealed value this process cannot open is never replaced (wrong key, damaged, or key missing)."""
+
+def _seal_fp(seal):
+    try:
+        return seal.fingerprint() if hasattr(seal, "fingerprint") else None
+    except Exception:
+        return None
+
+def _seal_state(seal, value):
+    """'vacio' | 'claro' | 'cifrado' | 'sin_llave' | 'ilegible'. Works with an older jarvis_seal without inspect()."""
+    if hasattr(seal, "inspect"):
+        return seal.inspect(value)
+    if value is None:
+        return "vacio"
+    if not seal.is_sealed(value):
+        return "claro"
+    if seal.key_state() != "ok":
+        return "sin_llave"
+    try:
+        seal.open_seal(value); return "cifrado"
+    except Exception:
+        return "ilegible"
+
+def _seal_guard(seal, key):
+    fp = _seal_fp(seal)
+    # A prior successful read cannot prove the current stored value is still readable.
+    # Recheck before every sensitive write, including after external replacement or corruption.
+    current = _kv_raw(key, None)
+    state = _seal_state(seal, current)
+    if state == "ilegible":
+        raise SealGuardError(f"{key} está cifrado y no abre con la llave actual (huella {fp}): no lo piso. "
+                             "Revisa /cifrado.")
+    try:
+        if state == "claro" and _seal_side_get("backup", key) is None:
+            # first seal of data that was in clear (without /cifrado migrar): same expiring copy as a migration
+            _seal_side_put("backup", key, {"key": key, "at": _now().isoformat(timespec="seconds"), "fingerprint": fp,
+                                           "value": current}, SEAL_BACKUP_HOURS * 3600)
+        if fp and _seal_meta_fp() is None and not any(
+                _seal_state(seal, _kv_raw(k, None)) == "ilegible" for k in _seal_keys(seal) if k != key):
+            # record which key protects the data, so a wrong key is recognised later even without a migration
+            _seal_meta_set(fp, "primer guardado cifrado", [key])
+    except (StaleInstance, ReadOnlyViolation):
+        raise
+    except Exception as e:                        # a failed safety copy never costs the owner this turn
+        logger.warning("seal backup/meta not written for %s: %s", key, type(e).__name__)
+    _seal_ok[(key, fp)] = True
+
+def _seal_canon(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+def _kv_raw_text(key):
+    """Exact stored text (None when absent), for compare-and-set."""
+    if USE_REDIS:
+        return _redis(["GET", key])
+    _recover_local()
+    path = DATA_DIR / (key.replace(":", "_") + ".json")
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+_SEAL_CAS = ("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 'FENCED' end "
+             "local cur = redis.call('GET', KEYS[2]) "
+             "if (cur or '') ~= ARGV[2] then return 'CHANGED' end "
+             "redis.call('SET', KEYS[2], ARGV[3]) return 'OK'")
+# backup / quarantine copies: same leader check inside Redis as every other write
+_SEAL_SIDE = ("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 'FENCED' end "
+              "if ARGV[2] == 'DEL' then return redis.call('DEL', KEYS[2]) end "
+              "redis.call('SET', KEYS[2], ARGV[3], 'EX', ARGV[4]) return 'OK'")
+
+def _seal_fenced(script, keys, args):
+    if _fence["mode"] != "on":
+        raise StaleInstance("Redis write protection is not initialized; refusing unprotected writes")
+    r = _redis(["EVAL", script, str(1 + len(keys)), LEADER_KEY] + keys + [INSTANCE_ID] + args)
+    if r == "FENCED":
+        _fence["leader"] = False
+        raise StaleInstance("a newer Jarvis instance is active; this write was refused")
+    return r
+
+def _seal_cas(key, expected_text, new_text):
+    """Write new_text only if the key still holds expected_text (None = absent). Fenced in Upstash."""
+    _check_writable()
+    if USE_REDIS:
+        r = _seal_fenced(_SEAL_CAS, [key], [expected_text or "", new_text])
+        if r == "CHANGED":
+            raise RuntimeError(f"{key} cambió mientras lo revisaba; no escribí nada")
+        if r != "OK":
+            raise RuntimeError("Redis did not confirm the write")
+        return
+    if _kv_raw_text(key) != expected_text:
+        raise RuntimeError(f"{key} cambió mientras lo revisaba; no escribí nada")
+    _atomic_file(DATA_DIR / (key.replace(":", "_") + ".json"), new_text)
+
+def _seal_side_name(kind, key, stamp=None):
+    return f"jarvis:seal:{kind}:{key}" + (f":{stamp}" if stamp else "")
+
+def _seal_side_path(name):
+    return DATA_DIR / (name.replace(":", "_") + ".json")
+
+def _seal_side_put(kind, key, payload, seconds, stamp=None):
+    """Backup (one per key) / quarantine (one per moment: never overwritten) copies, with expiry."""
+    _check_writable()
+    name = _seal_side_name(kind, key, stamp)
+    if USE_REDIS:
+        text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        if _seal_fenced(_SEAL_SIDE, [name], ["SET", text, str(int(seconds))]) != "OK":
+            raise RuntimeError("Redis did not confirm the copy")
+        return name
+    payload = dict(payload, expires=(_now() + datetime.timedelta(seconds=seconds)).isoformat())
+    _atomic_file(_seal_side_path(name), json.dumps(payload, ensure_ascii=False, allow_nan=False))
+    return name
+
+def _seal_local_read(path):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("expires") and datetime.datetime.fromisoformat(data["expires"]) < _now():
+        with contextlib.suppress(OSError):
+            path.unlink()                         # expired plaintext never lingers on disk
+        return None
+    return data
+
+def _seal_side_get(kind, key, stamp=None):
+    name = _seal_side_name(kind, key, stamp)
+    if USE_REDIS:
+        text = _redis(["GET", name])
+        return json.loads(text) if text else None
+    path = _seal_side_path(name)
+    return _seal_local_read(path) if path.exists() else None
+
+def _seal_side_del(kind, key, stamp=None):
+    _check_writable()
+    name = _seal_side_name(kind, key, stamp)
+    if USE_REDIS:
+        return bool(_seal_fenced(_SEAL_SIDE, [name], ["DEL", "", "0"]))
+    path = _seal_side_path(name)
+    existed = path.exists()
+    if existed:
+        path.unlink()
+    return existed
+
+def _seal_qindex(key, live_only=False):
+    d = _seal_side_get("qindex", key)
+    items = [it for it in (d or {}).get("items", []) if isinstance(it, dict) and it.get("stamp")]
+    if live_only:                                 # expired copies are not counted (no extra reads)
+        now = _now()
+        items = [it for it in items if not it.get("expires") or datetime.datetime.fromisoformat(it["expires"]) > now]
+    return items
+
+def _seal_qindex_save(key, items):
+    _seal_side_put("qindex", key, {"items": sorted(items, key=lambda it: it["stamp"])}, SEAL_QUARANTINE_DAYS * 86400)
+
+def _seal_quarantine_list(key):
+    """Quarantine copies of one key, newest first: [(stamp, payload)]. Uses a small index, never SCAN."""
+    out = []
+    for it in sorted(_seal_qindex(key), key=lambda it: it["stamp"], reverse=True):
+        copy = _seal_side_get("quarantine", key, it["stamp"])
+        if copy:
+            out.append((it["stamp"], copy))
+    return out
+
+def _seal_quarantine(key, raw, why):
+    """Dated copy of what is about to be replaced. Clear data is sealed first when a key is available; a copy
+    that must stay in clear (no key) lives only SEAL_BACKUP_HOURS, like the migration backup. The index entry is
+    written BEFORE the copy, so a crash leaves at most an index entry without a copy, never a hidden copy."""
+    seal = _seal_module()
+    clear = not (isinstance(raw, str) and raw.startswith("sealed:"))
+    if clear and seal is not None and seal.key_state() == "ok":
+        raw, clear = seal.seal(raw), False
+    stamp = _now().strftime("%Y%m%d%H%M%S%f")
+    seconds = SEAL_BACKUP_HOURS * 3600 if clear else SEAL_QUARANTINE_DAYS * 86400
+    expires = (_now() + datetime.timedelta(seconds=seconds)).isoformat()
+    items = _seal_qindex(key) + [{"stamp": stamp, "why": why, "clear": clear, "expires": expires}]
+    _seal_qindex_save(key, items)
+    _seal_side_put("quarantine", key, {"key": key, "at": _now().isoformat(timespec="seconds"), "why": why,
+                                       "raw": raw, "clear": clear}, seconds, stamp)
+    return stamp
+
+def _seal_quarantine_prune(key):
+    """After the main write succeeded: drop index entries without a copy, then keep at most SEAL_QUARANTINE_MAX.
+    Only copies the current key opens (or clear ones) are pruned, oldest first; a copy this key cannot open may be
+    the only good one for another key, so it is never pruned here (it expires on its own)."""
+    seal = _seal_module()
+    live = []
+    for it in sorted(_seal_qindex(key), key=lambda it: it["stamp"]):
+        copy = _seal_side_get("quarantine", key, it["stamp"])
+        if copy is not None:
+            live.append((it, copy))
+    excess = len(live) - SEAL_QUARANTINE_MAX
+    keep = []
+    for it, copy in live:
+        prunable = copy.get("clear") or (seal is not None and _seal_state(seal, copy.get("raw")) == "cifrado")
+        if excess > 0 and prunable:
+            _seal_side_del("quarantine", key, it["stamp"]); excess -= 1
+        else:
+            keep.append(it)
+    _seal_qindex_save(key, keep)
+
+def _seal_size(value):
+    return len(value) if isinstance(value, (list, dict)) else 1
+
+def _seal_keys(seal):
+    return sorted(seal.SEALED_KEYS if seal else _SEALED_FALLBACK)
+
+def _seal_meta_fp():
+    meta = _kv_raw(SEAL_META_KEY, None)
+    return meta.get("fingerprint") if isinstance(meta, dict) else None
+
+def _seal_meta_set(fp, source, keys=None):
+    """Which key protects the data now. An explicit owner choice (descartar / forzar) moves it; the old one is kept."""
+    old = _kv_raw(SEAL_META_KEY, None)
+    meta = {"fingerprint": fp, "at": _now().isoformat(timespec="seconds"), "source": source, "keys": keys or []}
+    if isinstance(old, dict) and old.get("fingerprint") and old.get("fingerprint") != fp:
+        meta["previous_fingerprint"] = old["fingerprint"]
+    kv_set(SEAL_META_KEY, meta)
+
+def seal_report():
+    """Three separate facts: code available, key configured, data actually encrypted (per key, no content)."""
+    seal = _seal_module()
+    rep = {"code": seal is not None and hasattr(seal, "inspect"), "key": "missing", "fingerprint": None,
+           "data": {}, "meta_fingerprint": None, "paused": _seal_paused["on"], "backups": [], "quarantine": 0,
+           "quarantine_clear": 0}
+    if seal is not None:
+        rep["key"] = seal.key_state(); rep["fingerprint"] = _seal_fp(seal)
+    for key in _seal_keys(seal):
+        try:
+            raw = _kv_raw(key, None)
+            if seal is None:                      # no module: still say honestly what is stored
+                rep["data"][key] = ("sin_llave" if isinstance(raw, str) and raw.startswith("sealed:")
+                                    else "vacio" if raw is None else "claro")
+            else:
+                rep["data"][key] = _seal_state(seal, raw)
+        except Exception as e:
+            rep["data"][key] = f"error de lectura ({type(e).__name__})"
+        try:
+            if _seal_side_get("backup", key):
+                rep["backups"].append(key)
+            items = _seal_qindex(key, live_only=True)   # index only: no payload reads for /diagnostico
+            rep["quarantine"] += len(items); rep["quarantine_clear"] += sum(1 for it in items if it.get("clear"))
+        except Exception:
+            pass
+    try:
+        rep["meta_fingerprint"] = _seal_meta_fp()
+    except Exception:
+        pass
+    return rep
+
+_SEAL_NAMES = {"jarvis:history": "historial", "jarvis:profile": "perfil", "jarvis:bio": "bio", "jarvis:diary": "diario"}
+_SEAL_STATES = {"vacio": "vacío", "claro": "en claro", "cifrado": "cifrado", "sin_llave": "cifrado (sin llave para abrirlo)",
+                "ilegible": "ILEGIBLE con esta llave (no se sobrescribe)"}
+
+def seal_status_text(rep=None):
+    rep = rep or seal_report()
+    data = ", ".join(f"{_SEAL_NAMES.get(k, k)} {_SEAL_STATES.get(v, v)}" for k, v in rep["data"].items())
+    if not rep["code"]:
+        return f"Cifrado: código no disponible (falta jarvis_seal.py, cryptography o la versión nueva) · datos: {data}."
+    key = {"missing": "sin clave (DATA_ENCRYPTION_KEY vacía)", "invalid": "clave inválida (no es base64 de 32 bytes)",
+           "ok": f"clave configurada (huella {rep['fingerprint']})"}[rep["key"]]
+    out = f"Cifrado: código disponible · {key} · datos: {data}."
+    unreadable = any(v in ("ilegible", "sin_llave") for v in rep["data"].values())
+    if rep["key"] == "ok" and rep["meta_fingerprint"] and rep["meta_fingerprint"] != rep["fingerprint"]:
+        out += f" ⚠️ Los datos se cifraron con otra clave (huella {rep['meta_fingerprint']}): pon esa clave en Render."
+    elif unreadable:
+        out += " ⚠️ Hay datos que esta clave no abre: no se guarda historial nuevo hasta resolverlo (/cifrado)."
+    if rep["key"] == "ok" and "claro" in rep["data"].values() and not rep["paused"] and not unreadable:
+        out += " Pendiente: /cifrado revisar y /cifrado migrar."
+    if rep["paused"]:
+        out += " Cifrado en pausa tras /cifrado revertir: quita DATA_ENCRYPTION_KEY en Render."
+    if rep["backups"]:
+        out += f" Respaldo previo en claro: {', '.join(_SEAL_NAMES.get(k, k) for k in rep['backups'])} (vence solo; /cifrado limpiar)."
+    if rep["quarantine"]:
+        out += f" Copias guardadas de datos reemplazados: {rep['quarantine']} (vencen solas)."
+    if rep["quarantine_clear"]:
+        out += f" {rep['quarantine_clear']} de esas copias están en claro ({SEAL_BACKUP_HOURS} h; /cifrado limpiar)."
+    return out
+
+def _seal_ready(seal, apply):
+    if seal is None or not hasattr(seal, "inspect"):
+        return "código de cifrado no disponible"
+    if apply:
+        _check_writable(); _require_leader()
+        if seal.key_state() == "invalid":
+            return "DATA_ENCRYPTION_KEY inválida: no cambio datos hasta corregirla"
+    return None
+
+def seal_migrate(apply=False, force=False):
+    """Clear -> AES-GCM, one key at a time: backup (expiring), seal, round-trip check, compare-and-set (a turn saved
+    meanwhile is never lost), re-read and verify. Unreadable or already sealed data is never touched, and nothing
+    is applied while some data is unreadable or the last migration used another key (that means a wrong key)."""
+    seal = _seal_module()
+    err = _seal_ready(seal, False)
+    if err:
+        return {"ok": False, "error": err, "rows": []}
+    if seal.key_state() != "ok":
+        return {"ok": False, "error": "DATA_ENCRYPTION_KEY falta o es inválida: no migro", "rows": []}
+    if apply and _seal_paused["on"]:
+        return {"ok": False, "error": "cifrado en pausa tras revertir: reinicia antes de migrar", "rows": []}
+    fp = _seal_fp(seal); rows = []; ok = True; migrated = []
+    with _data_lock:
+        meta_fp = _seal_meta_fp()
+        states = {}
+        for key in _seal_keys(seal):
+            text = _kv_raw_text(key)
+            states[key] = (text, json.loads(text) if text is not None else None)
+        bad = [k for k, (_, v) in states.items() if _seal_state(seal, v) in ("ilegible", "sin_llave")]
+        if apply and not force and (bad or (meta_fp and meta_fp != fp)):
+            why = (f"los datos se cifraron con otra clave (huella {meta_fp}); esta es {fp}" if meta_fp and meta_fp != fp
+                   else "hay datos que esta clave no abre: " + ", ".join(_SEAL_NAMES.get(k, k) for k in bad))
+            return {"ok": False, "fingerprint": fp, "rows": [
+                {"key": k, "before": _seal_state(seal, v), "after": _seal_state(seal, v),
+                 "size": _seal_size(v) if v is not None else 0} for k, (_, v) in states.items()],
+                "error": why + ". No cambié nada: pon la clave correcta en Render. Solo si sabes que quieres usar "
+                               "esta clave para lo demás: /cifrado migrar forzar"}
+        if apply:
+            _check_writable(); _require_leader()
+        for key, (text, value) in states.items():
+            row = {"key": key}
+            try:
+                row["before"] = _seal_state(seal, value); row["size"] = _seal_size(value) if value is not None else 0
+                if row["before"] != "claro" or not apply:
+                    row["after"] = row["before"]; rows.append(row); continue
+                _seal_side_put("backup", key, {"key": key, "at": _now().isoformat(timespec="seconds"),
+                                               "fingerprint": fp, "value": value}, SEAL_BACKUP_HOURS * 3600)
+                token = seal.seal(value)
+                if _seal_canon(seal.open_seal(token)) != _seal_canon(value):
+                    raise RuntimeError("la prueba de ida y vuelta no coincidió")
+                _seal_cas(key, text, json.dumps(token))
+                back = _kv_raw(key, None)
+                verified = seal.is_sealed(back) and _seal_canon(seal.open_seal(back)) == _seal_canon(value)
+                row["after"] = "cifrado" if verified else "sin verificar"
+                ok = ok and verified
+                if verified:
+                    _seal_ok[(key, fp)] = True; migrated.append(key)
+            except Exception as e:
+                ok = False; row["after"] = "error"; row["error"] = _redact_secrets(str(e))[0][:160]
+            rows.append(row)
+        sealed_now = [r["key"] for r in rows if r.get("after") == "cifrado"]
+        if apply and ok and sealed_now and (migrated or not meta_fp) and (force or not meta_fp or meta_fp == fp):
+            try:
+                _seal_meta_set(fp, "migrar forzar" if force else "migrar", sealed_now)
+            except Exception as e:
+                ok = False; rows.append({"key": SEAL_META_KEY, "after": "error", "error": type(e).__name__})
+    return {"ok": ok, "apply": apply, "fingerprint": fp, "rows": rows}
+
+def _seal_put_back(seal, key, text, value):
+    """Write `value` (sealed when a key is set and not paused, else clear) by compare-and-set, then verify."""
+    sealing = seal.key_state() == "ok" and not _seal_paused["on"]
+    new = seal.seal(value) if sealing else value
+    _seal_cas(key, text, json.dumps(new, ensure_ascii=False, allow_nan=False))
+    back = _kv_raw(key, None)
+    got = seal.open_seal(back) if seal.is_sealed(back) else back
+    verified = _seal_canon(got) == _seal_canon(value)
+    if verified and sealing:
+        _seal_ok[(key, _seal_fp(seal))] = True
+    return ("cifrado" if sealing else "claro") if verified else "sin verificar"
+
+def seal_restore_backup(force=False):
+    """Put back the pre-migration copy. By default only over data that cannot be opened now; readable data needs
+    'forzar'. Whatever is replaced is first kept as a dated quarantine copy (never overwritten)."""
+    seal = _seal_module()
+    err = _seal_ready(seal, True)
+    if err:
+        return {"ok": False, "error": err, "rows": []}
+    rows = []; ok = True
+    with _data_lock:
+        fp, meta_fp = _seal_fp(seal), _seal_meta_fp()
+        for key in _seal_keys(seal):
+            try:
+                b = _seal_side_get("backup", key)
+                if not b:
+                    continue
+                text = _kv_raw_text(key)
+                current = json.loads(text) if text is not None else None
+                state = _seal_state(seal, current)
+                if not force and state in ("claro", "cifrado"):
+                    rows.append({"key": key, "before": state, "after": state,
+                                 "error": "tiene datos legibles, quizá más nuevos: no lo toqué (/cifrado restaurar forzar)"})
+                    continue
+                if not force and state == "ilegible" and not (meta_fp and meta_fp == fp):
+                    rows.append({"key": key, "before": state, "after": state,
+                                 "error": (f"parece otra clave: pon la de huella {meta_fp} en Render" if meta_fp else
+                                           "puede ser otra clave (no hay huella registrada)")
+                                          + "; no lo toqué (/cifrado restaurar forzar)"})
+                    continue
+                quarantined = current is not None
+                if quarantined:
+                    _seal_quarantine(key, current, "restaurar")
+                after = _seal_put_back(seal, key, text, b["value"])
+                ok = ok and after != "sin verificar"
+                rows.append({"key": key, "before": state, "after": after, "quarantine": quarantined})
+                if quarantined:
+                    _seal_quarantine_prune(key)
+                if force and fp and after == "cifrado":
+                    _seal_meta_set(fp, "restaurar forzar", [key])
+            except Exception as e:
+                ok = False; rows.append({"key": key, "after": "error", "error": _redact_secrets(str(e))[0][:160]})
+    done = [r for r in rows if not r.get("error")]
+    return {"ok": ok and bool(done) and len(done) == len(rows), "rows": rows,
+            "error": None if rows else "no hay respaldo vigente"}
+
+def seal_recover_quarantine(force=False):
+    """Bring back the newest quarantine copy that opens with the current key (e.g. after fixing the key). Like
+    restore, it never replaces readable data without 'forzar', and never picks a copy it set aside itself."""
+    seal = _seal_module()
+    err = _seal_ready(seal, True)
+    if err:
+        return {"ok": False, "error": err, "rows": []}
+    if seal.key_state() != "ok":
+        return {"ok": False, "error": "sin una clave válida no puedo abrir las copias", "rows": []}
+    rows = []; ok = True
+    with _data_lock:
+        for key in _seal_keys(seal):
+            try:
+                text = _kv_raw_text(key)
+                current = json.loads(text) if text is not None else None
+                state = _seal_state(seal, current)
+                now_value = seal.open_seal(current) if state == "cifrado" else current
+                copy = next(((s, c) for s, c in _seal_quarantine_list(key)
+                             if _seal_state(seal, c.get("raw")) == "cifrado"
+                             and _seal_canon(seal.open_seal(c["raw"])) != _seal_canon(now_value)), None)
+                if not copy:
+                    continue
+                if not force and state in ("claro", "cifrado"):
+                    rows.append({"key": key, "before": state, "after": state,
+                                 "error": "tiene datos legibles, quizá más nuevos: no lo toqué (/cifrado recuperar forzar)"})
+                    continue
+                if current is not None:
+                    _seal_quarantine(key, current, "recuperar")
+                after = _seal_put_back(seal, key, text, seal.open_seal(copy[1]["raw"]))
+                ok = ok and after != "sin verificar"
+                rows.append({"key": key, "before": state, "after": after, "quarantine": current is not None})
+                if current is not None:
+                    _seal_quarantine_prune(key)
+                if force and after == "cifrado":
+                    _seal_meta_set(_seal_fp(seal), "recuperar forzar", [key])
+            except Exception as e:
+                ok = False; rows.append({"key": key, "after": "error", "error": _redact_secrets(str(e))[0][:160]})
+    done = [r for r in rows if not r.get("error")]
+    return {"ok": ok and bool(done) and len(done) == len(rows), "rows": rows,
+            "error": None if rows else "ninguna copia guardada abre con esta clave"}
+
+def seal_discard_unreadable():
+    """Let history save again when data cannot be opened: keep a dated copy (30 days), then leave the key empty."""
+    seal = _seal_module()
+    err = _seal_ready(seal, True)
+    if err:
+        return {"ok": False, "error": err, "rows": []}
+    rows = []; ok = True
+    with _data_lock:
+        for key in _seal_keys(seal):
+            try:
+                text = _kv_raw_text(key)
+                current = json.loads(text) if text is not None else None
+                state = _seal_state(seal, current)
+                if state not in ("ilegible", "sin_llave"):
+                    continue
+                _seal_quarantine(key, current, "descartar")
+                _seal_cas(key, text, "null")              # stored null reads as "absent" everywhere
+                _seal_ok.pop((key, _seal_fp(seal)), None)
+                rows.append({"key": key, "before": state, "after": "vacio", "quarantine": True})
+                _seal_quarantine_prune(key)
+            except Exception as e:
+                ok = False; rows.append({"key": key, "after": "error", "error": _redact_secrets(str(e))[0][:160]})
+    if rows and ok and seal.key_state() == "ok":
+        with _data_lock:
+            _seal_meta_set(_seal_fp(seal), "descartar", [r["key"] for r in rows])
+    return {"ok": ok and bool(rows), "rows": rows, "error": None if rows else "no hay datos ilegibles"}
+
+def seal_revert():
+    """Back to clear (needs the key). Pauses sealing in this process; then remove DATA_ENCRYPTION_KEY in Render."""
+    seal = _seal_module()
+    err = _seal_ready(seal, True)
+    if err:
+        return {"ok": False, "error": err, "rows": []}
+    if seal.key_state() != "ok":
+        return {"ok": False, "error": "sin una clave válida no puedo descifrar", "rows": []}
+    rows = []; ok = True
+    with _data_lock:
+        for key in _seal_keys(seal):
+            try:
+                text = _kv_raw_text(key)
+                value = json.loads(text) if text is not None else None
+                state = _seal_state(seal, value)
+                if state != "cifrado":
+                    ok = ok and state in ("vacio", "claro")         # unreadable data stays sealed: say so
+                    rows.append({"key": key, "before": state, "after": state}); continue
+                plain = seal.open_seal(value)
+                _seal_cas(key, text, json.dumps(plain, ensure_ascii=False, allow_nan=False))
+                verified = _seal_canon(_kv_raw(key, None)) == _seal_canon(plain)
+                ok = ok and verified
+                rows.append({"key": key, "before": state, "after": "claro" if verified else "sin verificar"})
+            except Exception as e:
+                ok = False; rows.append({"key": key, "after": "error", "error": _redact_secrets(str(e))[0][:160]})
+        _seal_paused["on"] = True
+    return {"ok": ok, "rows": rows}
+
+def seal_clean_backups():
+    """Deletes the copies kept IN CLEAR (migration backups and clear quarantine copies). Sealed or damaged copies
+    stay: they hold nothing readable without the key and expire on their own."""
+    seal = _seal_module(); n = 0
+    with _data_lock:
+        for key in _seal_keys(seal):
+            n += 1 if _seal_side_del("backup", key) else 0
+            items = _seal_qindex(key)
+            keep = [it for it in items if not it.get("clear")]
+            for it in items:
+                if it.get("clear"):
+                    n += 1 if _seal_side_del("quarantine", key, it["stamp"]) else 0
+            if len(keep) != len(items):
+                _seal_qindex_save(key, keep)
+    return n
+
+def _seal_rows_text(rows):
+    lines = []
+    for r in rows:
+        name = _SEAL_NAMES.get(r["key"], r["key"])
+        size = f" ({r['size']} elementos)" if r.get("size") else ""
+        before, after = r.get("before"), r.get("after")
+        move = (_SEAL_STATES.get(after, after) if before in (None, after)
+                else f"{_SEAL_STATES.get(before, before)} → {_SEAL_STATES.get(after, after)}")
+        lines.append(f"• {name}{size}: {move}" + (f" — {r['error']}" if r.get("error") else "")
+                     + (" — copia de lo anterior guardada (/cifrado recuperar)" if r.get("quarantine") else ""))
+    return "\n".join(lines)
+
+def seal_command_text(arg):
+    """/cifrado [revisar|migrar|restaurar|recuperar|descartar|revertir|limpiar] [forzar] — owner's private chat
+    only. Never shows content or the key."""
+    words = (arg or "").strip().lower().split()
+    sub = words[0] if words else ""
+    force = "forzar" in words[1:]
+    if sub in ("", "estado"):
+        return seal_status_text() + ("\n\nOpciones: /cifrado revisar · migrar · restaurar · recuperar · descartar · "
+                                     "revertir · limpiar")
+    if sub == "revisar":
+        r = seal_migrate(apply=False)
+        if r.get("error"):
+            return "🔐 " + r["error"] + "."
+        todo = [x for x in r["rows"] if x["before"] == "claro"]
+        bad = [x for x in r["rows"] if x["before"] in ("ilegible", "sin_llave")]
+        return (f"🔐 Revisión (no cambié nada). Clave con huella {r['fingerprint']}.\n" + _seal_rows_text(r["rows"])
+                + ("\n\n⚠️ Hay datos que esta clave no abre: revisa que sea la clave correcta antes de migrar." if bad else "")
+                + ("\n\nSe cifrarían: " + ", ".join(_SEAL_NAMES.get(x["key"], x["key"]) for x in todo)
+                   + ". Antes, confirma que guardaste la clave fuera de Render y que su huella coincide. "
+                   "Luego: /cifrado migrar" if todo else "\n\nNo hay nada en claro que migrar."))
+    if sub == "migrar":
+        r = seal_migrate(apply=True, force=force)
+        if r.get("error"):
+            return "🔐 " + r["error"] + ("\n" + _seal_rows_text(r["rows"]) if r.get("rows") else "")
+        head = "✅ Migración verificada." if r["ok"] else "⚠️ Migración incompleta: lo que no se verificó sigue igual o en claro."
+        return (f"{head} Huella {r['fingerprint']}.\n" + _seal_rows_text(r["rows"])
+                + f"\n\nRespaldo en claro de lo migrado: {SEAL_BACKUP_HOURS} h (luego se borra solo). "
+                  "Si perdiste la clave, /cifrado restaurar lo devuelve dentro de ese plazo.")
+    if sub == "restaurar":
+        r = seal_restore_backup(force=force)
+        if r.get("error") and not r["rows"]:
+            return "🔐 " + r["error"] + "."
+        return ("✅ Restaurado y verificado.\n" if r["ok"] else "⚠️ No restauré todo.\n") + _seal_rows_text(r["rows"])
+    if sub == "recuperar":
+        r = seal_recover_quarantine(force=force)
+        if r.get("error") and not r["rows"]:
+            return "🔐 " + r["error"] + "."
+        return ("✅ Recuperado y verificado.\n" if r["ok"] else "⚠️ No recuperé todo.\n") + _seal_rows_text(r["rows"])
+    if sub == "descartar":
+        r = seal_discard_unreadable()
+        if r.get("error") and not r["rows"]:
+            return "🔐 " + r["error"] + "."
+        return (("✅ Listo: el historial vuelve a guardarse." if r["ok"] else "⚠️ No descarté todo.") + "\n"
+                + _seal_rows_text(r["rows"]) + "\nSi luego encuentras la clave correcta: /cifrado recuperar.")
+    if sub == "revertir":
+        r = seal_revert()
+        if r.get("error"):
+            return "🔐 " + r["error"] + "."
+        return (("✅ Descifrado y verificado." if r["ok"] else "⚠️ Reversión incompleta: hay datos que siguen cifrados.")
+                + "\n" + _seal_rows_text(r["rows"])
+                + "\n\nNo volveré a cifrar hasta reiniciar. Ahora quita DATA_ENCRYPTION_KEY en Render; "
+                  "si reinicio con la clave puesta, se vuelve a cifrar al guardar.")
+    if sub == "limpiar":
+        n = seal_clean_backups()
+        return f"🧹 Borré {n} copia(s) en claro." if n else "No había copias en claro."
+    return ("Uso: /cifrado · revisar · migrar · restaurar · recuperar · descartar · revertir · limpiar "
+            "(migrar, restaurar y recuperar aceptan «forzar»)")
+
+async def _tg_cifrado(chat_id, arg):
+    try:
+        text = await asyncio.to_thread(seal_command_text, arg)
+    except Exception as e:
+        logger.warning("/cifrado failed: %s", type(e).__name__)
+        text = "⚠️ No pude completar /cifrado (" + _redact_secrets(str(e))[0][:160] + "). Revisa /cifrado: puede haber cambios parciales."
+    await _tg_safe_send(chat_id, text)
 
 def _seal_status():
     seal = _seal_module()
     if seal is None:
         return "módulo ausente (jarvis_seal.py)"
-    return {"ok": "activo (AES-256-GCM: historial y perfil)",
+    return {"ok": "clave configurada (los datos, en la línea «Cifrado»)",
             "missing": "sin DATA_ENCRYPTION_KEY: historial y perfil en claro",
             "invalid": "DATA_ENCRYPTION_KEY inválida: no se guardan historial ni perfil"}[seal.key_state()]
 
@@ -2733,7 +3338,7 @@ def gate_practice_confirm(code):
 
 MONEY_COMMANDS = ("/aprobar", "/confirmar", "/rechazar", "/anotar", "/descartar")
 # v3.8: sending to clients and resetting practice also require the owner's private chat
-PRIVATE_COMMANDS = MONEY_COMMANDS + ("/enviar", "/noenviar", "/practica", "/exportar")   # 4.0.5: exports too
+PRIVATE_COMMANDS = MONEY_COMMANDS + ("/enviar", "/noenviar", "/practica", "/exportar", "/cifrado")   # 4.0.5: exports too; 4.2: /cifrado
 
 def security_text():
     """/seguridad — limits, today's total, lockout and the last approval attempts (zero tokens)."""
@@ -5488,8 +6093,14 @@ async def _phase_a_remember_turn(session, user_text, reply):
         return
     try:
         await asyncio.to_thread(remember, session, user_text, reply)
+        _seal_notice["sent"] = False                 # saved again: a later problem is announced again
     except Exception as e:
         logger.warning("history not saved: %s", type(e).__name__)
+        if isinstance(e, SealGuardError) and not _seal_notice["sent"]:   # cifrado 4.2: say it once, in the chat
+            _seal_notice["sent"] = True
+            return ("\n\n⚠️ No guardé esta conversación en el historial: está cifrado con otra clave o dañado, y no "
+                    "lo piso. Revisa /cifrado.")
+    return ""
 
 async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
@@ -5510,14 +6121,14 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     if smalltalk is not None and ((allowed_tools is None and not read_only) or read_only == "voice"):
         hit = smalltalk(clean)  # pure rules: no tools, network, or account data
         if hit:
-            await _phase_a_remember_turn(session, clean, hit)
-            return warn + hit
+            saved = await _phase_a_remember_turn(session, clean, hit)
+            return warn + hit + (saved or "")
     local = globals().get("phase_a_local")
     if local is not None and allowed_tools is None and not read_only:
         hit = await asyncio.to_thread(local, clean)          # may read the (sealed) profile: off the event loop
         if hit:
-            await _phase_a_remember_turn(session, clean, hit)
-            return warn + hit
+            saved = await _phase_a_remember_turn(session, clean, hit)
+            return warn + hit + (saved or "")
     if not AI_READY:
         return warn + AI_OFF_MSG
     lock = _locks.setdefault(session, asyncio.Lock())
@@ -5567,10 +6178,11 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 conversations[session] = (_trim(base + [{"role": "user", "content": clean},
                                                         {"role": "assistant", "content": [{"type": "text", "text": text}]}])
                                           if voice else history)
+                saved = ""
                 if allowed_tools is None or read_only == "voice":
-                    await _phase_a_remember_turn(session, clean, text)
+                    saved = await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
-                return warn + note + text
+                return warn + note + text + (saved or "")
             history.append({"role": "assistant", "content": content})
             results = []
             for b in r.content:
@@ -6090,6 +6702,10 @@ async def diagnostics_text():
     _g = globals()                                   # Fase A (revisada): estado real de los ganchos
     lines.append(f"• HTTPS/host: {_g.get('TRANSIT_STATUS', 'no cargado')} · Fase A: {_g.get('PHASE_A_STATUS', 'no cargada')}"
                  f" · sellado: {_seal_status()}")
+    try:                                             # cifrado 4.2: código · clave · datos realmente cifrados
+        lines.append("• " + await asyncio.to_thread(seal_status_text))
+    except Exception as e:
+        lines.append(f"• Cifrado: no pude leer el estado ({type(e).__name__})")
     if _g.get("phase_a_restore") is not None:        # PR11 rev (7): only claim what is loaded
         lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) cargadas. "
                      "Recupera hasta 10 turnos completos por sesión del historial breve guardado "
@@ -6134,7 +6750,7 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/practica — cripto en práctica (simulado) · /practica operaciones · /practica reporte\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
-             "/mercado · /seguridad · /diagnostico\n"
+             "/mercado · /seguridad · /diagnostico · /cifrado\n"
              "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
              "Para lo demás, escríbeme normal.")
 
@@ -6287,6 +6903,10 @@ async def _tg_route(msg, background):
     if cmd in ("/diagnostico", "/diagnóstico", "/estado", "/version", "/versión"):
         # v4.0.1: live diagnostics (zero tokens)
         background.add_task(_tg_diag, chat_id)
+        return {"ok": True}
+    if cmd == "/cifrado":
+        # cifrado 4.2: estado, migración verificada, respaldo y reversión (sin tokens; solo chat privado del dueño)
+        background.add_task(_tg_cifrado, chat_id, arg.strip())
         return {"ok": True}
     if cmd in ("/seguridad", "/security"):
         # v3.7.1: money gate status + audit log (zero tokens)

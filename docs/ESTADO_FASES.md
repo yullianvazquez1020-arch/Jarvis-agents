@@ -14,7 +14,7 @@
 | Fase | Requisito para completarla | Estado actual |
 |---|---|---|
 | Chat libre local sin tokens | Equipo/servidor disponible, modelo medido y endpoint local autorizado | Las reglas reducen llamadas; las preguntas libres aún pueden llamar a Claude. No se instaló un LLM en los 512 MB de Render. |
-| Historial cifrado | Clave AES-256 respaldada por el dueño y prueba de lectura/migración | Código disponible; no generar una clave sin plan de recuperación ni afirmar que el historial ya está cifrado. |
+| Historial cifrado | Clave AES-256 generada y respaldada por el dueño (docs/CIFRADO_HISTORIAL.md), puesta en Render y `/cifrado migrar` verificado | Código de migración, respaldo, recuperación y reversión preparado (parche 4.2, sin desplegar). Sin clave en Render el historial sigue en claro; no afirmar que está cifrado hasta que `/cifrado` lo muestre. |
 | SMS, WhatsApp, llamadas y correo | Cuentas/número/permisos del proveedor, costos aceptados, prueba con destinatario autorizado | Conectores o borradores existentes no equivalen a una cuenta conectada. Los envíos requieren aprobación. |
 | Calendario | Cuenta y permisos autorizados y calendario destino | No afirmar que funciona solo por configurar una URL. |
 | Alertas de flujo de caja | Libros y vencimientos completos, reglas de aviso y periodo de prueba | Los atajos existentes no son una predicción financiera validada. |
