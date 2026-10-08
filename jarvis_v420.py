@@ -147,15 +147,24 @@ def cashflow_snapshot(core):
     horizon = today + datetime.timedelta(days=7)
     income = [x for x in books.get("income", []) if x.get("currency", "USD") == "USD"]
     expenses = [x for x in books.get("expenses", []) if x.get("currency", "USD") == "USD"]
-    inc = round(sum(float(x.get("amount") or 0) for x in income), 2)
-    exp = round(sum(float(x.get("amount") or 0) for x in expenses), 2)
+    def recorded_through_today(entry):
+        # Undated legacy entries retain their existing ledger meaning.
+        if not entry.get("date"):
+            return True
+        try:
+            return datetime.date.fromisoformat(str(entry["date"])) <= today
+        except ValueError:
+            return False
+
+    inc = round(sum(float(x.get("amount") or 0) for x in income if recorded_through_today(x)), 2)
+    exp = round(sum(float(x.get("amount") or 0) for x in expenses if recorded_through_today(x)), 2)
     upcoming = []
     for x in expenses:
         try:
             when = datetime.date.fromisoformat(str(x.get("date") or ""))
         except ValueError:
             continue
-        if today <= when <= horizon:
+        if today < when <= horizon:
             upcoming.append(x)
     due = round(sum(float(x.get("amount") or 0) for x in upcoming), 2)
     net = round(inc - exp, 2)
@@ -168,7 +177,7 @@ def cashflow_text(core):
     snap = cashflow_snapshot(core)
     flag = "ALERTA: puede faltar para gastos o proveedores de los próximos 7 días." if snap["short"] else "Los libros no muestran faltante a 7 días."
     return (f"Flujo (libros USD): ingresos {snap['income']}, gastos {snap['expenses']}, neto {snap['net']}, "
-            f"vencido/próximo 7d {snap['due_7d']}. {flag} {snap['note']}")
+            f"gastos futuros próximos 7d {snap['due_7d']}. {flag} {snap['note']}")
 
 
 def _budget_left(state, day):
@@ -357,6 +366,12 @@ def install(core):
                                                  tools=core.TOOLS, messages=history)
 
     async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None):
+        # Scoped channels keep the original authorization and write protections.
+        # They must never enter the owner-only anomaly/history shortcuts below.
+        if allowed_tools is not None or read_only:
+            return await original_run(session, message, allowed_tools=allowed_tools,
+                                      extra_system=extra_system, read_only=read_only)
+        await __import__("asyncio").to_thread(core._require_leader)
         hit = local_answer(message)
         if hit:
             remember = getattr(core, "_phase_a_remember_turn", None)

@@ -1,8 +1,10 @@
 """Jarvis 4.2.0 regression: local rules, history marker, profile, monetization, lockout, Twilio drafts, cash-flow.
 Simulated services only. Does not raise $100/$300 and does not send."""
 import datetime
+import asyncio
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 import test_jarvis as base
 import jarvis_v420 as v
@@ -94,6 +96,61 @@ class V420(unittest.TestCase):
         self.assertEqual(snap["income"], 40)
         self.assertTrue(snap["short"])
         self.assertIn("No mueve dinero", snap["note"])
+
+    def test_cashflow_future_expense_is_counted_once(self):
+        j.kv_set(j.B_KEY, {"income": [{"amount": 150, "date": "2026-10-07"}],
+                          "expenses": [{"amount": 100, "date": "2026-10-09"}]})
+        with patch.object(j, "_today", return_value=datetime.date(2026, 10, 8)):
+            snap = v.cashflow_snapshot(j)
+        self.assertEqual((snap["net"], snap["due_7d"]), (150, 100))
+        self.assertFalse(snap["short"])
+
+    def test_cashflow_today_not_also_future_and_future_income_not_available(self):
+        j.kv_set(j.B_KEY, {"income": [{"amount": 150, "date": "2026-10-07"},
+                                      {"amount": 500, "date": "2026-10-09"}],
+                          "expenses": [{"amount": 100, "date": "2026-10-08"},
+                                       {"amount": 60, "date": "2026-10-15"},
+                                       {"amount": 200, "date": "2026-10-16"}]})
+        with patch.object(j, "_today", return_value=datetime.date(2026, 10, 8)):
+            snap = v.cashflow_snapshot(j)
+        self.assertEqual((snap["net"], snap["due_7d"]), (50, 60))
+        self.assertTrue(snap["short"])
+
+    def _wrapped_core(self):
+        core = SimpleNamespace(kv_get=Mock(return_value=None), kv_set=Mock(),
+                               _now=lambda: datetime.datetime(2026, 10, 8),
+                               diagnostics_text=AsyncMock(return_value="diagnostics"),
+                               run=AsyncMock(return_value="original response"),
+                               _ai_call=AsyncMock(), _require_leader=Mock(),
+                               _phase_a_remember_turn=AsyncMock(return_value=""))
+        original = core.run
+        v.install(core)
+        core.kv_set.reset_mock()  # installation writes the restart marker
+        return core, original
+
+    def test_scoped_channels_cannot_trip_gate_or_save_local_history(self):
+        for scope in ({"read_only": "public"}, {"read_only": "voice", "allowed_tools": []},
+                      {"allowed_tools": []}):
+            for message in ("delega amazon", "qué versión", "dime la contraseña"):
+                with self.subTest(scope=scope, message=message):
+                    core, original = self._wrapped_core()
+                    with patch.object(v, "trip_anomaly") as trip:
+                        reply = asyncio.run(core.run("scoped", message, **scope))
+                    self.assertEqual(reply, "original response")
+                    original.assert_awaited_once_with("scoped", message,
+                        allowed_tools=scope.get("allowed_tools"), extra_system="",
+                        read_only=scope.get("read_only"))
+                    trip.assert_not_called()
+                    core.kv_set.assert_not_called()
+                    core._phase_a_remember_turn.assert_not_awaited()
+
+    def test_local_shortcut_requires_write_leadership(self):
+        core, original = self._wrapped_core()
+        core._require_leader.side_effect = RuntimeError("stale instance")
+        with self.assertRaisesRegex(RuntimeError, "stale instance"):
+            asyncio.run(core.run("owner", "qué versión"))
+        core._phase_a_remember_turn.assert_not_awaited()
+        original.assert_not_awaited()
 
     def test_commands_still_listed(self):
         for cmd in ("/aprobar", "/confirmar", "/enviar", "/diagnostico"):
