@@ -103,7 +103,7 @@ class ChatVoice(unittest.TestCase):
         child = json.loads(self.log.read_text())
         self.assertEqual(child["size"], "tiny")
         self.assertEqual((child["kw"]["device"], child["kw"]["compute_type"], child["kw"]["cpu_threads"]), ("cpu", "int8", 1))
-        self.assertEqual(child["transcribe_kw"]["beam_size"], 3)
+        self.assertEqual(child["transcribe_kw"]["beam_size"], 1)   # PR11 rev (2)
         self.assertIn("Jarvis", child["transcribe_kw"]["initial_prompt"])
         self.assertFalse(child["transcribe_kw"]["condition_on_previous_text"])
         for secret in ("AGENT_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"):
@@ -284,7 +284,7 @@ class WhisperModel:
         handler.assert_awaited_once_with(123, "Hola Jarvis, ¿cómo estás?", read_only=True)
         self.assertEqual(cv.speak_local.await_args.args[0], "Estoy lista para ayudarte.")
         self.assertEqual(len(FakeHTTP.posts), 1)  # no extra fixed acknowledgment audio
-        self.assertEqual(self.voices()[0]["status"], "pending")
+        self.assertEqual(self.voices()[0]["status"], "answered")   # PR11 rev (4)
 
     def test_action_voice_keeps_manual_confirmation_even_when_auto_is_on(self):
         with patch.dict(os.environ, {"LOCAL_VOICE_AUTO_REPLY": "true"}):

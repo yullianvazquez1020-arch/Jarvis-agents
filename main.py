@@ -5440,6 +5440,15 @@ def system_prompt():
 # ---------------------------------------------------------------------------
 conversations: dict = {}
 _locks: dict = {}
+MAX_SESSIONS = 50   # PR11 rev (8): chats kept in memory; the oldest idle one is dropped (its history stays saved)
+
+def _evict_sessions():
+    while len(conversations) >= MAX_SESSIONS:
+        old = next((s for s in conversations if not (_locks.get(s) and _locks[s].locked())), None)
+        if old is None:
+            return
+        conversations.pop(old, None)
+        _locks.pop(old, None)
 
 def _trim(history):
     history = history[-30:]
@@ -5507,6 +5516,8 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
         return warn + AI_OFF_MSG
     lock = _locks.setdefault(session, asyncio.Lock())
     async with lock:   # one message at a time per session
+        if session not in conversations:
+            _evict_sessions()                         # PR11 rev (8): bounded number of chats in memory
         if session not in conversations and (allowed_tools is None or read_only == "voice"):
             restore = globals().get("phase_a_restore")
             if restore is not None:
@@ -5514,7 +5525,11 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     conversations[session] = await asyncio.to_thread(restore, session)
                 except Exception as e:
                     logger.warning("history restore failed: %s", type(e).__name__)
-        history = list(conversations.get(session, []))
+        voice = read_only == "voice"
+        # PR11 rev (1): a voice turn keeps only plain text in the shared chat. A refused action with transcribed
+        # amounts must never sit in the history where a later "dale" with all tools could run it without /dictado.
+        base = list(conversations.get(session, []))
+        history = list(base)
         history.append({"role": "user", "content": clean})
         history = _trim(history)
         repaired = False
@@ -5529,6 +5544,7 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     logger.warning("history rejected by the API, repairing session %s: %s", session, _ai_state["last_error"])
                     # keep only the current request; tool results already applied stay applied in storage
                     history = [{"role": "user", "content": clean}]
+                    base = []
                     repaired = True; _ai_state["history_resets"] += 1
                     continue
                 raise AIModelError(_ai_state["last_error"]) from e
@@ -5542,7 +5558,9 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     text = (text + "\n\n(Respuesta interrumpida; pídemela por partes.)").strip()
                 text = _redact_secrets(text)[0] or "(sin respuesta)"
                 history.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
-                conversations[session] = history
+                conversations[session] = (_trim(base + [{"role": "user", "content": clean},
+                                                        {"role": "assistant", "content": [{"type": "text", "text": text}]}])
+                                          if voice else history)
                 if allowed_tools is None or read_only == "voice":
                     await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
@@ -5565,8 +5583,9 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     results.append({"type": "tool_result", "tool_use_id": b.id,
                                     "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
             history.append({"role": "user", "content": results})
-            conversations[session] = list(history)   # tools already ran: keep that in memory
-        conversations[session] = history
+            if not voice:
+                conversations[session] = list(history)   # tools already ran: keep that in memory
+        conversations[session] = base if voice else history
         return warn + "Me enredé con demasiados pasos. ¿Me lo repites más simple?"
 
 def _fail_text(e):
@@ -5901,10 +5920,15 @@ async def _handle_tg(chat_id, text, *, read_only=False):
             reply = "No pude responder esa consulta. No ejecuté acciones; puedes volver a preguntar."
         else:
             reply = _fail_text(e)
+        failed = True
+    else:
+        failed = reply.endswith(AI_OFF_MSG)
     try:
         await _tg_send(chat_id, reply)
     except Exception:
         return None
+    if read_only and failed:
+        return None          # PR11 rev (6): the voice path never reads an error message aloud
     return reply
 
 async def _tg_brief(chat_id):
@@ -6060,10 +6084,14 @@ async def diagnostics_text():
     _g = globals()                                   # Fase A (revisada): estado real de los ganchos
     lines.append(f"• HTTPS/host: {_g.get('TRANSIT_STATUS', 'no cargado')} · Fase A: {_g.get('PHASE_A_STATUS', 'no cargada')}"
                  f" · sellado: {_seal_status()}")
-    lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) cargadas. "
-                 "Recupera hasta 10 turnos completos por sesión del historial breve guardado "
-                 "(40 mensajes compartidos); no repite herramientas ni acciones al reiniciar. "
-                 "Para conservarlo tras un deploy necesita almacenamiento permanente.")
+    if _g.get("phase_a_restore") is not None:        # PR11 rev (7): only claim what is loaded
+        lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) cargadas. "
+                     "Recupera hasta 10 turnos completos por sesión del historial breve guardado "
+                     "(40 mensajes compartidos); no repite herramientas ni acciones al reiniciar. "
+                     "Para conservarlo tras un deploy necesita almacenamiento permanente.")
+    else:
+        lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
+                     "ni un reinicio (Fase A no cargada); tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
     try:
         kd = await asyncio.to_thread(_kload)
         lines.append(f"• Banco guardado: {len(kd['tx']):,} de {BANK_MAX_TX:,} movimientos · "

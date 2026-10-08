@@ -448,7 +448,7 @@ async def command(chat_id,cmd,arg):
         elif cmd=='/dictado':
             with core._data_lock:
                 d=load();v=next((x for x in d['voices'] if x['id']==id),None)
-                if not v or v['status']!='pending':raise ValueError('Dictado no existe o ya fue procesado')
+                if not v or v['status'] not in ('pending','answered'):raise ValueError('Dictado no existe o ya fue procesado')
                 v['status']='processing';save(d);text=v['text']
             # Voice content is processed as a message, never interpreted as a slash approval command.
             reply=await core._handle_tg(chat_id,text)
