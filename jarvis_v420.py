@@ -114,7 +114,7 @@ def consult_before_propose(core, idea):
     """Read the decision profile before a proposal. Never moves money and never raises caps."""
     view = profile_view(core)
     text = redact(core, idea)
-    if MONEY_MOVE_RX.search(text) or ODD_DELEGATION_RX.search(text):
+    if MONEY_MOVE_RX.search(text) or odd_delegation("", text):
         return {"ok": False, "text": "No propongo ni ejecuto ese movimiento. Coinbase y Amazon no se delegan, y el dinero solo sale por el gate."}
     return {"ok": True, "profile": view, "text": (
         f"Propuesta (no ejecutada). Beneficio del dueño: {view['beneficio']}. "
@@ -147,15 +147,24 @@ def cashflow_snapshot(core):
     horizon = today + datetime.timedelta(days=7)
     income = [x for x in books.get("income", []) if x.get("currency", "USD") == "USD"]
     expenses = [x for x in books.get("expenses", []) if x.get("currency", "USD") == "USD"]
-    inc = round(sum(float(x.get("amount") or 0) for x in income), 2)
-    exp = round(sum(float(x.get("amount") or 0) for x in expenses), 2)
+    def recorded_through_today(entry):
+        # Undated legacy entries retain their existing ledger meaning.
+        if not entry.get("date"):
+            return True
+        try:
+            return datetime.date.fromisoformat(str(entry["date"])) <= today
+        except ValueError:
+            return False
+
+    inc = round(sum(float(x.get("amount") or 0) for x in income if recorded_through_today(x)), 2)
+    exp = round(sum(float(x.get("amount") or 0) for x in expenses if recorded_through_today(x)), 2)
     upcoming = []
     for x in expenses:
         try:
             when = datetime.date.fromisoformat(str(x.get("date") or ""))
         except ValueError:
             continue
-        if today <= when <= horizon:
+        if today < when <= horizon:
             upcoming.append(x)
     due = round(sum(float(x.get("amount") or 0) for x in upcoming), 2)
     net = round(inc - exp, 2)
@@ -168,7 +177,7 @@ def cashflow_text(core):
     snap = cashflow_snapshot(core)
     flag = "ALERTA: puede faltar para gastos o proveedores de los próximos 7 días." if snap["short"] else "Los libros no muestran faltante a 7 días."
     return (f"Flujo (libros USD): ingresos {snap['income']}, gastos {snap['expenses']}, neto {snap['net']}, "
-            f"vencido/próximo 7d {snap['due_7d']}. {flag} {snap['note']}")
+            f"gastos futuros próximos 7d {snap['due_7d']}. {flag} {snap['note']}")
 
 
 def _budget_left(state, day):
@@ -336,11 +345,11 @@ def scheduler_cycle(core):
 
 
 def install(core):
-    mark_boot(core)
+    # Installation runs before Redis leadership exists. Persist only in lifespan.
+    core.v420_boot = lambda: mark_boot(core)
     core.VERSION = VERSION
     original_diag = core.diagnostics_text
     original_run = core.run
-    original_ai = core._ai_call
     original_tick = core._tick_v38 if hasattr(core, "_tick_v38") else None
 
     async def diagnostics_text():
@@ -357,6 +366,12 @@ def install(core):
                                                  tools=core.TOOLS, messages=history)
 
     async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None):
+        # Scoped channels keep the original authorization and write protections.
+        # They must never enter the owner-only anomaly/history shortcuts below.
+        if allowed_tools is not None or read_only:
+            return await original_run(session, message, allowed_tools=allowed_tools,
+                                      extra_system=extra_system, read_only=read_only)
+        await __import__("asyncio").to_thread(core._require_leader)
         hit = local_answer(message)
         if hit:
             remember = getattr(core, "_phase_a_remember_turn", None)
@@ -373,6 +388,7 @@ def install(core):
         if original_tick:
             await original_tick(now, can_send)
         try:
+            await __import__("asyncio").to_thread(core._require_leader)
             notes = await __import__("asyncio").to_thread(scheduler_cycle, core)
         except Exception as exc:
             core._sched_state["last_error"] = f"v420: {type(exc).__name__}"

@@ -4,6 +4,14 @@ Parche aditivo sobre `main.py` 4.1.0. No reescribe el orquestador. Un solo worke
 
 El dueño controla el deploy. Esta versión no promete dejar de actualizar.
 
+## Correcciones de revisión
+
+- El marcador de reinicio se guarda durante el arranque después de obtener liderazgo Redis, no durante la importación. `/health` informa si el módulo está activo; el ciclo nuevo también exige liderazgo.
+
+- Los canales con herramientas restringidas o de solo lectura conservan las comprobaciones del orquestador original; no pueden activar el bloqueo financiero ni guardar historial mediante los atajos de esta versión. Los atajos del dueño verifican liderazgo antes de escribir.
+- El flujo separa ingresos y gastos registrados hasta hoy de gastos futuros a siete días. Un gasto se descuenta una sola vez y los ingresos futuros no se presentan como dinero disponible. Es una estimación de los libros, no un saldo bancario verificado.
+- Pruebas de regresión cubren canales públicos, voz, restricciones de herramientas, instancias antiguas y límites de fechas del flujo.
+
 ## Qué entra
 
 1. Agente local sin tokens para el día a día (`jarvis_v420.local_answer` y los atajos ya existentes). El chat libre que ninguna regla cubre usa el modelo corto (`JARVIS_SHORT_MODEL`, por defecto `claude-haiku-4-5`), no el modelo largo.

@@ -209,6 +209,9 @@ async def _lifespan(app):
     await asyncio.to_thread(fence_take_leadership)
     from jarvis_private_backup import boot_migrate
     await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
+    v420_boot = globals().get("v420_boot")
+    if v420_boot:
+        await asyncio.to_thread(v420_boot)
     try:   # v4.0.3: a stored REAL mode that the variables no longer allow becomes practice
         note = await asyncio.to_thread(crypto_mode_boot_check)
         if note: _sched_state["last_error"] = f"crypto mode: {note}"
@@ -7052,6 +7055,7 @@ async def health():
             "telegram_queue": dict(_tg_stats),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
+            "v420": {"status": globals().get("V420_STATUS", "no cargada")},
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
                         "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase",
                         "client messages (approval)", "bank weekly", "paper trading"],
