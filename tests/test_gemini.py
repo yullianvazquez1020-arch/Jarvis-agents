@@ -133,6 +133,28 @@ class GeminiReview(unittest.TestCase):
         self.assertEqual(self.post().status_code, 503)
         self.assertEqual(self.requests, [])
 
+    def test_oversized_response_never_grows_buffer_past_limit(self):
+        buffers = []
+
+        class TrackedBuffer(bytearray):
+            def __init__(self):
+                super().__init__()
+                self.peak = 0
+                buffers.append(self)
+
+            def extend(self, data):
+                super().extend(data)
+                self.peak = max(self.peak, len(self))
+
+        self.reply = {"padding": "x" * (1024 * 1024)}
+        with patch.object(gemini, "bytearray", TrackedBuffer, create=True):
+            response = self.post()
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(len(self.requests), 1)
+        self.assertEqual(len(self.claims), 1)
+        self.assertEqual(len(buffers), 1)
+        self.assertLessEqual(buffers[0].peak, 65536)
+
     def test_encryption_key_cannot_be_reused(self):
         with patch.dict(os.environ, {"DATA_ENCRYPTION_KEY": os.environ["GEMINI_REVIEW_ACCESS_KEY"]}):
             self.assertEqual(self.post().status_code, 503)

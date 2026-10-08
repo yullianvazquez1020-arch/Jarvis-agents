@@ -68,10 +68,10 @@ async def generate(core, text):
                 if response.status_code != 200:
                     raise HTTPException(502, "Gemini rechazó la solicitud; no se reintentó")
                 chunks = bytearray()
-                async for chunk in response.aiter_bytes():
-                    chunks.extend(chunk)
-                    if len(chunks) > 65536:
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    if len(chunk) > 65536 - len(chunks):
                         raise HTTPException(502, "Respuesta de Gemini demasiado grande")
+                    chunks.extend(chunk)
         data = json.loads(chunks)
         candidate = data.get("candidates", [])[0]
         if candidate.get("finishReason") not in ("STOP", "MAX_TOKENS"):
