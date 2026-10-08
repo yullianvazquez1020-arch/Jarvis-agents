@@ -209,6 +209,9 @@ async def _lifespan(app):
     await asyncio.to_thread(fence_take_leadership)
     from jarvis_private_backup import boot_migrate
     await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
+    v420_boot = globals().get("v420_boot")
+    if v420_boot:
+        await asyncio.to_thread(v420_boot)
     try:   # v4.0.3: a stored REAL mode that the variables no longer allow becomes practice
         note = await asyncio.to_thread(crypto_mode_boot_check)
         if note: _sched_state["last_error"] = f"crypto mode: {note}"
@@ -232,7 +235,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -6772,8 +6775,9 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
              "/mercado · /seguridad · /diagnostico · /cifrado\n"
+             "/perfil · /flujo · /monetizar · /canal · /urgente — 4.2.0, sin ejecutar\n"
              "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
-             "Para lo demás, escríbeme normal.")
+             "Para lo demás, escríbeme normal. El deploy lo controlas tú.")
 
 async def _tg_v38_cmd(chat_id, cmd, arg):
     """v3.8: /mensajes /enviar /noenviar /cobros /practica /ayuda (zero tokens)."""
@@ -6925,6 +6929,28 @@ async def _tg_route(msg, background):
         # v4.0.1: live diagnostics (zero tokens)
         background.add_task(_tg_diag, chat_id)
         return {"ok": True}
+    if cmd in ("/perfil", "/flujo", "/monetizar", "/canal", "/urgente"):
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        def _v420_cmd(chat_id=chat_id, cmd=cmd, arg=arg.strip()):
+            fn = globals().get("v420_command")
+            return fn(cmd, arg) if fn else "Corte 4.2.0 no cargado."
+        async def _send_v420(chat_id=chat_id):
+            await _tg_send(chat_id, await asyncio.to_thread(_v420_cmd))
+        background.add_task(_send_v420)
+        return {"ok": True}
+    if cmd == "/enviar" and arg.strip().lower().startswith("c"):
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        def _v420_send(ref=arg.strip().lower()):
+            fn = globals().get("v420_approve_channel")
+            return fn(ref) if fn else "Corte 4.2.0 no cargado."
+        async def _send_ch(chat_id=chat_id):
+            await _tg_send(chat_id, await asyncio.to_thread(_v420_send))
+        background.add_task(_send_ch)
+        return {"ok": True}
     if cmd == "/cifrado":
         # cifrado 4.2: estado, migración verificada, respaldo y reversión (sin tokens; solo chat privado del dueño)
         background.add_task(_tg_cifrado, chat_id, arg.strip())
@@ -7029,6 +7055,7 @@ async def health():
             "telegram_queue": dict(_tg_stats),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
+            "v420": {"status": globals().get("V420_STATUS", "no cargada")},
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
                         "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase",
                         "client messages (approval)", "bank weekly", "paper trading"],
@@ -7109,3 +7136,10 @@ try:
 except Exception as _e:
     PHASE_A_STATUS = f"apagada ({type(_e).__name__})"
     logger.warning("phase A off: %s", type(_e).__name__)
+try:
+    import jarvis_v420 as _v420
+    _v420.install(__import__("sys").modules[__name__])
+    V420_STATUS = "activa"
+except Exception as _e:
+    V420_STATUS = f"apagada ({type(_e).__name__})"
+    logger.warning("v420 off: %s", type(_e).__name__)

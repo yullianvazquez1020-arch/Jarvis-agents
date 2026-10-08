@@ -24,3 +24,6 @@
 
 OpenAI, TTS externo, trading real y ampliaciones de recursos no se activan por estas fases.
 Las respuestas locales de esta entrega no convierten todo el chat en gratuito.
+## Corte 4.2.0 (rama feature/jarvis-4.2.0, sin merge)
+
+Parche aditivo en `jarvis_v420.py`: reglas locales, historial con redacción y marca de reinicio, perfil, propuestas de cash flow con presupuesto, lockout reusado, borradores Twilio sin envío, alerta temprana. Cara, holograma, CarPlay, Ojo de Dios y mini Jarvises siguen en 4.3+ (`CAMBIOS_4_2_0.md`).
