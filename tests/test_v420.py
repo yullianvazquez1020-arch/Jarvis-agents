@@ -59,9 +59,15 @@ class V420(unittest.TestCase):
         self.assertTrue(ok["ok"])
         self.assertIn("no se sube", ok["text"])
 
+    def test_amazon_research_can_be_proposed_without_delegation(self):
+        proposal = v.consult_before_propose(j, "revisar un listado de Amazon, sin orden")
+        self.assertTrue(proposal["ok"])
+        self.assertFalse(v.consult_before_propose(j, "delega amazon")["ok"])
+
     def test_monetization_budget_and_no_execute(self):
         with patch.object(j, "_today", return_value=datetime.date(2026, 10, 8)):
             first = v.monetization_proposal(j)
+            self.assertIn("Propuesta (no ejecutada)", first)
             self.assertIn("No lo ejecuto solo", first)
             state = j.kv_get(v.STATE_KEY, {})
             self.assertFalse(state["proposals"][-1]["executed"])
@@ -151,6 +157,17 @@ class V420(unittest.TestCase):
             asyncio.run(core.run("owner", "qué versión"))
         core._phase_a_remember_turn.assert_not_awaited()
         original.assert_not_awaited()
+
+    def test_install_does_not_write_before_redis_leadership(self):
+        core = SimpleNamespace(kv_get=Mock(return_value=None),
+                               kv_set=Mock(side_effect=RuntimeError("not leader yet")),
+                               _now=lambda: datetime.datetime(2026, 10, 8),
+                               diagnostics_text=AsyncMock(), run=AsyncMock(), _ai_call=AsyncMock())
+        v.install(core)
+        core.kv_set.assert_not_called()
+        core.kv_set.side_effect = None  # lifespan has obtained leadership
+        self.assertFalse(core.v420_boot())
+        self.assertEqual(core.kv_set.call_args.args[0], v.BOOT_KEY)
 
     def test_commands_still_listed(self):
         for cmd in ("/aprobar", "/confirmar", "/enviar", "/diagnostico"):

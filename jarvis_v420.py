@@ -114,7 +114,7 @@ def consult_before_propose(core, idea):
     """Read the decision profile before a proposal. Never moves money and never raises caps."""
     view = profile_view(core)
     text = redact(core, idea)
-    if MONEY_MOVE_RX.search(text) or ODD_DELEGATION_RX.search(text):
+    if MONEY_MOVE_RX.search(text) or odd_delegation("", text):
         return {"ok": False, "text": "No propongo ni ejecuto ese movimiento. Coinbase y Amazon no se delegan, y el dinero solo sale por el gate."}
     return {"ok": True, "profile": view, "text": (
         f"Propuesta (no ejecutada). Beneficio del dueño: {view['beneficio']}. "
@@ -345,11 +345,11 @@ def scheduler_cycle(core):
 
 
 def install(core):
-    mark_boot(core)
+    # Installation runs before Redis leadership exists. Persist only in lifespan.
+    core.v420_boot = lambda: mark_boot(core)
     core.VERSION = VERSION
     original_diag = core.diagnostics_text
     original_run = core.run
-    original_ai = core._ai_call
     original_tick = core._tick_v38 if hasattr(core, "_tick_v38") else None
 
     async def diagnostics_text():
@@ -388,6 +388,7 @@ def install(core):
         if original_tick:
             await original_tick(now, can_send)
         try:
+            await __import__("asyncio").to_thread(core._require_leader)
             notes = await __import__("asyncio").to_thread(scheduler_cycle, core)
         except Exception as exc:
             core._sched_state["last_error"] = f"v420: {type(exc).__name__}"
