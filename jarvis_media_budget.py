@@ -4,9 +4,34 @@ The limit includes the server and its children. Sampling cannot guarantee that
 a sudden allocation will never reach the container limit; keep inputs bounded.
 """
 import asyncio
+import logging
 from pathlib import Path
 
 MIB = 1024 * 1024
+log = logging.getLogger(__name__)
+
+
+class MediaMemoryError(ValueError):
+    pass
+
+
+def inactive_cache(stat_path, current, v1=False):
+    """Only discount inactive file cache; never active cache, anonymous or tmpfs memory.
+
+    Working-set estimate, not a guarantee of immediate reclamation. Missing or
+    inconsistent counters leave the original conservative total unchanged.
+    """
+    try:
+        values = dict(line.split() for line in Path(stat_path).read_text().splitlines())
+        prefix = 'total_' if v1 else ''
+        value = int(values[prefix + 'inactive_file'])
+        dirty = int(values.get(prefix + 'file_dirty', values.get(prefix + 'dirty', '0')))
+        writeback = int(values.get(prefix + 'file_writeback', values.get(prefix + 'writeback', '0')))
+        if not 0 <= value <= current or dirty < 0 or writeback < 0:
+            return 0
+        return max(0, value - dirty - writeback)
+    except (OSError, ValueError, KeyError):
+        return 0
 
 
 def memory_state():
@@ -21,7 +46,8 @@ def memory_state():
             maximum = int(raw)
             current = int(Path(used).read_text().strip())
             if 0 <= current and 0 < maximum < 1 << 60:
-                return current, maximum
+                cache = inactive_cache(str(Path(used).parent / 'memory.stat'), current, used.endswith('usage_in_bytes'))
+                return current - cache, maximum
         except (OSError, ValueError):
             continue
     return None
@@ -30,7 +56,9 @@ def memory_state():
 def check_start():
     state = memory_state()
     if state and state[1] - state[0] < 96 * MIB:
-        raise ValueError('memoria insuficiente para iniciar el audio local; conserva la respuesta escrita')
+        log.warning('media memory guard: stage=start working_set_mb=%s limit_mb=%s',
+                    round(state[0] / MIB), round(state[1] / MIB))
+        raise MediaMemoryError('memoria insuficiente para iniciar el audio local; conserva la respuesta escrita')
 
 
 async def communicate(proc, stdin, timeout):
@@ -42,7 +70,9 @@ async def communicate(proc, stdin, timeout):
                 break
             state = memory_state()
             if state and state[0] >= state[1] - 64 * MIB:
-                raise ValueError('audio local detenido por presión de memoria; conserva la respuesta escrita')
+                log.warning('media memory guard: stage=running working_set_mb=%s limit_mb=%s',
+                            round(state[0] / MIB), round(state[1] / MIB))
+                raise MediaMemoryError('audio local detenido por presión de memoria; conserva la respuesta escrita')
         return await task
     try:
         return await asyncio.wait_for(monitored(), timeout)
