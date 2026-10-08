@@ -126,7 +126,11 @@ class VoiceConversation(unittest.TestCase):
 
     def test_read_only_error_does_not_claim_actions_were_saved(self):
         with patch.object(j, "run", new=AsyncMock(side_effect=RuntimeError("test"))), \
-             patch.object(j, "_tg_send", new=AsyncMock()):
+             patch.object(j, "_tg_send", new=AsyncMock()) as send:
             reply = asyncio.run(j._handle_tg(123, "Hola", read_only=True))
-        self.assertIn("No ejecuté acciones", reply)
-        self.assertNotIn("pudieron haberse guardado", reply)
+        self.assertIsNone(reply)  # Errors are sent as text and must not be spoken.
+        send.assert_awaited_once()
+        self.assertEqual(send.await_args.args[0], 123)
+        message = send.await_args.args[1]
+        self.assertIn("No ejecuté acciones", message)
+        self.assertNotIn("pudieron haberse guardado", message)
