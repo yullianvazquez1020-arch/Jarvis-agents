@@ -17,17 +17,19 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
 import shutil
 import sys
 import tempfile
+import wave
 from pathlib import Path
 
 MAX_AUDIO = 1_500_000
 MAX_SECONDS = 60
-MAX_CHARS = 500
+MAX_CHARS = 3200
 WHISPER_TIMEOUT = 90
 FFMPEG_TIMEOUT = 30
 REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
@@ -171,8 +173,74 @@ async def speak_local(text: str) -> bytes:
         raise ValueError("no hay texto para hablar")
     import jarvis_local_tts
     with tempfile.TemporaryDirectory() as tmp:
-        paths = await jarvis_local_tts.local_narration({"language": "es", "scenes": [{"narration": text}]}, tmp)
-        return Path(paths[0]).read_bytes()
+        chunks = speech_chunks(text)
+        paths = await jarvis_local_tts.local_narration(
+            {"language": "es", "scenes": [{"narration": chunk} for chunk in chunks]}, tmp)
+        merged = io.BytesIO()
+        with wave.open(merged, "wb") as dst:
+            params = None
+            for path in paths:
+                with wave.open(str(path), "rb") as src:
+                    current = (src.getnchannels(), src.getsampwidth(), src.getframerate())
+                    if params is None:
+                        params = current
+                        dst.setnchannels(params[0]); dst.setsampwidth(params[1]); dst.setframerate(params[2])
+                    elif current != params:
+                        raise ValueError("formatos de voz local incompatibles")
+                    dst.writeframes(src.readframes(src.getnframes()))
+        return merged.getvalue()
+
+
+def speech_chunks(text: str) -> list[str]:
+    """Piper accepts up to eight scenes, each at most 400 characters."""
+    text = " ".join(text.split())[:MAX_CHARS]
+    chunks = []
+    while text:
+        cut = min(400, len(text))
+        if cut < len(text):
+            boundary = text.rfind(" ", 0, cut + 1)
+            if boundary > 0:
+                cut = boundary
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip()
+        if len(chunks) == 8:
+            break
+    return chunks
+
+
+async def send_spoken_reply(core, chat_id, text: str) -> bool:
+    """Speak only an already-sent response; never rerun the chat or its tools."""
+    if not enabled():
+        return False
+    text = core._redact_secrets(str(text))[0]
+    normalized = " ".join(text.split())
+    chunks = speech_chunks(normalized)
+    if not chunks:
+        return False
+    spoken = " ".join(chunks)
+    caption = "Respuesta con voz femenina local."
+    if spoken != normalized:
+        caption = "Audio parcial por límite de longitud; la respuesta completa está en el texto."
+    try:
+        lock = _heavy_lock(core)
+        if lock is not None:
+            if lock.locked():
+                raise RuntimeError("video o voz en curso")
+            async with lock:
+                ogg = await to_opus(await speak_local(spoken))
+        else:
+            ogg = await to_opus(await speak_local(spoken))
+        async with core.httpx.AsyncClient(timeout=60) as hc:
+            r = await hc.post(f"https://api.telegram.org/bot{core.TG_TOKEN}/sendVoice",
+                              data={"chat_id": chat_id, "caption": caption},
+                              files={"voice": ("respuesta.ogg", ogg, "audio/ogg")})
+            if r.status_code != 200 or r.json().get("ok") is not True:
+                raise RuntimeError("telegram no confirmó la voz")
+        return True
+    except Exception as exc:
+        log.warning("spoken reply failed: kind=%s", type(exc).__name__)
+        await core._tg_safe_send(chat_id, "La respuesta escrita ya está arriba. No pude enviar su audio local.")
+        return False
 
 
 async def to_opus(wav: bytes) -> bytes:

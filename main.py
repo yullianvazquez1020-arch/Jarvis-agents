@@ -5891,7 +5891,8 @@ async def _handle_tg(chat_id, text):
     try:
         await _tg_send(chat_id, reply)
     except Exception:
-        pass
+        return None
+    return reply
 
 async def _tg_brief(chat_id):
     try:

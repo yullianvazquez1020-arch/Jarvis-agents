@@ -451,7 +451,11 @@ async def command(chat_id,cmd,arg):
                 if not v or v['status']!='pending':raise ValueError('Dictado no existe o ya fue procesado')
                 v['status']='processing';save(d);text=v['text']
             # Voice content is processed as a message, never interpreted as a slash approval command.
-            await core._handle_tg(chat_id,text);return
+            reply=await core._handle_tg(chat_id,text)
+            import jarvis_chat_voice
+            if jarvis_chat_voice.enabled() and isinstance(reply,str) and reply.strip():
+                await jarvis_chat_voice.send_spoken_reply(core,chat_id,reply)
+            return
         elif cmd=='/ejecutar':reply=json.dumps(await execute_action(id),ensure_ascii=False,default=str)
         else:
             def sync():
