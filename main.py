@@ -2995,9 +2995,10 @@ def edit_job(id, changes):
             _csave(d); return _job_view(j)
     return {"error": f"job {id} not found"}
 
-def record_job_payment(id, amount, note="", date="", add_to_books=True):
-    """Payment received on a job: lowers the balance and (by default) records the income in the books,
-    in one save. Skips the books if the same amount is already there within 3 days. Moves no money."""
+def record_job_payment(id, amount, note="", date="", add_to_books=True, existing_income_id=None):
+    """Record a received payment and its income atomically. Never omits the books or moves money."""
+    if not _to_bool(add_to_books) and existing_income_id is None:
+        raise ValueError("No omito un cobro de los libros; indica existing_income_id para conciliar un ingreso registrado")
     amount = _money(amount); date = _valid_date(date) if date else _today().isoformat()
     d = _cload(); j = next((x for x in d["jobs"] if x["id"] == int(id)), None)
     if not j: return {"error": f"job {id} not found"}
@@ -3012,22 +3013,25 @@ def record_job_payment(id, amount, note="", date="", add_to_books=True):
            "at": _now().isoformat(timespec="minutes")}
     j.setdefault("payments", []).append(pay)
     j["updated"] = pay["at"]
-    books_note = "No lo anoté en la contabilidad (me lo pediste así)."
-    if _to_bool(add_to_books):
-        books = _bload()
-        from_jobs = {"income": {x["id"] for x in books["income"] if x.get("job_id")}}   # those are known, not typed by hand
-        dup = None  # Separate customer payments must remain separate ledger entries.
-        if dup:
-            books_note = f"Ya había un ingreso igual (#{dup['id']} del {dup['date']}); no lo dupliqué."
-            kv_set_many({C_KEY: d})
-        else:
-            inc = {"id": _allocate_id(books, "income"), "amount": amount, "date": date, "job_id": j["id"],
-                   "source": f"Trabajo #{j['id']} {j['client_name']}: {j['title']}"[:200]}
-            books["income"].append(inc); pay["income_id"] = inc["id"]
-            kv_set_many({C_KEY: d, B_KEY: books})
-            books_note = f"Anotado en la contabilidad como ingreso #{inc['id']}."
+    books = _bload()
+    if existing_income_id is not None:
+        if type(existing_income_id) is not int or existing_income_id < 1:
+            raise ValueError("existing_income_id debe ser un ID entero del ingreso indicado por el dueño")
+        inc = next((x for x in books["income"] if x["id"] == existing_income_id), None)
+        linked = any(p.get("income_id") == existing_income_id for job in d["jobs"] for p in job.get("payments", []))
+        if not inc or linked or inc.get("job_id") not in (None, j["id"]):
+            raise ValueError("Ingreso no encontrado o ya vinculado a un pago/trabajo")
+        if inc.get("currency", "USD") != "USD" or _money(inc["amount"]) != amount or inc.get("date") != date:
+            raise ValueError("El ingreso indicado debe coincidir exactamente en importe, fecha y moneda USD")
+        inc["job_id"] = j["id"]
+        books_note = f"Conciliado con el ingreso #{inc['id']} existente; no se duplicó ni se omitió de los libros."
     else:
-        _csave(d)
+        inc = {"id": _allocate_id(books, "income"), "amount": amount, "date": date, "job_id": j["id"],
+               "source": f"Trabajo #{j['id']} {j['client_name']}: {j['title']}"[:200]}
+        books["income"].append(inc)
+        books_note = f"Anotado en la contabilidad como ingreso #{inc['id']}."
+    pay["income_id"] = inc["id"]
+    kv_set_many({C_KEY: d, B_KEY: books})
     return {**_job_view(j), "note": f"Pago de {_bank_usd(amount)} registrado. Saldo: {_bank_usd(j['balance'])}. "
                                     + books_note}
 
@@ -5878,9 +5882,10 @@ TOOLS = [
     _t("edit_job","Edit a job by id: title, status, price, cost, advance, due_date, notes, location. Balance is recalculated.",
        {"id":I,"changes":{"type":"object"}},["id","changes"]),
     _t("record_job_payment","Payment RECEIVED from a client on a job: lowers the balance (status paid at 0) and records "
-       "the income in the books (add_to_books=false if the boss says it's already there). Skips the books if the "
-       "same amount is already there within 3 days. date YYYY-MM-DD default today. Never moves real money.",
-       {"id":I,"amount":N,"note":S,"date":S,"add_to_books":{"type":"boolean"}},["id","amount"]),
+       "the income in the books. If owner explicitly identifies an already-recorded income, pass existing_income_id; "
+       "exact amount/date/USD match required, never reused. add_to_books=false without that ID is refused. "
+       "date YYYY-MM-DD default today. Never moves real money.",
+       {"id":I,"amount":N,"note":S,"date":S,"add_to_books":{"type":"boolean"},"existing_income_id":I},["id","amount"]),
     _t("jobs_summary","Jobs by status, money to collect, overdue jobs, sold total, cost and estimated profit.",{}),
     # --- v3.6 inventory ---
     _t("add_inventory_item","Add a stock item, or add to its quantity if the name exists. min_stock = reorder level, "
@@ -6117,6 +6122,9 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 "guardé. Borra ese mensaje del chat y, si era una clave real, cámbiala.\n\n")
         if not clean.replace("[", "").strip(" .]\n"):
             return warn.strip()
+    blocked = _business_workflows.blocked_request(clean)
+    if blocked:
+        return warn + blocked
     smalltalk = globals().get("phase_a_smalltalk")
     if smalltalk is not None and ((allowed_tools is None and not read_only) or read_only == "voice"):
         hit = smalltalk(clean)  # pure rules: no tools, network, or account data
@@ -7038,6 +7046,9 @@ _growth.install(_sys.modules[__name__])
 
 import jarvis_connections as _connections
 _connections.install(_sys.modules[__name__])
+
+import jarvis_business_workflows as _business_workflows
+_business_workflows.install(_sys.modules[__name__])
 
 # Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
 # 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its
