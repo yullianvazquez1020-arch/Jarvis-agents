@@ -114,7 +114,7 @@ class AIOff(Base):
     def test_no_paid_call_without_key(self):
         self.assertFalse(j.AI_READY)
         with patch.object(j, '_ai_call', new=AsyncMock()) as call:
-            reply = asyncio.run(j.run('s', 'hola'))
+            reply = asyncio.run(j.run('s', 'Explica como calcular materiales'))
         call.assert_not_called(); self.assertIn('no hice ninguna llamada de pago', reply)
 
     def test_guarded_client_raises_not_configured(self):

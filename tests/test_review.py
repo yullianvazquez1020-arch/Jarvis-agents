@@ -56,14 +56,14 @@ class ReviewTests(unittest.TestCase):
     def test_truncated_tool_call_is_not_saved_or_executed(self):
         reply = MagicMock(content=[MagicMock(type='tool_use', id='partial')], stop_reason='max_tokens')
         with patch.object(j, 'AI_READY', True), patch.object(j, '_ai_call', new=AsyncMock(return_value=reply)), patch.object(j, 'run_tool', new=AsyncMock()) as tool:
-            result = asyncio.run(j.run('review', 'hola'))
+            result = asyncio.run(j.run('review', 'Explica como calcular materiales'))
         tool.assert_not_called()
         self.assertIn('interrumpida', result)
         self.assertEqual(j.conversations['review'][-1]['content'][0]['type'], 'text')
 
     def test_empty_reply_has_valid_history(self):
         with patch.object(j, 'AI_READY', True), patch.object(j, '_ai_call', new=AsyncMock(return_value=MagicMock(content=[], stop_reason='end_turn'))):
-            self.assertEqual(asyncio.run(j.run('review', 'hola')), '(sin respuesta)')
+            self.assertEqual(asyncio.run(j.run('review', 'Explica como calcular materiales')), '(sin respuesta)')
         self.assertTrue(j.conversations['review'][-1]['content'])
 
     def test_practice_blocks_all_private_coinbase_requests(self):

@@ -94,7 +94,7 @@ class VoiceConversation(unittest.TestCase):
     def test_restore_failure_preserves_chat_availability(self):
         with patch.object(j, "phase_a_restore", side_effect=RuntimeError("storage down")), \
              patch.object(j, "AI_READY", True), patch.object(j, "_ai_call", new=AsyncMock(return_value=answer("Hola"))):
-            self.assertEqual(asyncio.run(j.run("tg:123", "Hola")), "Hola")
+            self.assertEqual(asyncio.run(j.run("tg:123", "Explica como calcular materiales")), "Hola")
 
     def test_failed_turn_write_never_pairs_old_question_with_new_answer(self):
         j.phase_a_remember("tg:123", "user", "old unfinished question")

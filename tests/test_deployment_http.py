@@ -36,7 +36,7 @@ with TestClient(main.app) as client:
     assert client.get("/backup", headers={"x-api-key": "wrong"}).status_code == 401
     assert client.post("/telegram", json={"update_id": 1}).status_code == 401
     reply = client.post("/chat", headers={"x-api-key": "deployment-local-test"},
-                        json={"message": "hola"})
+                        json={"message": "Explica como calcular materiales"})
     assert reply.status_code == 200, reply.text
     assert "no está configurada" in reply.json()["reply"], reply.text
     snapshot = client.get("/backup", headers={"x-api-key": "deployment-local-test"})
