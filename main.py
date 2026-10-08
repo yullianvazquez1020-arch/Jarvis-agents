@@ -5506,6 +5506,12 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 "guardé. Borra ese mensaje del chat y, si era una clave real, cámbiala.\n\n")
         if not clean.replace("[", "").strip(" .]\n"):
             return warn.strip()
+    smalltalk = globals().get("phase_a_smalltalk")
+    if smalltalk is not None and ((allowed_tools is None and not read_only) or read_only == "voice"):
+        hit = smalltalk(clean)  # pure rules: no tools, network, or account data
+        if hit:
+            await _phase_a_remember_turn(session, clean, hit)
+            return warn + hit
     local = globals().get("phase_a_local")
     if local is not None and allowed_tools is None and not read_only:
         hit = await asyncio.to_thread(local, clean)          # may read the (sealed) profile: off the event loop

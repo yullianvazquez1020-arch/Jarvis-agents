@@ -37,6 +37,28 @@ NOT_A_CALL_RX = re.compile(r"\b(recuerd\w*|recordatorio|agenda\w*|anota\w*|apunt
                            r"el martes|el miercoles|el jueves|el viernes|el sabado|el domingo)\b")
 
 
+def smalltalk(text, now):
+    """Exact, stateless answers only: never consume an action or infer approval."""
+    t = _norm(text)
+    t = re.sub(r"\s+jarvis$", "", t).strip()
+    t = re.sub(r"^(hola|buenos dias|buenas tardes|buenas noches) jarvis(?= como estas$)", r"\1", t)
+    if re.fullmatch(r"(hola|buenos dias|buenas tardes|buenas noches)( como estas)?|como estas", t):
+        return "Hola. Estoy aquí para ayudarte. Dime qué necesitas."
+    if t in ("gracias", "muchas gracias", "mil gracias"):
+        return "Con gusto."
+    if t in ("adios", "hasta luego", "hasta manana"):
+        return "Hasta luego. Aquí estaré cuando me necesites."
+    if t in ("que hora es", "dime la hora", "hora"):
+        return f"Son las {now.strftime('%H:%M')} en Puerto Rico."
+    if t in ("que dia es hoy", "que fecha es hoy", "dime la fecha", "fecha de hoy"):
+        return f"Hoy es {now.strftime('%d/%m/%Y')} en Puerto Rico."
+    if t in ("que puedes hacer", "como te uso"):
+        return ("Puedes consultar /hoy, /clientes, /trabajos, /inventario, /cobros y /banco semana. "
+                "Envía /ayuda para ver los comandos. Las acciones por voz requieren revisar el dictado; "
+                "el dinero conserva sus aprobaciones.")
+    return None
+
+
 def install(core):
     from fastapi import Header, HTTPException
 
@@ -127,4 +149,5 @@ def install(core):
 
     core.phase_a_restore = restore
     core.phase_a_local = local_answer
+    core.phase_a_smalltalk = lambda text: smalltalk(text, core._now())
     core.DEFAULT_PROFILE = DEFAULT_PROFILE
