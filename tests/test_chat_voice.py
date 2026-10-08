@@ -15,6 +15,8 @@ import test_jarvis as base
 j = base.j
 import jarvis_chat_voice as cv
 E = j._extensions
+REAL_HANDLE_TG = j._handle_tg
+REAL_SPEAK_LOCAL = cv.speak_local
 
 FAKE_WHISPER = '''
 import json, os
@@ -45,7 +47,9 @@ class FakeHTTP:
     async def __aexit__(self, *a): pass
     async def post(self, url, **kw):
         FakeHTTP.posts.append((url, kw))
-        class R: status_code = 200
+        class R:
+            status_code = 200
+            def json(self): return {"ok": True}
         return R()
 
 
@@ -202,6 +206,89 @@ class WhisperModel:
                 "stage": "transcribe", "kind": "TypeError", "message": "SECRET"}}).encode())
         self.assertIn("transcribir el audio (TypeError)", message)
         self.assertNotIn("SECRET", message + str(logs.output))
+
+    def test_approved_dictation_speaks_actual_reply_without_rerunning_chat(self):
+        self.voice()
+        FakeHTTP.posts = []
+        response = "Hola, jefe. ¿En qué te ayudo?"
+        with patch.object(j, "_handle_tg", new=AsyncMock(return_value=response)) as handler:
+            asyncio.run(E.command(123, "/dictado", "1"))
+            handler.assert_awaited_once_with(123, "anota 25 dolares de gasolina")
+            self.assertEqual(cv.speak_local.await_args.args[0], response)
+            asyncio.run(E.command(123, "/dictado", "1"))
+            self.assertEqual(handler.await_count, 1)
+        self.assertEqual(len(FakeHTTP.posts), 1)
+        self.assertTrue(FakeHTTP.posts[0][0].endswith("/sendVoice"))
+
+    def test_chat_returns_response_only_after_text_delivery(self):
+        with patch.object(j, "run", new=AsyncMock(return_value="Respuesta completa")) as chat:
+            self.assertEqual(asyncio.run(REAL_HANDLE_TG(123, "hola")), "Respuesta completa")
+            chat.assert_awaited_once_with("tg:123", "hola")
+        with patch.object(j, "run", new=AsyncMock(return_value="Respuesta")), \
+             patch.object(j, "_tg_send", new=AsyncMock(side_effect=RuntimeError("delivery failed"))):
+            self.assertIsNone(asyncio.run(REAL_HANDLE_TG(123, "hola")))
+
+    def test_spoken_reply_redacts_secrets_and_labels_truncation(self):
+        key = "sk-ant-api03-" + "Z" * 40
+        response = key + " " + "Hola, jefe. " * 400
+        self.assertTrue(asyncio.run(cv.send_spoken_reply(j, 123, response)))
+        spoken = cv.speak_local.await_args.args[0]
+        self.assertNotIn(key, spoken)
+        self.assertLessEqual(len(spoken), cv.MAX_CHARS)
+        self.assertIn("Audio parcial", FakeHTTP.posts[-1][1]["data"]["caption"])
+
+    def test_spoken_reply_disabled_or_busy_keeps_text(self):
+        with patch.dict(os.environ, {"LOCAL_VOICE_ENABLED": "false"}):
+            self.assertFalse(asyncio.run(cv.send_spoken_reply(j, 123, "Hola")))
+        cv.speak_local.assert_not_awaited()
+        async def busy():
+            async with j._growth._video_lock:
+                return await cv.send_spoken_reply(j, 123, "Hola")
+        self.assertFalse(asyncio.run(busy()))
+        cv.speak_local.assert_not_awaited()
+        self.assertIn("respuesta escrita", self.sent[-1])
+
+    def test_spoken_reply_synthesis_failure_does_not_repeat_actions(self):
+        with patch.object(cv, "speak_local", new=AsyncMock(side_effect=ValueError("failure"))):
+            self.assertFalse(asyncio.run(cv.send_spoken_reply(j, 123, "Hola")))
+        self.assertFalse(j._growth._video_lock.locked())
+        j._handle_tg.assert_not_awaited()
+        self.assertEqual(FakeHTTP.posts, [])
+
+    def test_spoken_reply_requires_telegram_confirmation(self):
+        class RejectHTTP(FakeHTTP):
+            async def post(self, url, **kw):
+                class R:
+                    status_code = 200
+                    def json(self): return {"ok": False}
+                return R()
+        with patch.object(j.httpx, "AsyncClient", RejectHTTP):
+            self.assertFalse(asyncio.run(cv.send_spoken_reply(j, 123, "Hola")))
+        self.assertIn("No pude enviar su audio", self.sent[-1])
+        j._handle_tg.assert_not_awaited()
+
+    def test_piper_chunks_and_wav_join_preserve_full_response(self):
+        import jarvis_local_tts
+        response = "Una respuesta larga para leer en voz. " * 20
+        chunks = cv.speech_chunks(response)
+        self.assertEqual(" ".join(chunks), " ".join(response.split()))
+        self.assertTrue(all(len(chunk) <= 400 for chunk in chunks))
+        async def narration(plan, tmp):
+            self.assertEqual([s["narration"] for s in plan["scenes"]], chunks)
+            paths = []
+            for i, scene in enumerate(plan["scenes"]):
+                path = Path(tmp) / f"{i}.wav"
+                with wave.open(str(path), "wb") as wav:
+                    wav.setparams((1, 2, 22050, 0, "NONE", "not compressed"))
+                    wav.writeframes(b"\x00\x00" * 22050)
+                paths.append(str(path))
+            return paths
+        with patch.object(jarvis_local_tts, "local_narration", new=narration):
+            # Call the real synthesis wrapper rather than the fixture's fake speaker.
+            wav = asyncio.run(REAL_SPEAK_LOCAL(response))
+        import io
+        with wave.open(io.BytesIO(wav), "rb") as stream:
+            self.assertEqual(stream.getnframes(), 22050 * len(chunks))
 
     def test_not_while_producing_video(self):
         async def go():
