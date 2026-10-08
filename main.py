@@ -232,7 +232,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -1232,6 +1232,9 @@ async def delegate(agent: str, instruction: str, *, approved_action_id=None):
     if approved_action_id is None:
         return {"error": "Delegar requiere una acción aprobada por el dueño (/ejecutar ID). Prepárala con prepare_external_action."}
     if agent in NEVER_DELEGATE:
+        fn = globals().get("v420_anomaly")
+        if fn:
+            fn("odd-delegation", agent)
         return {"error": f"'{agent}' nunca se delega: Coinbase usa /aprobar + /confirmar; Amazon es solo investigación."}
     url = (AGENTS.get(agent) or "").strip().rstrip("/")
     if not url:
@@ -5676,6 +5679,12 @@ async def _tick():
             except Exception as e:
                 _sched_state["last_error"] = f"market: {type(e).__name__}: {e}"
     await _tick_v38(now, can_send)
+    cycle = globals().get("v420_cycle")
+    if cycle is not None:
+        try:
+            await asyncio.to_thread(cycle)
+        except Exception as e:
+            _sched_state["last_error"] = f"v420: {type(e).__name__}"
     _sched_state["last_tick"] = now.isoformat()
 
 async def _tick_v38(now, can_send):
@@ -6095,7 +6104,14 @@ class AIModelError(RuntimeError):
     pass
 
 async def _ai_call(history):
-    return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt(),
+    # 4.2.0: short model only after local rules miss. Empty JARVIS_SHORT_MODEL keeps MODEL.
+    model = MODEL
+    chooser = globals().get("v420_model")
+    if chooser:
+        picked = chooser(history)
+        if picked:
+            model = picked
+    return await client.messages.create(model=model, max_tokens=1500, system=system_prompt(),
                                         tools=TOOLS, messages=history)
 
 async def _ai_call_scoped(history, tools, extra_system):
@@ -6147,6 +6163,12 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     local = globals().get("phase_a_local")
     if local is not None and allowed_tools is None and not read_only:
         hit = await asyncio.to_thread(local, clean)          # may read the (sealed) profile: off the event loop
+        if hit:
+            saved = await _phase_a_remember_turn(session, clean, hit)
+            return warn + hit + (saved or "")
+    v420 = globals().get("v420_local")
+    if v420 is not None and allowed_tools is None and not read_only:
+        hit = await asyncio.to_thread(v420, clean)
         if hit:
             saved = await _phase_a_remember_turn(session, clean, hit)
             return warn + hit + (saved or "")
@@ -6755,6 +6777,12 @@ async def diagnostics_text():
     ext = [f"{a}{'⚠️' if v['problem'] else ''}{' (caído)' if v['down'] else ''}" for a, v in external_agents_status().items() if v["configured"]]
     lines.append(f"• Agentes externos: {', '.join(ext) or 'ninguno'} · clave propia "
                  f"{'sí' if EXTERNAL_AGENT_KEY and EXTERNAL_AGENT_KEY != API_KEY else 'NO'}")
+    extra = globals().get("v420_status_lines")
+    if extra is not None:
+        try:
+            lines.extend(extra())
+        except Exception as e:
+            lines.append(f"• 4.2.0: no pude leer el corte ({type(e).__name__})")
     return "\n".join(lines)
 
 async def _tg_diag(chat_id):
@@ -6772,8 +6800,9 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
              "/mercado · /seguridad · /diagnostico · /cifrado\n"
+             "/perfil · /flujo · /monetizar · /canal · /urgente — 4.2.0, sin ejecutar\n"
              "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
-             "Para lo demás, escríbeme normal.")
+             "Para lo demás, escríbeme normal. El deploy lo controlas tú.")
 
 async def _tg_v38_cmd(chat_id, cmd, arg):
     """v3.8: /mensajes /enviar /noenviar /cobros /practica /ayuda (zero tokens)."""
@@ -6924,6 +6953,28 @@ async def _tg_route(msg, background):
     if cmd in ("/diagnostico", "/diagnóstico", "/estado", "/version", "/versión"):
         # v4.0.1: live diagnostics (zero tokens)
         background.add_task(_tg_diag, chat_id)
+        return {"ok": True}
+    if cmd in ("/perfil", "/flujo", "/monetizar", "/canal", "/urgente"):
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        def _v420_cmd(chat_id=chat_id, cmd=cmd, arg=arg.strip()):
+            fn = globals().get("v420_command")
+            return fn(cmd, arg) if fn else "Corte 4.2.0 no cargado."
+        async def _send_v420(chat_id=chat_id):
+            await _tg_send(chat_id, await asyncio.to_thread(_v420_cmd))
+        background.add_task(_send_v420)
+        return {"ok": True}
+    if cmd == "/enviar" and arg.strip().lower().startswith("c"):
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        def _v420_send(ref=arg.strip().lower()):
+            fn = globals().get("v420_approve_channel")
+            return fn(ref) if fn else "Corte 4.2.0 no cargado."
+        async def _send_ch(chat_id=chat_id):
+            await _tg_send(chat_id, await asyncio.to_thread(_v420_send))
+        background.add_task(_send_ch)
         return {"ok": True}
     if cmd == "/cifrado":
         # cifrado 4.2: estado, migración verificada, respaldo y reversión (sin tokens; solo chat privado del dueño)
@@ -7109,3 +7160,13 @@ try:
 except Exception as _e:
     PHASE_A_STATUS = f"apagada ({type(_e).__name__})"
     logger.warning("phase A off: %s", type(_e).__name__)
+
+# 4.2.0 additive cut. If it fails to load, 4.1.0 paths stay up and /diagnostico says so.
+V420_STATUS = "no cargado"
+try:
+    import jarvis_v420 as _v420
+    _v420.install(__import__("sys").modules[__name__])
+    V420_STATUS = "activa"
+except Exception as _e:
+    V420_STATUS = f"apagada ({type(_e).__name__})"
+    logger.warning("4.2.0 off: %s", type(_e).__name__)
