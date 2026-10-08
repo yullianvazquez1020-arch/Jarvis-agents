@@ -17,8 +17,9 @@
 | Historial cifrado | Clave AES-256 generada y respaldada por el dueño (docs/CIFRADO_HISTORIAL.md), puesta en Render y `/cifrado migrar` verificado | Código de migración, respaldo, recuperación y reversión preparado (parche 4.2, sin desplegar). Sin clave en Render el historial sigue en claro; no afirmar que está cifrado hasta que `/cifrado` lo muestre. |
 | SMS, WhatsApp, llamadas y correo | Cuentas/número/permisos del proveedor, costos aceptados, prueba con destinatario autorizado | Conectores o borradores existentes no equivalen a una cuenta conectada. Los envíos requieren aprobación. |
 | Calendario | Cuenta y permisos autorizados y calendario destino | No afirmar que funciona solo por configurar una URL. |
-| Alertas de flujo de caja | Libros y vencimientos completos, reglas de aviso y periodo de prueba | Los atajos existentes no son una predicción financiera validada. |
-| Amazon y publicación en redes | Cuenta del vendedor/página y permisos, lectura antes de publicación | No activar compras ni publicar contenido automáticamente. |
+| Alertas de flujo de caja | Libros y vencimientos completos, reglas de aviso y periodo de prueba | Reporte local y aviso con deduplicación preparados en el corte de Grok, sin desplegar. Distingue saldo observado, libros y proyección; bloquea datos incompletos. Pendiente periodo de prueba real. |
+| Amazon y publicación en redes | Cuenta del vendedor/página y permisos, lectura antes de publicación | Investigación pública acotada y margen con costos del dueño preparados; no activan cuentas, compras ni publicaciones automáticas. Tarifas y métricas privadas requieren autorización. |
+| Página del negocio | Nombre/oficio/zona confirmados, revisión y alojamiento; solicitudes habilitadas explícitamente | HTML estático y receptor opcional preparados. BUSINESS_REQUESTS_ENABLED=false por defecto; no se compró dominio ni se publicó. |
 | IA local 24/7 con visión/agentes | Inventario real del hardware, capacidad y modelo medidos | Proyecto distinto del bot de Render; requiere instalación en equipo accesible. |
 
 OpenAI, TTS externo, trading real y ampliaciones de recursos no se activan por estas fases.
