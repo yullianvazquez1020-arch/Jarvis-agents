@@ -207,6 +207,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 async def _lifespan(app):
     # v4.0.1: take write leadership first (this is the newest process), then resume queued Telegram work
     await asyncio.to_thread(fence_take_leadership)
+    from jarvis_private_backup import boot_migrate
+    await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
     try:   # v4.0.3: a stored REAL mode that the variables no longer allow becomes practice
         note = await asyncio.to_thread(crypto_mode_boot_check)
         if note: _sched_state["last_error"] = f"crypto mode: {note}"
@@ -5485,8 +5487,10 @@ def _gate_for_backup(g):
 
 def snapshot():
     with _data_lock:
+        from jarvis_private_backup import export
         g = _gload()
         return {"version": VERSION, "taken_at": _now().isoformat(), "personal": _pload(), "books": _bload(),
+                "private_data": export(_sys.modules[__name__]),
                 "calendar": _eload(), "bank": _kload(), "research": _rload(),
                 "clients": _cload(), "inventory": _iload(), "crypto": _xload(),
                 "money_audit": g["audit"],          # kept for compatibility with 4.0.0 backups
@@ -5549,6 +5553,9 @@ def _validate_backup(snap):
     known = [k for k in RESTORE_KEYS if k in snap]
     if not known:
         raise ValueError("la copia no contiene ninguna sección conocida")
+    if "private_data" in snap:
+        from jarvis_private_backup import restore_values
+        restore_values(_sys.modules[__name__], snap["private_data"])
     for k in known:
         if not isinstance(snap[k], dict):
             raise ValueError(f"la sección {k} está dañada")
@@ -5566,6 +5573,10 @@ def restore_snapshot(snap, dry_run=True):
         known = _validate_backup(snap)
         current = snapshot()
         writes, report = {}, {}
+        if "private_data" in snap:
+            from jarvis_private_backup import restore_values
+            writes.update(restore_values(_sys.modules[__name__], snap["private_data"]))
+            report["private_data"] = {"restored_keys": sorted(writes), "empty_sections": "kept unchanged"}
         for section in known:
             data = json.loads(json.dumps(snap[section]))
             if section == "gate":
@@ -5605,6 +5616,8 @@ def restore_snapshot(snap, dry_run=True):
                          + [{"at": _now().isoformat(timespec="seconds"), "from": (cur_mode or {}).get("mode", "?"),
                              "to": "practice", "by": "restauración", "reason": "restaurar deja siempre práctica"}]}
         kv_set_many(writes)
+        if "private_data" in report:
+            conversations.clear()  # Next request reloads restored turns; no tools are replayed.
         result["pre_restore_copy"] = pre_key
         return result
 
