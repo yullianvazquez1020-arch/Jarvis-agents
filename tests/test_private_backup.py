@@ -95,7 +95,11 @@ class PrivateBackup(fixtures.Base):
             with self.assertRaises(RuntimeError): private.boot_migrate(j)
         with patch.dict(os.environ, {'SEAL_MIGRATE_KEY_FINGERPRINT': seal.fingerprint()}):
             with patch.object(j, 'daily_backup', return_value=True) as backup:
-                private.boot_migrate(j)
+                with self.assertLogs('uvicorn.error', level='INFO') as logs:
+                    private.boot_migrate(j)
+                self.assertIn('Private backup verified:', logs.output[0])
+                self.assertNotIn(self.key_a, logs.output[0])
+                self.assertNotIn('private question', logs.output[0])
                 raw = self.raw('jarvis:history')
                 private.boot_migrate(j)
                 self.assertEqual(self.raw('jarvis:history'), raw)
