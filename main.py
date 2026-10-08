@@ -5474,14 +5474,11 @@ async def _ai_call_scoped(history, tools, extra_system):
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
     also answers the Telegram webhook). Never raises: a failed save never breaks the chat."""
-    remember = globals().get("phase_a_remember")
+    remember = globals().get("phase_a_remember_turn")
     if not remember:
         return
-    def _save():
-        remember(session, "user", user_text)
-        remember(session, "assistant", reply)
     try:
-        await asyncio.to_thread(_save)
+        await asyncio.to_thread(remember, session, user_text, reply)
     except Exception as e:
         logger.warning("history not saved: %s", type(e).__name__)
 
@@ -5900,7 +5897,10 @@ async def _handle_tg(chat_id, text, *, read_only=False):
             reply = await run(session, text)
     except Exception as e:
         logger.exception("telegram chat failed")
-        reply = _fail_text(e)
+        if read_only and not isinstance(e, (AINotConfigured, StaleInstance, AIModelError)):
+            reply = "No pude responder esa consulta. No ejecuté acciones; puedes volver a preguntar."
+        else:
+            reply = _fail_text(e)
     try:
         await _tg_send(chat_id, reply)
     except Exception:

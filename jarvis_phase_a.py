@@ -84,6 +84,22 @@ def install(core):
         return None
 
     core.phase_a_remember = remember
+    def remember_turn(session, user_text, reply):
+        """One atomic storage write: never leave half of a newly saved turn."""
+        session = str(session)
+        if len(session) > 128:
+            return
+        at = core._now().isoformat(timespec="seconds")
+        rows = [{"at": at, "session": session, "role": role,
+                 "text": core._redact_secrets(str(text or ""))[0][:2000]}
+                for role, text in (("user", user_text), ("assistant", reply))]
+        with core._data_lock:
+            hist = core.kv_get(HISTORY_KEY, [])
+            if not isinstance(hist, list):
+                hist = []
+            core.kv_set(HISTORY_KEY, (hist + rows)[-HISTORY_MAX:])
+
+    core.phase_a_remember_turn = remember_turn
     def restore(session):
         """Restore complete plain-text turns only, never tools or unfinished requests."""
         session = str(session)

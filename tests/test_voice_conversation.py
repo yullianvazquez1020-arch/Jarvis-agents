@@ -95,3 +95,38 @@ class VoiceConversation(unittest.TestCase):
         with patch.object(j, "phase_a_restore", side_effect=RuntimeError("storage down")), \
              patch.object(j, "AI_READY", True), patch.object(j, "_ai_call", new=AsyncMock(return_value=answer("Hola"))):
             self.assertEqual(asyncio.run(j.run("tg:123", "Hola")), "Hola")
+
+    def test_failed_turn_write_never_pairs_old_question_with_new_answer(self):
+        j.phase_a_remember("tg:123", "user", "old unfinished question")
+        before = j.kv_get("jarvis:history", [])
+        with patch.object(j, "kv_set", side_effect=RuntimeError("temporary outage")) as save:
+            asyncio.run(j._phase_a_remember_turn("tg:123", "new question", "new answer"))
+        save.assert_called_once()
+        self.assertEqual(j.kv_get("jarvis:history", []), before)
+        self.assertEqual(j.phase_a_restore("tg:123"), [])
+        asyncio.run(j._phase_a_remember_turn("tg:123", "new question", "new answer"))
+        self.assertEqual([m["content"] for m in j.phase_a_restore("tg:123")], ["new question", "new answer"])
+
+    def test_concurrent_turns_remain_paired_and_bounded(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda i: j.phase_a_remember_turn("tg:123", f"q{i}", f"a{i}"), range(30)))
+        hist = j.kv_get("jarvis:history", [])
+        self.assertEqual(len(hist), 40)
+        for user, assistant in zip(hist[::2], hist[1::2]):
+            self.assertEqual((user["role"], assistant["role"]), ("user", "assistant"))
+            self.assertEqual(user["text"][1:], assistant["text"][1:])
+
+    def test_secret_crossing_text_limit_is_redacted_before_truncation(self):
+        secret = "sk-ant-api03-" + "Z" * 40
+        j.phase_a_remember_turn("tg:123", "x" * 1990 + " " + secret, "ok")
+        text = j.kv_get("jarvis:history", [])[0]["text"]
+        self.assertNotIn("sk-ant-", text)
+        self.assertLessEqual(len(text), 2000)
+
+    def test_read_only_error_does_not_claim_actions_were_saved(self):
+        with patch.object(j, "run", new=AsyncMock(side_effect=RuntimeError("test"))), \
+             patch.object(j, "_tg_send", new=AsyncMock()):
+            reply = asyncio.run(j._handle_tg(123, "Hola", read_only=True))
+        self.assertIn("No ejecuté acciones", reply)
+        self.assertNotIn("pudieron haberse guardado", reply)
