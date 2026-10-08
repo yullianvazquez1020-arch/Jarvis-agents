@@ -258,6 +258,7 @@ async def send_spoken_reply(core, chat_id, text: str) -> bool:
     caption = "Respuesta con voz femenina local."
     if spoken != normalized:
         caption = "Audio parcial por límite de longitud; la respuesta completa está en el texto."
+    stage = "lock"
     try:
         lock = _heavy_lock(core)
         if lock is not None:
@@ -265,9 +266,16 @@ async def send_spoken_reply(core, chat_id, text: str) -> bool:
                 raise RuntimeError("video o voz en curso")
             async with lock:
                 with _Busy():
-                    ogg = await to_opus(await speak_local(spoken))
+                    stage = "synthesis"
+                    wav = await speak_local(spoken)
+                    stage = "opus"
+                    ogg = await to_opus(wav)
         else:
-            ogg = await to_opus(await speak_local(spoken))
+            stage = "synthesis"
+            wav = await speak_local(spoken)
+            stage = "opus"
+            ogg = await to_opus(wav)
+        stage = "telegram"
         async with core.httpx.AsyncClient(timeout=60) as hc:
             r = await hc.post(f"https://api.telegram.org/bot{core.TG_TOKEN}/sendVoice",
                               data={"chat_id": chat_id, "caption": caption},
@@ -276,8 +284,12 @@ async def send_spoken_reply(core, chat_id, text: str) -> bool:
                 raise RuntimeError("telegram no confirmó la voz")
         return True
     except Exception as exc:
-        log.warning("spoken reply failed: kind=%s", type(exc).__name__)
-        await core._tg_safe_send(chat_id, "La respuesta escrita ya está arriba. No pude enviar su audio local.")
+        from jarvis_media_budget import MediaMemoryError
+        log.warning("spoken reply failed: stage=%s kind=%s", stage, type(exc).__name__)
+        message = ("La respuesta escrita ya está arriba. El audio local se detuvo para proteger la memoria." if
+                   isinstance(exc, MediaMemoryError) else
+                   "La respuesta escrita ya está arriba. No pude enviar su audio local.")
+        await core._tg_safe_send(chat_id, message)
         return False
 
 

@@ -264,6 +264,17 @@ class WhisperModel:
         j._handle_tg.assert_not_awaited()
         self.assertEqual(FakeHTTP.posts, [])
 
+    def test_memory_guard_failure_is_identified_without_repeating_actions(self):
+        from jarvis_media_budget import MediaMemoryError
+        with patch.object(cv, 'speak_local', new=AsyncMock(side_effect=MediaMemoryError('private path'))), \
+             self.assertLogs(cv.log, level='WARNING') as logs:
+            self.assertFalse(asyncio.run(cv.send_spoken_reply(j, 123, 'Hola')))
+        self.assertIn('stage=synthesis kind=MediaMemoryError', '\n'.join(logs.output))
+        self.assertNotIn('private path', '\n'.join(logs.output))
+        self.assertIn('proteger la memoria', self.sent[-1])
+        j._handle_tg.assert_not_awaited()
+        self.assertFalse(j._growth._video_lock.locked())
+
     def test_spoken_reply_requires_telegram_confirmation(self):
         class RejectHTTP(FakeHTTP):
             async def post(self, url, **kw):
