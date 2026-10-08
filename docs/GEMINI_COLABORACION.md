@@ -5,9 +5,11 @@ MyClaw se configura en su sesión existente. La sesión web de Gemini no autenti
 
 ## Jarvis
 
-El comando de producción sigue siendo `uvicorn main:app`. No sustituirlo por
+El comando de producción sigue siendo `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1`. No sustituirlo por
 `jarvis_gemini_app:app`: ese cambio reinicia el worker y desconecta Telegram, la voz
-y la sesión de MyClaw. `jarvis_extensions.install` carga el revisor. Si el módulo falla,
+y la sesión de MyClaw. Al importarse desde `main`, `jarvis_transit` llama a
+`jarvis_gemini_boot.mount` para cargar el revisor. `install_transit` repite el montaje
+idempotente por si `jarvis_transit` ya estaba importado. Si el módulo falla,
 Jarvis arranca igual y `GEMINI_STATUS` queda en apagado.
 
 Configurar en Render, nunca por chat ni en Git:

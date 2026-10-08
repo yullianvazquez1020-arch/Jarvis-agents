@@ -82,6 +82,7 @@ class TransitMiddleware:
 
 def install_transit(app) -> None:
     app.add_middleware(TransitMiddleware)
+    mount_gemini_if_ready()
 
 
 def webhook_url() -> str:

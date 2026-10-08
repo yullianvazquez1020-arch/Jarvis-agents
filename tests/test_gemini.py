@@ -140,7 +140,13 @@ class GeminiReview(unittest.TestCase):
 
 
 class GeminiStartup(unittest.TestCase):
-    def test_optional_entrypoint_preserves_jarvis(self):
+    def test_main_entrypoint_preserves_jarvis(self):
+        self.check_entrypoint(False)
+
+    def test_transit_preimport_preserves_gemini_routes(self):
+        self.check_entrypoint(True)
+
+    def check_entrypoint(self, preimport_transit):
         import subprocess
         import sys
         import tempfile
@@ -154,16 +160,23 @@ class GeminiStartup(unittest.TestCase):
                        COINBASE_TRADING_ENABLED="false")
             script = '''
 from fastapi.testclient import TestClient
-from jarvis_gemini_app import app, core
-with TestClient(app) as c:
+from unittest.mock import patch
+import main as core
+paths = [route.path for route in core.app.routes]
+assert paths.count('/gemini/status') == paths.count('/gemini/review') == 1
+with TestClient(core.app) as c, patch('httpx.AsyncClient', side_effect=AssertionError('outbound network attempted')) as outbound:
     assert c.get('/health').status_code == 200
     s = c.get('/gemini/status', headers={'x-api-key': 'x'*40})
     assert s.status_code == 200 and s.json()['enabled'] is False
+    assert s.json()['connection_verified'] is False
     assert c.post('/gemini/review', headers={'x-api-key': 'x'*40}, json={'text':'hola'}).status_code == 503
     assert c.get('/backup', headers={'x-api-key': 'x'*40}).status_code == 401
     assert core.MONEY_MAX_ORDER <= 100 and core.MONEY_MAX_DAY <= 300
     assert 'fake-provider-secret' not in core._redact_secrets('fake-provider-secret')[0]
+    assert outbound.call_count == 0
 '''
+            if preimport_transit:
+                script = 'import jarvis_transit\n' + script
             result = subprocess.run([sys.executable, "-c", script],
                                     cwd=Path(__file__).resolve().parents[1], env=env,
                                     capture_output=True, text=True, timeout=40)
