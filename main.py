@@ -5510,6 +5510,13 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
         return warn + AI_OFF_MSG
     lock = _locks.setdefault(session, asyncio.Lock())
     async with lock:   # one message at a time per session
+        if session not in conversations and (allowed_tools is None or read_only == "voice"):
+            restore = globals().get("phase_a_restore")
+            if restore is not None:
+                try:
+                    conversations[session] = await asyncio.to_thread(restore, session)
+                except Exception as e:
+                    logger.warning("history restore failed: %s", type(e).__name__)
         history = list(conversations.get(session, []))
         history.append({"role": "user", "content": clean})
         history = _trim(history)
@@ -5539,7 +5546,7 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                 text = _redact_secrets(text)[0] or "(sin respuesta)"
                 history.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
                 conversations[session] = history
-                if allowed_tools is None:
+                if allowed_tools is None or read_only == "voice":
                     await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
                 return warn + note + text
@@ -5881,10 +5888,16 @@ async def _tg_send(chat_id, text):
             if not confirmed:
                 raise RuntimeError("Telegram did not confirm sendMessage")
 
-async def _handle_tg(chat_id, text):
+async def _handle_tg(chat_id, text, *, read_only=False):
     session = f"tg:{chat_id}"
     try:
-        reply = await run(session, text)
+        if read_only:
+            reply = await run(session, text, allowed_tools=READ_ONLY_TOOLS, read_only="voice",
+                              extra_system="\nVOICE QUERY: read-only. Never change data, prepare or send actions, "
+                              "or approve anything. If the request needs an action, explain it was not executed "
+                              "and ask the owner to review and process the numbered dictation explicitly.")
+        else:
+            reply = await run(session, text)
     except Exception as e:
         logger.exception("telegram chat failed")
         reply = _fail_text(e)
@@ -6047,9 +6060,10 @@ async def diagnostics_text():
     _g = globals()                                   # Fase A (revisada): estado real de los ganchos
     lines.append(f"• HTTPS/host: {_g.get('TRANSIT_STATUS', 'no cargado')} · Fase A: {_g.get('PHASE_A_STATUS', 'no cargada')}"
                  f" · sellado: {_seal_status()}")
-    # 4.0.5 (1.5): chat context lives only in memory on purpose (it may hold sensitive text); say so plainly
-    lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
-                 "ni un reinicio; tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
+    lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) cargadas. "
+                 "Recupera hasta 10 turnos completos por sesión del historial breve guardado "
+                 "(40 mensajes compartidos); no repite herramientas ni acciones al reiniciar. "
+                 "Para conservarlo tras un deploy necesita almacenamiento permanente.")
     try:
         kd = await asyncio.to_thread(_kload)
         lines.append(f"• Banco guardado: {len(kd['tx']):,} de {BANK_MAX_TX:,} movimientos · "

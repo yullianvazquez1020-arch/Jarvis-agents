@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -33,6 +34,7 @@ MAX_CHARS = 3200
 WHISPER_TIMEOUT = 90
 FFMPEG_TIMEOUT = 30
 REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
+NAME_HINT = "Jarvis. Yullian Vázquez. ISLAFIX PRO LLC. Puerto Rico. Coquí. Juey."
 log = logging.getLogger(__name__)
 
 # Variables que sí pasan a los procesos hijos (sin AGENT_API_KEY, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, etc.)
@@ -49,7 +51,8 @@ try:
     m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
                      download_root=req["models"])
     stage = "transcribe"
-    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=1)
+    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=3,
+                          initial_prompt=req.get("hint", "")[:200], condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segs)
     print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
 except Exception as exc:
@@ -149,7 +152,8 @@ async def transcribe_local(raw: bytes) -> str:
         model_dir().mkdir(parents=True, exist_ok=True)
         try:
             code, out = await _run([sys.executable, "-c", _WORKER], WHISPER_TIMEOUT,
-                                   stdin=json.dumps({"wav": str(wav), "models": str(model_dir())}).encode(),
+                                   stdin=json.dumps({"wav": str(wav), "models": str(model_dir()),
+                                                     "hint": NAME_HINT}).encode(),
                                    env=_child_env())
         except asyncio.TimeoutError:
             raise ValueError("la transcripción local tardó demasiado") from None
@@ -272,6 +276,25 @@ def _heavy_lock(core):
     return getattr(growth, "_video_lock", None)
 
 
+def auto_reply_enabled() -> bool:
+    return enabled() and os.getenv("LOCAL_VOICE_AUTO_REPLY", "false").strip().lower() in ("true", "1", "yes")
+
+
+def is_voice_query(text: str) -> bool:
+    """Conservative routing only; write protection is enforced by run's read-only channel."""
+    import unicodedata
+    text = unicodedata.normalize("NFKD", str(text).lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r"[¿?¡!.,;:]+", " ", text)
+    text = re.sub(r"^\s*(oye\s+)?jarvis\b", " ", text)
+    text = " ".join(text.split())
+    if "/" in text:
+        return False
+    return bool(re.match(r"^(hola\b|buenos dias\b|buenas (tardes|noches)\b|que\b|como\b|cual\b|"
+                         r"cuanto\w*\b|quien\b|donde\b|por que\b|explica\w*\b|cuentame\b|"
+                         r"puedes explicarme\b)", text))
+
+
 async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
     try:
         seconds = int(voice.get("duration") or 0)
@@ -304,8 +327,16 @@ async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
         n = {"id": alloc(d, "voices"), "text": text, "status": "pending", "created": stamp()}
         d["voices"].append(n)
         save(d)
-    await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\nRevisa monto y concepto antes de guardar. "
-                                 f"/dictado {n['id']} para procesarlo. No ejecuté nada.")
+    automatic = auto_reply_enabled() and is_voice_query(text)
+    instruction = (f"Consulta por voz en solo lectura: responderé sin ejecutar acciones. "
+                   f"Para una acción, revisa el texto y usa /dictado {n['id']}." if automatic else
+                   f"Revisa monto y concepto antes de guardar. /dictado {n['id']} para procesarlo. No ejecuté nada.")
+    await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\n{instruction}")
+    if automatic:
+        reply = await core._handle_tg(chat_id, text, read_only=True)
+        if isinstance(reply, str) and reply.strip():
+            await send_spoken_reply(core, chat_id, reply)
+        return
     try:
         if lock is not None:
             if lock.locked():
@@ -331,4 +362,7 @@ def status() -> str:
         ok = importlib.util.find_spec("faster_whisper") is not None
     except Exception:
         ok = False
-    return "voz local activa (faster-whisper tiny)" if ok else "voz local prendida pero falta instalar faster-whisper"
+    if not ok:
+        return "voz local prendida pero falta instalar faster-whisper"
+    return ("voz local activa (faster-whisper tiny, vocabulario local) · preguntas automáticas "
+            + ("en solo lectura" if auto_reply_enabled() else "apagadas"))
