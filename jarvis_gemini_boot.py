@@ -1,6 +1,6 @@
 """Mount the text-only Gemini reviewer on the already running app.
 
-Imported by jarvis_extensions.install. A failure here must not stop Jarvis.
+Imported by jarvis_transit when main:app is already loaded. A failure here must not stop Jarvis.
 Production command stays uvicorn main:app.
 """
 

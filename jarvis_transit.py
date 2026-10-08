@@ -99,11 +99,17 @@ def url_es_https(url: str) -> str:
     return ""
 
 
-# En main.py, después de crear app:
-#   import jarvis_transit
-#   jarvis_transit.install_transit(app)
-# Webhook de Telegram, una sola vez:
-#   https://api.telegram.org/bot<TOKEN>/setWebhook
-#   url = jarvis_transit.webhook_url()
-#   secret_token = TELEGRAM_WEBHOOK_SECRET
-# La API de escritorio se queda en 127.0.0.1. No la publiques.
+def mount_gemini_if_ready() -> None:
+    """Attach the reviewer to the current process. Never change uvicorn main:app for this."""
+    import sys
+    core = sys.modules.get("main")
+    if core is None or not hasattr(core, "app"):
+        return
+    try:
+        import jarvis_gemini_boot
+        jarvis_gemini_boot.mount(core)
+    except Exception as exc:
+        core.GEMINI_STATUS = f"apagado ({type(exc).__name__})"
+
+
+mount_gemini_if_ready()
