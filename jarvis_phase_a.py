@@ -61,7 +61,7 @@ def install(core):
                 hist = core.kv_get(HISTORY_KEY, [])
                 if not isinstance(hist, list):
                     hist = []
-                hist.append({"at": core._now().isoformat(timespec="seconds"), "session": str(session)[:40],
+                hist.append({"at": core._now().isoformat(timespec="seconds"), "session": str(session)[:128],
                              "role": role, "text": clean})
                 core.kv_set(HISTORY_KEY, hist[-HISTORY_MAX:])
         except Exception:
@@ -84,5 +84,47 @@ def install(core):
         return None
 
     core.phase_a_remember = remember
+    def remember_turn(session, user_text, reply):
+        """One atomic storage write: never leave half of a newly saved turn."""
+        session = str(session)
+        if len(session) > 128:
+            return
+        at = core._now().isoformat(timespec="seconds")
+        rows = [{"at": at, "session": session, "role": role,
+                 "text": core._redact_secrets(str(text or ""))[0][:2000]}
+                for role, text in (("user", user_text), ("assistant", reply))]
+        with core._data_lock:
+            hist = core.kv_get(HISTORY_KEY, [])
+            if not isinstance(hist, list):
+                hist = []
+            core.kv_set(HISTORY_KEY, (hist + rows)[-HISTORY_MAX:])
+
+    core.phase_a_remember_turn = remember_turn
+    def restore(session):
+        """Restore complete plain-text turns only, never tools or unfinished requests."""
+        session = str(session)
+        if len(session) > 128:
+            return []
+        with core._data_lock:
+            hist = core.kv_get(HISTORY_KEY, [])
+        if not isinstance(hist, list):
+            return []
+        turns = []
+        pending = None
+        for row in hist[-HISTORY_MAX:]:
+            if not isinstance(row, dict) or row.get("session") != session:
+                continue
+            text = row.get("text")
+            if not isinstance(text, str) or not text.strip():
+                continue
+            text = core._redact_secrets(text[:2000])[0]
+            if row.get("role") == "user":
+                pending = {"role": "user", "content": text}
+            elif row.get("role") == "assistant" and pending is not None:
+                turns.extend([pending, {"role": "assistant", "content": text}])
+                pending = None
+        return turns[-20:]
+
+    core.phase_a_restore = restore
     core.phase_a_local = local_answer
     core.DEFAULT_PROFILE = DEFAULT_PROFILE

@@ -166,17 +166,17 @@ class HistoryOffLoop(Base):
     def test_saved_in_worker_thread(self):
         import threading
         seen = []
-        real = j.phase_a_remember
+        real = j.phase_a_remember_turn
         def spy(*a):
             seen.append(threading.current_thread() is threading.main_thread()); return real(*a)
-        with patch.object(j, "phase_a_remember", new=spy), patch.object(j, "AI_READY", False):
+        with patch.object(j, "phase_a_remember_turn", new=spy), patch.object(j, "AI_READY", False):
             asyncio.run(j.run("tg:1", "perfil"))
-        self.assertEqual(seen, [False, False])
+        self.assertEqual(seen, [False])
         self.assertEqual([h["role"] for h in j.kv_get("jarvis:history", [])], ["user", "assistant"])
 
     def test_failing_save_does_not_break_chat(self):
         def boom(*a): raise RuntimeError("Upstash down")
-        with patch.object(j, "phase_a_remember", new=boom), patch.object(j, "AI_READY", True), \
+        with patch.object(j, "phase_a_remember_turn", new=boom), patch.object(j, "AI_READY", True), \
              patch.object(j, "_ai_call", new=AsyncMock(return_value=__import__("unittest.mock").mock.MagicMock(
                  content=[__import__("unittest.mock").mock.MagicMock(type="text", text="hola")], stop_reason="end_turn"))):
             self.assertEqual(asyncio.run(j.run("tg:1", "hola jarvis, ¿qué tal?")), "hola")

@@ -53,12 +53,15 @@ class BankCeiling(Base):
 
 
 class ChatContextNotice(Base):
-    """1.5: /diagnostico says the chat context does not survive a deploy (data does)."""
+    """Diagnostics describes bounded restoration without replaying actions."""
     def test_diagnostics_says_it(self):
         j.TG_TOKEN = ""
         j.conversations["tg:1"] = [{"role": "user", "content": "hola"}]
         text = asyncio.run(j.diagnostics_text())
-        self.assertIn("Contexto de charla: 1 conversación", text); self.assertIn("No sobrevive un deploy", text)
+        self.assertIn("Contexto de charla: 1 conversación", text)
+        self.assertIn("Recupera hasta 10 turnos completos por sesión", text)
+        self.assertIn("40 mensajes compartidos", text)
+        self.assertIn("no repite herramientas ni acciones", text)
 
 
 class SendingRecovery(Base):

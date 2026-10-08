@@ -5440,6 +5440,15 @@ def system_prompt():
 # ---------------------------------------------------------------------------
 conversations: dict = {}
 _locks: dict = {}
+MAX_SESSIONS = 50   # PR11 rev (8): chats kept in memory; the oldest idle one is dropped (its history stays saved)
+
+def _evict_sessions():
+    while len(conversations) >= MAX_SESSIONS:
+        old = next((s for s in conversations if not (_locks.get(s) and _locks[s].locked())), None)
+        if old is None:
+            return
+        conversations.pop(old, None)
+        _locks.pop(old, None)
 
 def _trim(history):
     history = history[-30:]
@@ -5474,14 +5483,11 @@ async def _ai_call_scoped(history, tools, extra_system):
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
     also answers the Telegram webhook). Never raises: a failed save never breaks the chat."""
-    remember = globals().get("phase_a_remember")
+    remember = globals().get("phase_a_remember_turn")
     if not remember:
         return
-    def _save():
-        remember(session, "user", user_text)
-        remember(session, "assistant", reply)
     try:
-        await asyncio.to_thread(_save)
+        await asyncio.to_thread(remember, session, user_text, reply)
     except Exception as e:
         logger.warning("history not saved: %s", type(e).__name__)
 
@@ -5510,7 +5516,20 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
         return warn + AI_OFF_MSG
     lock = _locks.setdefault(session, asyncio.Lock())
     async with lock:   # one message at a time per session
-        history = list(conversations.get(session, []))
+        if session not in conversations:
+            _evict_sessions()                         # PR11 rev (8): bounded number of chats in memory
+        if session not in conversations and (allowed_tools is None or read_only == "voice"):
+            restore = globals().get("phase_a_restore")
+            if restore is not None:
+                try:
+                    conversations[session] = await asyncio.to_thread(restore, session)
+                except Exception as e:
+                    logger.warning("history restore failed: %s", type(e).__name__)
+        voice = read_only == "voice"
+        # PR11 rev (1): a voice turn keeps only plain text in the shared chat. A refused action with transcribed
+        # amounts must never sit in the history where a later "dale" with all tools could run it without /dictado.
+        base = list(conversations.get(session, []))
+        history = list(base)
         history.append({"role": "user", "content": clean})
         history = _trim(history)
         repaired = False
@@ -5525,6 +5544,7 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     logger.warning("history rejected by the API, repairing session %s: %s", session, _ai_state["last_error"])
                     # keep only the current request; tool results already applied stay applied in storage
                     history = [{"role": "user", "content": clean}]
+                    base = []
                     repaired = True; _ai_state["history_resets"] += 1
                     continue
                 raise AIModelError(_ai_state["last_error"]) from e
@@ -5538,8 +5558,10 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     text = (text + "\n\n(Respuesta interrumpida; pídemela por partes.)").strip()
                 text = _redact_secrets(text)[0] or "(sin respuesta)"
                 history.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
-                conversations[session] = history
-                if allowed_tools is None:
+                conversations[session] = (_trim(base + [{"role": "user", "content": clean},
+                                                        {"role": "assistant", "content": [{"type": "text", "text": text}]}])
+                                          if voice else history)
+                if allowed_tools is None or read_only == "voice":
                     await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
                 return warn + note + text
@@ -5561,8 +5583,9 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                     results.append({"type": "tool_result", "tool_use_id": b.id,
                                     "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
             history.append({"role": "user", "content": results})
-            conversations[session] = list(history)   # tools already ran: keep that in memory
-        conversations[session] = history
+            if not voice:
+                conversations[session] = list(history)   # tools already ran: keep that in memory
+        conversations[session] = base if voice else history
         return warn + "Me enredé con demasiados pasos. ¿Me lo repites más simple?"
 
 def _fail_text(e):
@@ -5881,17 +5904,31 @@ async def _tg_send(chat_id, text):
             if not confirmed:
                 raise RuntimeError("Telegram did not confirm sendMessage")
 
-async def _handle_tg(chat_id, text):
+async def _handle_tg(chat_id, text, *, read_only=False):
     session = f"tg:{chat_id}"
     try:
-        reply = await run(session, text)
+        if read_only:
+            reply = await run(session, text, allowed_tools=READ_ONLY_TOOLS, read_only="voice",
+                              extra_system="\nVOICE QUERY: read-only. Never change data, prepare or send actions, "
+                              "or approve anything. If the request needs an action, explain it was not executed "
+                              "and ask the owner to review and process the numbered dictation explicitly.")
+        else:
+            reply = await run(session, text)
     except Exception as e:
         logger.exception("telegram chat failed")
-        reply = _fail_text(e)
+        if read_only and not isinstance(e, (AINotConfigured, StaleInstance, AIModelError)):
+            reply = "No pude responder esa consulta. No ejecuté acciones; puedes volver a preguntar."
+        else:
+            reply = _fail_text(e)
+        failed = True
+    else:
+        failed = reply.endswith(AI_OFF_MSG)
     try:
         await _tg_send(chat_id, reply)
     except Exception:
         return None
+    if read_only and failed:
+        return None          # PR11 rev (6): the voice path never reads an error message aloud
     return reply
 
 async def _tg_brief(chat_id):
@@ -6047,9 +6084,14 @@ async def diagnostics_text():
     _g = globals()                                   # Fase A (revisada): estado real de los ganchos
     lines.append(f"• HTTPS/host: {_g.get('TRANSIT_STATUS', 'no cargado')} · Fase A: {_g.get('PHASE_A_STATUS', 'no cargada')}"
                  f" · sellado: {_seal_status()}")
-    # 4.0.5 (1.5): chat context lives only in memory on purpose (it may hold sensitive text); say so plainly
-    lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
-                 "ni un reinicio; tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
+    if _g.get("phase_a_restore") is not None:        # PR11 rev (7): only claim what is loaded
+        lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) cargadas. "
+                     "Recupera hasta 10 turnos completos por sesión del historial breve guardado "
+                     "(40 mensajes compartidos); no repite herramientas ni acciones al reiniciar. "
+                     "Para conservarlo tras un deploy necesita almacenamiento permanente.")
+    else:
+        lines.append(f"• Contexto de charla: {len(conversations)} conversación(es) en memoria. No sobrevive un deploy "
+                     "ni un reinicio (Fase A no cargada); tus datos (libros, clientes, banco, recordatorios) sí quedan guardados.")
     try:
         kd = await asyncio.to_thread(_kload)
         lines.append(f"• Banco guardado: {len(kd['tx']):,} de {BANK_MAX_TX:,} movimientos · "

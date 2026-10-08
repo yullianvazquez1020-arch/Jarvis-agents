@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -33,6 +34,9 @@ MAX_CHARS = 3200
 WHISPER_TIMEOUT = 90
 FFMPEG_TIMEOUT = 30
 REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
+NAME_HINT = "Jarvis. Yullian Vázquez. ISLAFIX PRO LLC. Puerto Rico."   # PR11 rev (3): only real names
+MAX_DONE_VOICES = 200   # PR11 rev (4): processed/answered notes kept; pending ones are never dropped
+_voice_busy = {"n": 0}  # PR11 rev (5): the shared lock is held by a voice note, not by a video
 log = logging.getLogger(__name__)
 
 # Variables que sí pasan a los procesos hijos (sin AGENT_API_KEY, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, etc.)
@@ -49,7 +53,8 @@ try:
     m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
                      download_root=req["models"])
     stage = "transcribe"
-    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=1)
+    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=int(req.get("beam", 1)),
+                          initial_prompt=req.get("hint", "")[:200], condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segs)
     print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
 except Exception as exc:
@@ -86,6 +91,33 @@ def _worker_failure(code: int, out: bytes) -> str:
     if stage in _ERROR_STAGES:
         return f"falló al {_ERROR_STAGES[stage]} ({kind}); revisa los registros de Render"
     return f"el transcriptor terminó sin diagnóstico (exit={code}); no se confirmó la causa"
+
+
+def whisper_beam() -> int:
+    """PR11 rev (2): beam 1 by default (0.5 CPU, 90 s limit). Raise WHISPER_BEAM only after measuring in Render."""
+    try:
+        return max(1, min(5, int(os.getenv("WHISPER_BEAM", "1"))))
+    except ValueError:
+        return 1
+
+
+def _busy_text() -> str:
+    if _voice_busy["n"]:
+        return "Estoy procesando otra nota de voz. Reenvíame esta en un momento. No usé una API de pago."
+    return "Estoy produciendo un video y no caben los dos en memoria. Mándame la nota cuando termine. No usé una API de pago."
+
+
+class _Busy:
+    def __enter__(self): _voice_busy["n"] += 1
+    def __exit__(self, *a): _voice_busy["n"] -= 1
+
+
+def _trim_voices(d):
+    """Pending notes always stay; only the newest MAX_DONE_VOICES processed or answered ones are kept."""
+    done = [v for v in d["voices"] if v.get("status") != "pending"]
+    if len(done) > MAX_DONE_VOICES:
+        drop = {id(v) for v in done[:-MAX_DONE_VOICES]}
+        d["voices"] = [v for v in d["voices"] if id(v) not in drop]
 
 
 def enabled() -> bool:
@@ -149,7 +181,8 @@ async def transcribe_local(raw: bytes) -> str:
         model_dir().mkdir(parents=True, exist_ok=True)
         try:
             code, out = await _run([sys.executable, "-c", _WORKER], WHISPER_TIMEOUT,
-                                   stdin=json.dumps({"wav": str(wav), "models": str(model_dir())}).encode(),
+                                   stdin=json.dumps({"wav": str(wav), "models": str(model_dir()),
+                                                     "hint": NAME_HINT, "beam": whisper_beam()}).encode(),
                                    env=_child_env())
         except asyncio.TimeoutError:
             raise ValueError("la transcripción local tardó demasiado") from None
@@ -227,7 +260,8 @@ async def send_spoken_reply(core, chat_id, text: str) -> bool:
             if lock.locked():
                 raise RuntimeError("video o voz en curso")
             async with lock:
-                ogg = await to_opus(await speak_local(spoken))
+                with _Busy():
+                    ogg = await to_opus(await speak_local(spoken))
         else:
             ogg = await to_opus(await speak_local(spoken))
         async with core.httpx.AsyncClient(timeout=60) as hc:
@@ -272,6 +306,25 @@ def _heavy_lock(core):
     return getattr(growth, "_video_lock", None)
 
 
+def auto_reply_enabled() -> bool:
+    return enabled() and os.getenv("LOCAL_VOICE_AUTO_REPLY", "false").strip().lower() in ("true", "1", "yes")
+
+
+def is_voice_query(text: str) -> bool:
+    """Conservative routing only; write protection is enforced by run's read-only channel."""
+    import unicodedata
+    text = unicodedata.normalize("NFKD", str(text).lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r"[¿?¡!.,;:]+", " ", text)
+    text = re.sub(r"^\s*(oye\s+)?jarvis\b", " ", text)
+    text = " ".join(text.split())
+    if "/" in text:
+        return False
+    return bool(re.match(r"^(hola\b|buenos dias\b|buenas (tardes|noches)\b|que\b|como\b|cual\b|"
+                         r"cuanto\w*\b|quien\b|donde\b|por que\b|explica\w*\b|cuentame\b|"
+                         r"puedes explicarme\b)", text))
+
+
 async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
     try:
         seconds = int(voice.get("duration") or 0)
@@ -283,8 +336,7 @@ async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
         return
     lock = _heavy_lock(core)
     if lock is not None and lock.locked():
-        await core._tg_safe_send(chat_id, "Estoy produciendo un video y no caben los dos en memoria. Mándame la nota "
-                                          "cuando termine. No usé una API de pago.")
+        await core._tg_safe_send(chat_id, _busy_text())
         return
     async def work():
         raw = await core._tg_file(voice["file_id"])
@@ -292,26 +344,39 @@ async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):
     try:
         if lock is not None:
             async with lock:
-                text = await work()
+                with _Busy():
+                    text = await work()
         else:
             text = await work()
     except Exception as exc:
         await core._tg_safe_send(chat_id, "No pude transcribir en local: " + str(exc)[:180] + ". No usé una API de pago.")
         return
     text = core._redact_secrets(text)[0]
+    automatic = auto_reply_enabled() and is_voice_query(text)
     with core._data_lock:
         d = load()
-        n = {"id": alloc(d, "voices"), "text": text, "status": "pending", "created": stamp()}
+        # PR11 rev (4): an answered question is "answered" (still usable with /dictado), so it does not pile up
+        n = {"id": alloc(d, "voices"), "text": text, "status": "answered" if automatic else "pending",
+             "created": stamp()}
         d["voices"].append(n)
+        _trim_voices(d)
         save(d)
-    await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\nRevisa monto y concepto antes de guardar. "
-                                 f"/dictado {n['id']} para procesarlo. No ejecuté nada.")
+    instruction = (f"Consulta por voz en solo lectura: responderé sin ejecutar acciones. "
+                   f"Para una acción, revisa el texto y usa /dictado {n['id']}." if automatic else
+                   f"Revisa monto y concepto antes de guardar. /dictado {n['id']} para procesarlo. No ejecuté nada.")
+    await core._tg_send(chat_id, f"🎙 Dictado #{n['id']}:\n{text}\n\n{instruction}")
+    if automatic:
+        reply = await core._handle_tg(chat_id, text, read_only=True)
+        if isinstance(reply, str) and reply.strip():
+            await send_spoken_reply(core, chat_id, reply)
+        return
     try:
         if lock is not None:
             if lock.locked():
                 raise RuntimeError("video en curso")
             async with lock:
-                ogg = await reply_voice()
+                with _Busy():
+                    ogg = await reply_voice()
         else:
             ogg = await reply_voice()
         async with core.httpx.AsyncClient(timeout=60) as hc:
@@ -331,4 +396,7 @@ def status() -> str:
         ok = importlib.util.find_spec("faster_whisper") is not None
     except Exception:
         ok = False
-    return "voz local activa (faster-whisper tiny)" if ok else "voz local prendida pero falta instalar faster-whisper"
+    if not ok:
+        return "voz local prendida pero falta instalar faster-whisper"
+    return ("voz local activa (faster-whisper tiny, vocabulario local) · preguntas automáticas "
+            + ("en solo lectura" if auto_reply_enabled() else "apagadas"))

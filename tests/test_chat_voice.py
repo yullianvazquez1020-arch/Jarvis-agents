@@ -29,6 +29,11 @@ class WhisperModel:
             json.dump({"size": size, "kw": kw, "env": sorted(os.environ)}, open(out, "w"))
     def transcribe(self, path, **kw):
         assert open(path, "rb").read(4) == b"RIFF"
+        out = os.environ.get("FAKE_WHISPER_LOG")
+        if out:
+            payload = json.load(open(out))
+            payload["transcribe_kw"] = kw
+            json.dump(payload, open(out, "w"))
         return iter([Seg(" anota 25 dolares "), Seg("de gasolina  ")]), None
 '''
 
@@ -62,6 +67,7 @@ class ChatVoice(unittest.TestCase):
         (Path(self.fake_pkg) / "faster_whisper.py").write_text(FAKE_WHISPER)
         self.log = Path(tempfile.mkdtemp()) / "child.json"
         self.env = patch.dict(os.environ, {"STT_AGENT_URL": "", "LOCAL_VOICE_ENABLED": "true",
+                                           "LOCAL_VOICE_AUTO_REPLY": "false",
                                            "WHISPER_MODEL_DIR": self.models, "FAKE_WHISPER_LOG": str(self.log),
                                            "PYTHONPATH": self.fake_pkg, "OPENAI_API_KEY": "sk-proj-should-not-matter"})
         self.env.start(); self.addCleanup(self.env.stop)
@@ -97,6 +103,9 @@ class ChatVoice(unittest.TestCase):
         child = json.loads(self.log.read_text())
         self.assertEqual(child["size"], "tiny")
         self.assertEqual((child["kw"]["device"], child["kw"]["compute_type"], child["kw"]["cpu_threads"]), ("cpu", "int8", 1))
+        self.assertEqual(child["transcribe_kw"]["beam_size"], 1)   # PR11 rev (2)
+        self.assertIn("Jarvis", child["transcribe_kw"]["initial_prompt"])
+        self.assertFalse(child["transcribe_kw"]["condition_on_previous_text"])
         for secret in ("AGENT_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN"):
             self.assertNotIn(secret, child["env"])                          # the child gets no keys
 
@@ -266,6 +275,30 @@ class WhisperModel:
             self.assertFalse(asyncio.run(cv.send_spoken_reply(j, 123, "Hola")))
         self.assertIn("No pude enviar su audio", self.sent[-1])
         j._handle_tg.assert_not_awaited()
+
+    def test_automatic_question_uses_read_only_chat_and_actual_voice(self):
+        with patch.dict(os.environ, {"LOCAL_VOICE_AUTO_REPLY": "true"}), \
+             patch.object(cv, "transcribe_local", new=AsyncMock(return_value="Hola Jarvis, ¿cómo estás?")), \
+             patch.object(j, "_handle_tg", new=AsyncMock(return_value="Estoy lista para ayudarte.")) as handler:
+            self.voice()
+        handler.assert_awaited_once_with(123, "Hola Jarvis, ¿cómo estás?", read_only=True)
+        self.assertEqual(cv.speak_local.await_args.args[0], "Estoy lista para ayudarte.")
+        self.assertEqual(len(FakeHTTP.posts), 1)  # no extra fixed acknowledgment audio
+        self.assertEqual(self.voices()[0]["status"], "answered")   # PR11 rev (4)
+
+    def test_action_voice_keeps_manual_confirmation_even_when_auto_is_on(self):
+        with patch.dict(os.environ, {"LOCAL_VOICE_AUTO_REPLY": "true"}):
+            self.voice()
+        j._handle_tg.assert_not_awaited()
+        self.assertIn("/dictado 1", self.sent[0])
+
+    def test_conservative_question_routing_and_no_slash_approval(self):
+        for text in ("Hola Jarvis", "¿Qué tengo esta semana?", "Jarvis, ¿cómo va el negocio?",
+                     "Cuéntame de Puerto Rico"):
+            self.assertTrue(cv.is_voice_query(text), text)
+        for text in ("anota veinte dólares", "envía el mensaje", "/confirmar 7 123456",
+                     "¿Qué pasa? /confirmar 7 123456", "compra bitcoin", "borra la nota"):
+            self.assertFalse(cv.is_voice_query(text), text)
 
     def test_piper_chunks_and_wav_join_preserve_full_response(self):
         import jarvis_local_tts
