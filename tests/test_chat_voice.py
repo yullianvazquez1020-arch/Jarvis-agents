@@ -243,7 +243,7 @@ class WhisperModel:
         self.assertTrue(asyncio.run(cv.send_spoken_reply(j, 123, response)))
         spoken = cv.speak_local.await_args.args[0]
         self.assertNotIn(key, spoken)
-        self.assertLessEqual(len(spoken), cv.MAX_CHARS)
+        self.assertLessEqual(len(spoken), cv.MAX_SPOKEN_REPLY)
         self.assertIn("Audio parcial", FakeHTTP.posts[-1][1]["data"]["caption"])
 
     def test_spoken_reply_disabled_or_busy_keeps_text(self):

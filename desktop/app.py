@@ -46,7 +46,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8"}
 LAUNCH_TTL = 120
@@ -691,10 +691,10 @@ def make_handler(app, host, port):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(303, b"", headers={"Location": "/", "Set-Cookie":
                                   f"jd_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}"})
-            if u.path in ("/", "/hud"):                       # /hud = second monitor (4.0.5, 3.2)
+            if u.path in ("/", "/hud", "/avatar"):                       # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = "index.html" if u.path == "/" else "hud.html"
+                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html"}[u.path]
                 return self._send(200, (HERE / "ui" / page).read_bytes(), "text/html; charset=utf-8")
             if not self._guard():
                 return
