@@ -31,6 +31,7 @@ from pathlib import Path
 MAX_AUDIO = 1_500_000
 MAX_SECONDS = 60
 MAX_CHARS = 3200
+MAX_SPOKEN_REPLY = 200  # short preview; the complete answer has already been sent as text
 WHISPER_TIMEOUT = 90
 FFMPEG_TIMEOUT = 30
 REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
@@ -147,15 +148,15 @@ def ffmpeg_exe() -> str:
 
 
 async def _run(args, timeout, stdin=None, env=None):
+    import jarvis_media_budget as budget
+    budget.check_start()
     proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE if stdin is not None else None,
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                                                 env=env)
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout)
+        out, _ = await budget.communicate(proc, stdin, timeout)
     except BaseException:
-        if proc.returncode is None:
-            proc.kill()
-        await proc.wait()
+        # communicate() has already drained and reaped the worker.
         raise
     return proc.returncode, out
 
@@ -247,7 +248,10 @@ async def send_spoken_reply(core, chat_id, text: str) -> bool:
         return False
     text = core._redact_secrets(str(text))[0]
     normalized = " ".join(text.split())
-    chunks = speech_chunks(normalized)
+    preview = normalized[:MAX_SPOKEN_REPLY]
+    if len(normalized) > MAX_SPOKEN_REPLY and ' ' in preview:
+        preview = preview.rsplit(' ', 1)[0]
+    chunks = speech_chunks(preview)
     if not chunks:
         return False
     spoken = " ".join(chunks)

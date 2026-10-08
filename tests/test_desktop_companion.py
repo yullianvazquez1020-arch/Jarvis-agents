@@ -524,6 +524,17 @@ class Displays(CompanionBase):
         self.assertEqual(st, 200); self.assertIn(b"HUD", body)
         self.assertEqual(self.req("GET", "/ui/hud.js")[0], 200); self.assertEqual(self.req("GET", "/ui/mask.js")[0], 200)
 
+    def test_avatar_preserves_session_guard_and_content_security_policy(self):
+        self.assertEqual(self.req("GET", "/avatar", cookie=False)[0], 401)
+        self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
+        status, _, response, body = self.req("GET", "/avatar")
+        self.assertEqual(status, 200)
+        self.assertIn(b'Animar frase', body)
+        self.assertNotIn(b'<script>', body)
+        self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
+        self.assertEqual(self.req("GET", "/ui/avatar.js")[0], 200)
+        self.assertEqual(self.req("GET", "/ui/avatar.css")[0], 200)
+
 
 class DemoDisplays(CompanionBase):
     demo = True

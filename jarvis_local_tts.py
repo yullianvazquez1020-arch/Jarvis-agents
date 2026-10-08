@@ -72,15 +72,16 @@ def synthesize(texts,destination,root):
 async def local_narration(plan,temp):
     if plan.get('language','es')!='es':raise ValueError('La voz local instalada es en español; cambia el plan a es')
     texts=[s['narration'] for s in plan['scenes']]
+    import jarvis_media_budget as budget
+    budget.check_start()
     # No credentials are passed to the speech worker.
     env={k:v for k,v in os.environ.items() if k in ('PATH','LD_LIBRARY_PATH','PYTHONPATH','LANG','LC_ALL','SSL_CERT_FILE','SSL_CERT_DIR','HTTPS_PROXY','HTTP_PROXY','NO_PROXY')}
     env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
     proc=await asyncio.create_subprocess_exec(sys.executable,str(Path(__file__).resolve()),stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,env=env)
     try:
-        stdout,stderr=await asyncio.wait_for(proc.communicate(json.dumps({'texts':texts,'destination':str(temp),'models':str(model_dir())}).encode()),timeout=240)
+        stdout,stderr=await budget.communicate(proc,json.dumps({'texts':texts,'destination':str(temp),'models':str(model_dir())}).encode(),240)
     except BaseException:
-        if proc.returncode is None:proc.kill()
-        await proc.wait();raise
+        raise  # guard has drained and reaped the worker before releasing the media lock
     if proc.returncode:
         logging.getLogger(__name__).warning('Local voice worker failed: exit=%s',proc.returncode)
         raise ValueError('No pude generar la voz local; no se usó ninguna API de pago')
