@@ -1,5 +1,6 @@
 """Portable private data in backups; key material is always kept separately."""
 import json
+import logging
 import os
 
 KEYS = {name: 'jarvis:' + name for name in ('history', 'profile', 'bio', 'diary')}
@@ -72,5 +73,5 @@ def boot_migrate(core):
         if not stored or restore_values(core, json.loads(stored)['private_data']) != recovered:
             raise RuntimeError('No se pudo verificar el respaldo persistente')
     states = {row['key']: row.get('after') for row in result['rows']}
-    core.logger.info('Private backup verified: fingerprint=%s states=%s daily_saved=%s',
-                     expected, states, saved)
+    logging.getLogger('uvicorn.error').info(
+        'Private backup verified: fingerprint=%s states=%s daily_saved=%s', expected, states, saved)
