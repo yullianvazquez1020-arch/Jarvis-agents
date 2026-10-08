@@ -1,14 +1,14 @@
 # Gemini para Jarvis y MyClaw
 
-Estado: conector preparado; no desplegado ni autenticado contra Google. MyClaw debe
-configurarse desde su sesión existente. La sesión web de Gemini no autentica esta API.
+Estado: rutas montadas en el arranque actual. No cambiar el comando de Uvicorn.
+MyClaw se configura en su sesión existente. La sesión web de Gemini no autentica esta API.
 
 ## Jarvis
 
-Este cambio no modifica main.py ni sustituye Claude. El punto de entrada opcional
-es `jarvis_gemini_app:app`. Tras aprobar y desplegar el cambio, conservar los demás
-argumentos del comando actual de Uvicorn y un solo worker, cambiando solamente
-`main:app` por `jarvis_gemini_app:app`.
+El comando de producción sigue siendo `uvicorn main:app`. No sustituirlo por
+`jarvis_gemini_app:app`: ese cambio reinicia el worker y desconecta Telegram, la voz
+y la sesión de MyClaw. `jarvis_extensions.install` carga el revisor. Si el módulo falla,
+Jarvis arranca igual y `GEMINI_STATUS` queda en apagado.
 
 Configurar en Render, nunca por chat ni en Git:
 
@@ -43,6 +43,7 @@ propia. No sustituir el Claude principal, ni habilitar recargas automáticas o f
 desconocido. Primero añadir Gemini como opción de revisión, si esa interfaz lo permite.
 Confirmar modelo, precio y límites mostrados antes de guardar cambios con coste.
 Si requiere clave propia, introducirla en su formulario seguro; no en un mensaje al bot.
+No reiniciar el sign-in.
 
 Validar con un texto público breve y verificar el proveedor/modelo real usado y el
 consumo. Tener el sitio de Gemini abierto no conecta estos servicios entre sí.
@@ -56,4 +57,4 @@ consumo. Tener el sitio de Gemini abierto no conecta estos servicios entre sí.
 ## Reversión
 
 Poner `GEMINI_ENABLED=false` detiene nuevas solicitudes al cargar esa configuración.
-Volver al punto de entrada `main:app` elimina estas rutas sin cambiar el orquestador.
+No hace falta volver a `main:app`: ese ya es el comando.

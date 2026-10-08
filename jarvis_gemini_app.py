@@ -1,4 +1,4 @@
-"""Optional ASGI entry point: uvicorn jarvis_gemini_app:app (one worker)."""
+"""Optional alias. Production command stays uvicorn main:app --workers 1."""
 import main as core
 import jarvis_gemini
 
