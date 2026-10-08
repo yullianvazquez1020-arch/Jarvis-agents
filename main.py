@@ -232,7 +232,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -7109,3 +7109,10 @@ try:
 except Exception as _e:
     PHASE_A_STATUS = f"apagada ({type(_e).__name__})"
     logger.warning("phase A off: %s", type(_e).__name__)
+try:
+    import jarvis_v420 as _v420
+    _v420.install(__import__("sys").modules[__name__])
+    V420_STATUS = "activa"
+except Exception as _e:
+    V420_STATUS = f"apagada ({type(_e).__name__})"
+    logger.warning("v420 off: %s", type(_e).__name__)
