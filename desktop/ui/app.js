@@ -150,9 +150,86 @@
     stopAudio(); audioEl = new Audio("/voice/audio/" + id);
     audioEl.onended = function () { setState("listo"); };
     setState("hablando");
+    voice.attach(audioEl, id);
     audioEl.play().catch(function () { setState("listo", "toca la página una vez para permitir el audio"); });
   }
-  function stopAudio() { if (audioEl) { audioEl.pause(); audioEl.src = ""; audioEl = null; } }
+  function stopAudio() {
+    if (audioEl) { voice.detach(audioEl); audioEl.pause(); audioEl.src = ""; audioEl = null; }
+  }
+
+  // ---------- boca del avatar: envolvente y reloj del audio que suena aquí (ventana /avatar) ----------
+  // Se lee el mismo archivo otra vez para calcular la envolvente; la reproducción no pasa por Web Audio,
+  // así que un AudioContext suspendido (Safari sin gesto) nunca silencia la voz.
+  var voice = (function () {
+    var L = window.JarvisLipsync, bc = null, el = null, id = "", timer = 0, ctx = null, raf = 0, generation = 0;
+    var measure = /[?&]medir=1\b/.test(location.search), log = [];
+    try { if (L && "BroadcastChannel" in window) bc = new BroadcastChannel(L.CHANNEL); } catch (err) { bc = null; }
+    function now() { return (performance.timeOrigin || Date.now() - performance.now()) + performance.now(); }
+    function post(msg) { if (bc) { try { bc.postMessage(msg); } catch (err) { /* ventana cerrada */ } } }
+    function clock() {
+      if (!el) return;
+      var playing = !el.paused && !el.ended && el.readyState >= 2;
+      post({ k: "clock", id: id, t: el.currentTime || 0, at: now(), rate: el.playbackRate || 1, playing: playing });
+      if (el.ended) { clearInterval(timer); timer = 0; }
+    }
+    function frame() {
+      raf = 0;                         // reloj en cada cuadro mientras suena; si esta ventana está oculta,
+      if (!el || el.paused || el.ended) return;   // el intervalo de 250 ms sigue enviándolo
+      clock();
+      if (measure && log.length < 20000) log.push([now(), el.currentTime || 0, 1]);
+      raf = requestAnimationFrame(frame);
+    }
+    function startFrames() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0; frame();
+    }
+    function decoder() {
+      if (ctx) return ctx;
+      var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      ctx = Off ? new Off(1, 1, 22050) : (Ctx ? new Ctx() : null);
+      return ctx;
+    }
+    function analyse(audioId, ticket) {
+      if (!bc) return;
+      var started = now();
+      fetch("/voice/audio/" + audioId, { credentials: "same-origin" }).then(function (r) {
+        if (!r.ok) throw new Error("audio " + r.status);
+        return r.arrayBuffer();
+      }).then(function (buf) {
+        var c = decoder(); if (!c) throw new Error("sin Web Audio");
+        return new Promise(function (ok, bad) { c.decodeAudioData(buf, ok, bad); });   // forma con callbacks: Safari antiguo
+      }).then(function (audio) {
+        if (ticket !== generation || !el || audioId !== id) return;
+        var env = L.envelope(audio.getChannelData(0), audio.sampleRate, L.FPS);
+        post(L.message(audioId, env)); clock();
+        if (measure) log.push(["env", now() - started, env.values.length]);
+      }).catch(function (err) {
+        if (ticket !== generation || !el) return;
+        post({ k: "stop", id: audioId, why: "sin envolvente: " + (err && err.name || "error") });
+      });
+    }
+    var EVENTS = ["playing", "pause", "seeked", "ratechange", "ended", "waiting"];
+    return {
+      attach: function (audio, audioId) {
+        generation++; el = audio; id = String(audioId); log = measure ? [] : log;
+        EVENTS.forEach(function (n) { audio.addEventListener(n, clock); });
+        audio.addEventListener("playing", startFrames);
+        clearInterval(timer); timer = setInterval(clock, 250);
+        analyse(id, generation);
+      },
+      detach: function (audio) {
+        generation++;
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+        EVENTS.forEach(function (n) { audio.removeEventListener(n, clock); });
+        audio.removeEventListener("playing", startFrames);
+        clearInterval(timer); timer = 0; post({ k: "stop", id: id }); el = null;
+      },
+      log: function () { return measure ? log.slice() : []; }
+    };
+  })();
+  window.JarvisVoiceSync = { log: voice.log };
 
   // ---------- microphone ----------
   function startMic() {

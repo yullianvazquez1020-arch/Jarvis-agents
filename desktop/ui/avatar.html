@@ -2,18 +2,20 @@
   <div class="avatar">
     <header><span>JARVIS · PRESENCIA VISUAL</span><nav><a href="/">Conversación</a><a href="/hud">Operaciones</a></nav></header>
     <div class="stage">
-      <canvas id="c" width="960" height="540" aria-label="Avatar visual de Jarvis, sin audio"></canvas>
+      <canvas id="c" width="960" height="540" aria-label="Avatar visual de Jarvis; la boca sigue la amplitud del audio que suena en la ventana de conversación"></canvas>
       <video id="hand-video" muted playsinline aria-hidden="true"></video>
     </div>
     <div>
-      <button id="speak" type="button">Animar frase</button>
+      <button id="speak" type="button">Probar boca (sin audio)</button>
       <button id="smile" type="button">Sonreír</button>
       <button id="style" type="button">Ver rostro</button>
       <button id="motion" type="button" aria-pressed="false">Pausar animación</button>
       <button id="hands" type="button" aria-pressed="false">Activar mano</button>
     </div>
     <p id="hand-status" role="status">Mano apagada.</p>
+    <p id="voice-status" role="status">Boca: sin audio sonando.</p>
     <p id="status" role="status">Sin conexión comprobada.</p><label for="phrase">Frase de prueba</label><input maxlength="1000" id="phrase" value="Hola, soy Jarvis">
   </div>
+<script src="/ui/lipsync.js"></script>
 <script src="/ui/hands.js"></script>
 <script src="/ui/avatar.js"></script></body></html>
