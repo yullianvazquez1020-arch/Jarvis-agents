@@ -55,6 +55,26 @@ def audit(to: str, text: str, verdict: str) -> None:
     print(json.dumps(row, ensure_ascii=False))
 
 
+def uso_wa(to: str, text: str) -> bool:
+    from agent_executor import control_dir
+
+    key = hashlib.sha256(f"{to}\n{hashlib.sha256(text.encode()).hexdigest()}".encode()).hexdigest()[:16]
+    path = control_dir() / "usos-wa.json"
+    used: list[str] = []
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                used = [str(item) for item in loaded]
+        except (OSError, ValueError):
+            used = []
+    if key in used:
+        return False
+    used.append(key)
+    path.write_text(json.dumps(used), encoding="utf-8")
+    return True
+
+
 def enviar(to: str, text: str, *, confirmed: bool, dry: bool, sender=None) -> str:
     if decide(to) != "dueno":
         audit(to, text, "BLOQUEADO")
@@ -74,6 +94,9 @@ def enviar(to: str, text: str, *, confirmed: bool, dry: bool, sender=None) -> st
     if not token or not NUMBER.fullmatch(phone_id) or not VERSION.fullmatch(version):
         audit(to, text, "FALTA")
         return "FALTA"
+    if not uso_wa(to, text):
+        audit(to, text, "BLOQUEADO")
+        return "BLOQUEADO"
     url = f"https://graph.facebook.com/{version}/{phone_id}/messages"
     data = json.dumps(body).encode()
     request = urllib.request.Request(
@@ -146,6 +169,13 @@ def self_test() -> int:
     own = {"entry": [{"changes": [{"value": {"messages": [{"id": "m2", "from": "17875550199"}]}}]}]}
     assert entrante(own, seen) == "AVISAR"
     assert entrante(own, seen) == "REPETIDO"
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["JARVIS_CONTROL_DIR"] = tmp
+        assert uso_wa("17875550199", "nota ficticia") is True
+        assert uso_wa("17875550199", "nota ficticia") is False
+        assert "nota ficticia" not in (control_dir_text := open(os.path.join(tmp, "usos-wa.json"), encoding="utf-8").read())
+        del control_dir_text
     print("SELFTEST OK")
     return 0
 

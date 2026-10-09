@@ -176,10 +176,25 @@ def allowed_host(host: str) -> bool:
     return host in ALLOW_HOSTS or host.endswith(".github.com")
 
 
+def _textos(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        found = []
+        for item in value.values():
+            found.extend(_textos(item))
+        return found
+    if isinstance(value, list):
+        found = []
+        for item in value:
+            found.extend(_textos(item))
+        return found
+    return []
+
+
 def denial(action: dict) -> str | None:
     kind = str(action.get("action") or "")
-    blob = " ".join(str(action.get(key) or "") for key in ("url", "app", "text", "title"))
-    folded = norm(blob)
+    folded = norm(" ".join(_textos(action)))
     if DENY_RE.search(folded):
         return "denylist"
     if kind == "type":
@@ -215,6 +230,8 @@ def needs_confirm(action: dict, libre: bool) -> bool:
 
 
 def action_key(action: dict) -> str:
+    text = str(action.get("text") or "")
+    keys = sorted(hotkey_set(action.get("keys")))
     payload = {
         "agent": action.get("agent"),
         "action": action.get("action"),
@@ -224,6 +241,8 @@ def action_key(action: dict) -> str:
         "seconds": action.get("seconds"),
         "url": action.get("url"),
         "app": action.get("app"),
+        "text_hash": hashlib.sha256(text.encode()).hexdigest()[:12] if text else "",
+        "keys": keys,
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -246,10 +265,13 @@ def _save_grants(grants: list[dict]) -> None:
 
 
 def grant_once(action: dict) -> bool:
-    if denial(action):
+    if denial(action) or action.get("agent") not in AGENTS:
         return False
+    key = action_key(action)
     grants = _grants()
-    grants.append({"key": action_key(action), "used": False})
+    if any(item.get("key") == key and item.get("used") is not True for item in grants):
+        return False
+    grants.append({"key": key, "used": False})
     _save_grants(grants)
     return True
 
@@ -612,6 +634,7 @@ def self_test() -> int:
             ({"agent": "grok", "action": "open_url", "url": "https://github.com/"}, "SECO", "libre"),
             ({"agent": "grok", "action": "open_app", "app": "Safari"}, "SECO", "libre"),
             ({"agent": "grok", "action": "scroll", "dy": -1}, "SECO", "libre"),
+            ({"agent": "grok", "action": "move", "x": 1, "y": 1, "nota": "abre el banco"}, "BLOQUEADO", "denylist"),
         ]
         recent: list[datetime] = []
         for action, verdict, reason in samples:
@@ -747,6 +770,10 @@ def self_test() -> int:
             assert run_actions(una, dry=False, libre=True, pointer=mover) == 3
             assert len(mover.calls) == antes
             assert grant_once(item) is True
+            assert grant_once(item) is False
+            assert action_key({"agent": "grok", "action": "type", "text": "una nota"}) != action_key(
+                {"agent": "grok", "action": "type", "text": "otra nota"}
+            )
             assert run_actions(una, dry=False, libre=False, pointer=mover) == 0
             assert mover.calls[-1] == esperado
             assert run_actions(una, dry=False, libre=False, pointer=mover) == 3

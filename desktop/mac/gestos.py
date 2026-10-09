@@ -170,13 +170,22 @@ def self_test() -> int:
     cursor = Cursor(100, 100)
     cursor.recenter(0.5, 0.5)
     assert cursor.update(0.5, 0.5) == (50, 50)
+    assert mano_a_puntero(True, (10, 10)) == "propuesto"
+    assert mano_a_puntero(False, (10, 10)) == "nada"
     print("SELFTEST OK")
     return 0
 
 
+def mano_a_puntero(control: bool, point) -> str:
+    """La mano propone. No mueve el puntero: eso solo lo hace el ejecutor."""
+    if not control or point is None:
+        return "nada"
+    return "propuesto"
+
+
 def camera_loop(index: int, control: bool) -> int:
-    """Abre la cámara solo si se pide. No guarda fotos."""
-    from agent_executor import MacPointer, control_dir, note_gesture, stopped
+    """Abre la cámara solo si se pide. No guarda fotos y no mueve el mouse."""
+    from agent_executor import control_dir, note_gesture, stopped
     try:
         import cv2
         import mediapipe as mp
@@ -198,8 +207,7 @@ def camera_loop(index: int, control: bool) -> int:
     )
     recognizer = mp.tasks.vision.GestureRecognizer.create_from_options(options)
     cap = cv2.VideoCapture(index)
-    pointer = None
-    holds, pinch, cursor = GestureHold(), Pinch(), Cursor()
+    holds, cursor = GestureHold(), Cursor()
     paused = False
     started = cv2.getTickCount()
     try:
@@ -226,9 +234,7 @@ def camera_loop(index: int, control: bool) -> int:
                 tip = result.hand_landmarks[0][8]
                 point = cursor.update(1 - tip.x, tip.y)
                 if point:
-                    if pointer is None:
-                        pointer = MacPointer()
-                    pointer.move(*point)
+                    print(mano_a_puntero(True, point))
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:
@@ -265,7 +271,7 @@ def main(argv: list[str]) -> int:
             release_lock("gestos")
     if args.avisar:
         return camera_loop(args.camara, False)
-    print("Usa --avisar para confirmar con la mano, o --dry-run --file. --controlar mueve el mouse y pide el turno.")
+    print("Usa --avisar para confirmar con la mano, o --dry-run --file. --controlar pide el turno y no mueve el mouse.")
     return 2
 
 
