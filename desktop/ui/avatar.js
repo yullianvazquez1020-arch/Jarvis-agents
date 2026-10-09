@@ -221,7 +221,7 @@ function particles() {
   if(h.landmarks && h.landmarks.length===21){
     const p=h.landmarks.map(p=>[28+(1-p.x)*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],'#6bf5ad',1.3));
     p.forEach(v=>{x.fillStyle='#ffd77b';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});
-  }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText('CÁMARA APAGADA',66,114);x.font='9px monospace';x.fillText('Activa la mano para ver',44,140);x.fillText('los puntos detectados.',47,155);}
+  }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText(h.running?'SIN MANO DETECTADA':'CÁMARA APAGADA',42,114);x.font='9px monospace';x.fillText(h.running?'Muestra la palma a la cámara':'Activa la mano para ver',30,140);x.fillText('los puntos detectados.',47,155);}
   const rows=[['MANO',h.seen?'DETECTADA':'SIN SEÑAL'],['AUDIO',voice.active?'REPRODUCIENDO':'EN REPOSO'],['BOCA',talking?'PRUEBA SIN AUDIO':voice.active?'RMS REAL':'EN REPOSO'],['DATOS','VER ESTADO INFERIOR']];
   rows.forEach((r,i)=>{x.font='9px monospace';x.fillStyle='#678fa3';x.fillText(r[0],723,54+i*23);x.fillStyle='#91e6da';x.fillText(r[1],782,54+i*23);});
   const env=voice.env,clock=voice.clock;

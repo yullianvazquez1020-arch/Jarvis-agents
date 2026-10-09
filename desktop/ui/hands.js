@@ -14,7 +14,51 @@
   var generation = 0;
   var lastDetection = 0;
   var lastVideoTime = -1;
-  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0 };
+  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "" };
+  var selector = document.createElement("select");
+  selector.id = "hand-camera";
+  selector.setAttribute("aria-label", "Cámara para la mano");
+  var automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "Logitech Brio (automática)";
+  selector.appendChild(automatic);
+  if (button) button.parentNode.appendChild(selector);
+  if (video && status) status.parentNode.insertBefore(video, status);
+  selector.onchange = function () { stop(); say("Cámara seleccionada. Pulsa Activar mano."); };
+
+  function release(s) { if (s) s.getTracks().forEach(function (t) { t.stop(); }); }
+
+  async function cameraStream(ticket) {
+    var selected = selector.value;
+    var devices = await navigator.mediaDevices.enumerateDevices();
+    if (ticket !== generation) throw new Error("Inicio cancelado");
+    // Labels may require a camera permission first. Release that temporary stream.
+    if (!devices.some(function (d) { return d.kind === "videoinput" && d.label; })) {
+      var permission = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      release(permission);
+      if (ticket !== generation) throw new Error("Inicio cancelado");
+      devices = await navigator.mediaDevices.enumerateDevices();
+    }
+    if (ticket !== generation) throw new Error("Inicio cancelado");
+    var cameras = devices.filter(function (d) { return d.kind === "videoinput"; });
+    while (selector.options.length > 1) selector.remove(1);
+    cameras.forEach(function (d, i) {
+      var option = document.createElement("option");
+      option.value = d.deviceId;
+      option.textContent = d.label || "Cámara " + (i + 1);
+      selector.appendChild(option);
+    });
+    selector.value = selected;
+    var chosen = cameras.find(function (d) { return selected ? d.deviceId === selected : /brio/i.test(d.label); });
+    if (!chosen) throw new Error("No aparece la Brio o la cámara elegida. Revisa el USB o elige otra cámara.");
+    var s = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: chosen.deviceId }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15, max: 30 } },
+      audio: false
+    });
+    if (ticket !== generation) { release(s); throw new Error("Inicio cancelado"); }
+    state.camera = s.getVideoTracks()[0].label || chosen.label;
+    return s;
+  }
 
   function say(text) { if (status) status.textContent = text; }
 
@@ -51,7 +95,8 @@
     try {
       result = landmarker.detectForVideo(video, performance.now());
     } catch (e) {
-      decay();
+      stop();
+      say("Falló la detección: " + (e && e.message ? e.message : "error de MediaPipe"));
       return;
     }
     var hands = result && result.landmarks;
@@ -63,9 +108,11 @@
     generation++;
     loading = false;
     running = false;
+    state.running = false;
+    state.camera = "";
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = null;
-    if (video) video.srcObject = null;
+    if (video) { video.srcObject = null; video.classList.remove("preview-active"); }
     lastVideoTime = -1;
     decay();
     if (button) {
@@ -98,24 +145,24 @@
 
     ready.then(function () {
       if (ticket !== generation) throw new Error("Inicio cancelado");
-      return navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-        audio: false
-      });
+      return cameraStream(ticket);
     }).then(function (s) {
       if (ticket !== generation) { s.getTracks().forEach(function (t) { t.stop(); }); throw new Error("Inicio cancelado"); }
       stream = s;
       video.srcObject = s;
+      video.classList.add("preview-active");
       return video.play();
     }).then(function () {
       if (ticket !== generation) return;
       loading = false;
       running = true;
+      state.running = true;
+      stream.getVideoTracks()[0].onended = function () { stop(); say("La cámara se desconectó. Pulsa Activar mano para reconectar."); };
       if (button) {
         button.textContent = "Apagar mano";
         button.setAttribute("aria-pressed", "true");
       }
-      say("MediaPipe activo, 21 puntos, CPU. La imagen no se envía.");
+      say("Cámara: " + state.camera + ". MediaPipe listo; muestra una mano. Vista previa local, sin envío.");
       requestAnimationFrame(loop);
     }).catch(function (err) {
       if (ticket !== generation) return;
