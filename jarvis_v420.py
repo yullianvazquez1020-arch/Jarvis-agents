@@ -52,8 +52,19 @@ def _plain(text):
     return re.sub(r"\s+", " ", "".join(ch for ch in t if not unicodedata.combining(ch)))
 
 
+# Ignore only explicit prohibitions on unapproved actions, not the rest of a request.
+APPROVAL_PROHIBITION_RX = re.compile(
+    r"\bno (?:ofrezcas|envies|publiques|compres|pagues|transfieras|ejecutes|"
+    r"actues|despliegues|fijes)\b"
+    r"(?:(?!\b(?:pero|aunque|excepto|luego|despues)\b)[^.!?;:\n]){0,180}?"
+    r"\bsin (?:mi |tu |la )?aprobacion\b")
+
+
 def autonomy_refusal(text):
-    return AUTONOMY_REFUSAL if AUTONOMY_RX.search(_plain(text)) else None
+    # Keep sentence boundaries while normalizing accents/case.
+    clauses = re.split(r"[.!?;:\n]+", str(text or ""))
+    normalized = ". ".join(APPROVAL_PROHIBITION_RX.sub("", _plain(c)) for c in clauses)
+    return AUTONOMY_REFUSAL if AUTONOMY_RX.search(normalized) else None
 
 
 def _now(core):
