@@ -19,3 +19,14 @@ El seguimiento corre a un máximo de 15 detecciones por segundo; el atlas dibuja
 - scripts/validate_suite.py se detiene: falta redis-server. No se declara suite completa verde.
 
 No cambia main:app, Render, los límites monetarios ni GEMINI_ENABLED. No requiere servicios de pago. El consumo existente del resto de Jarvis no se vuelve gratuito por este cambio.
+
+
+## Cámara Brio y aislamiento del detector
+
+La selección automática exige una cámara identificada como Brio; el selector permite elegir otra explícitamente. La vista previa indica la cámara usada. No se sustituye silenciosamente por FaceTime.
+
+Tras reportarse un bloqueo al activar la mano en Safari del Mac del dueño, se separaron tanto la carga de MediaPipe como `detectForVideo` en `hand-worker.js`. No hay fallback de inferencia en el hilo del avatar. Se captura a resolución solicitada de 320×240, se reduce cada cuadro a ese tamaño y se analizan como máximo cinco cuadros por segundo. Solo puede haber un cuadro pendiente. Arranque: 40 segundos de límite; captura/inferencia: 2,5 segundos. El límite se comprueba desde el hilo del panel, que termina el worker y libera la cámara. Escape, cancelar, cambiar cámara o salir de la página también terminan el worker. Los resultados con más de 350 ms se descartan.
+
+`node scripts/check_hands_camera.cjs` prueba con dobles la selección, los permisos sin etiquetas, la cancelación, los tiempos de espera, la ausencia de cola de cuadros y la liberación de imágenes. No equivale a ejecutar MediaPipe real ni Safari: la compatibilidad del worker/OffscreenCanvas, la Brio física y el rendimiento en el Mac siguen pendientes de comprobación. Si el navegador no admite el detector aislado, debe mostrar el error y detenerse, sin ejecutar el detector en el hilo del avatar.
+
+Los cuadros solo pasan al worker del mismo navegador, no a Jarvis/Render ni a una API de IA. La descarga inicial del modelo y de MediaPipe sigue necesitando red. Este control permanece dentro del panel: no equivale a conectar el seguimiento con el mouse de macOS.

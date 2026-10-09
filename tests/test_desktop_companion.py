@@ -537,6 +537,12 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/lipsync.js")[0], 200)
         self.assertEqual(self.req("GET", "/ui/lipsync.js", cookie=False)[0], 401)
         self.assertEqual(self.req("GET", "/ui/avatar.css")[0], 200)
+        self.assertEqual(self.req("GET", "/ui/hand-worker.js", cookie=False)[0], 401)
+        worker_status, _, worker_response, worker_body = self.req("GET", "/ui/hand-worker.js")
+        self.assertEqual(worker_status, 200)
+        self.assertIn("javascript", worker_response.getheader("Content-Type"))
+        self.assertIn(b"detectForVideo", worker_body)
+        self.assertIn("worker-src 'self'", response.getheader("Content-Security-Policy"))
 
 
 class DemoDisplays(CompanionBase):
