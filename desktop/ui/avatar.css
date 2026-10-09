@@ -38,3 +38,14 @@ canvas {border:1px solid #1b506b;border-radius:18px;background:radial-gradient(e
 #hand-video {position:absolute;right:12px;bottom:12px;width:160px;height:120px;object-fit:cover;border-radius:8px;border:1px solid #1b506b;transform:scaleX(-1);background:#020b13;}
 button {cursor:pointer;} button:focus-visible,a:focus-visible {outline:2px solid #ffdc83;outline-offset:4px;}
 @media(max-width:600px){.avatar header{flex-direction:column;}}
+/* Órbita: full-width control surface with readable controls on older displays. */
+body{background:#020912;color:#b5dce6;display:block;min-height:100vh}
+.avatar{width:min(1800px,98vw);margin:auto;padding:0 0 16px}
+.avatar header{padding:16px 12px;border-bottom:1px solid #183b4b;margin-bottom:10px;color:#8fe6ed}
+.stage{width:100%;margin:auto} #c{display:block;width:100%;height:auto;border-radius:2px;border-color:#24485a;background:#020912}
+#hand-video{right:auto;left:2%;bottom:60%;width:12%;height:15%;border-radius:2px;opacity:.85}
+#hand-video{display:none}
+button{border-radius:3px;background:#071a27;border-color:#285568;color:#b1e2ea;margin:8px 3px;font-size:12px}
+button:hover{background:#133646;border-color:#7ce2e9}
+#status,#hand-status,#voice-status{font:12px monospace;margin:8px;color:#83aebf}
+@media(max-width:700px){.avatar{width:100%}.avatar header{font-size:10px;padding:12px 6px}button{padding:8px}#status,#hand-status,#voice-status{font-size:10px} }
