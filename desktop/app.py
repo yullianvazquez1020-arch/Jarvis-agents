@@ -47,7 +47,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
 UI_FILES = {"avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
-            "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
+            "visuals.js": "text/javascript; charset=utf-8", "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8"}
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600

@@ -527,6 +527,7 @@ class Displays(CompanionBase):
     def test_avatar_preserves_session_guard_and_content_security_policy(self):
         self.assertEqual(self.req("GET", "/avatar", cookie=False)[0], 401)
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
+        self.assertEqual(self.req("GET", "/ui/visuals.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
         self.assertIn(b'Animar frase', body)
@@ -534,6 +535,7 @@ class Displays(CompanionBase):
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
         self.assertEqual(self.req("GET", "/ui/avatar.js")[0], 200)
         self.assertEqual(self.req("GET", "/ui/avatar.css")[0], 200)
+        self.assertEqual(self.req("GET", "/ui/visuals.js")[0], 200)
 
 
 class DemoDisplays(CompanionBase):
@@ -569,7 +571,7 @@ class JavaScript(unittest.TestCase):
         for bad in ("1,234", "120.50", "482913", "1234567"):
             self.assertNotIn(bad, masked)
         self.assertFalse(flag)
-        for f in ("hud.js", "mask.js"):
+        for f in ("hud.js", "mask.js", "avatar.js", "visuals.js"):
             self.assertEqual(subprocess.run([node, "--check", str(ui / f)]).returncode, 0, f)
         out = subprocess.run([node, "-e", script], stdout=subprocess.PIPE)
         self.assertEqual(out.returncode, 0)

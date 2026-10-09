@@ -1,40 +1,26 @@
-
-body {
-  margin: 0;
-  background: #031018;
-  color: #9fd7ff;
-  font-family: sans-serif;
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
-}
-button {
-  margin: 8px;
-  background: #0c3a55;
-  color: #9fd7ff;
-  border: 1px solid #3ec4ff;
-  padding: 8px 14px;
-  border-radius: 8px;
-}
-input {
-  margin-top: 8px;
-  width: 280px;
-  background: #062033;
-  color: #9fd7ff;
-  border: 1px solid #3ec4ff;
-  padding: 6px;
-}
-
-
-canvas {max-width:100%;height:auto;} #status {margin:12px;}
-
-.avatar{text-align:center;}
-
-body {background:radial-gradient(ellipse at 50% 30%,#073453,#020b13 70%);font-family:system-ui,sans-serif;}
-.avatar {width:min(1100px,96vw);}
-.avatar header {display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;color:#ffdc83;letter-spacing:.15em;font-size:13px;}
-.avatar nav {display:flex;gap:20px;letter-spacing:normal;}
-a {color:#83dafa;text-decoration:none;}
-canvas {border:1px solid #1b506b;border-radius:18px;background:radial-gradient(ellipse,#052637,#020b13 70%);}
-button {cursor:pointer;} button:focus-visible,a:focus-visible {outline:2px solid #ffdc83;outline-offset:4px;}
-@media(max-width:600px){.avatar header{flex-direction:column;}}
+:root {color-scheme:dark;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+* {box-sizing:border-box;}
+body {margin:0;background:radial-gradient(ellipse at 50% 15%,#13283a,#030911 75%);color:#c7dce6;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;}
+.avatar {width:min(1440px,calc(100% - 64px));margin:0 auto;padding:32px 0;}
+header {display:flex;justify-content:space-between;align-items:center;gap:20px;padding:0 0 26px;}
+.eyebrow {font:10px var(--mono);letter-spacing:.21em;color:#7193a5;}
+h1 {font-size:36px;letter-spacing:-.04em;font-weight:300;margin:10px 0 0;}h1 span{color:#eac88a;}
+nav {display:flex;gap:24px;}a {color:#9cbaca;text-decoration:none;font-size:12px;}a:hover{color:#efce97;}
+.visual-stage {position:relative;border:1px solid #274657;border-radius:14px;background:radial-gradient(ellipse at 50% 40%,#082333,#020b15 74%);box-shadow:0 30px 100px #0006;overflow:hidden;}
+canvas {display:block;width:100%;height:clamp(430px,65vh,850px);}
+.visual-caption {position:absolute;left:32px;right:32px;top:26px;display:flex;justify-content:space-between;gap:20px;color:#7494a7;font:9px var(--mono);letter-spacing:.12em;pointer-events:none;}
+.visual-signature {position:absolute;bottom:24px;left:0;right:0;text-align:center;pointer-events:none;}
+.visual-signature span{display:block;color:#e4d0ae;font-size:15px;font-weight:300;letter-spacing:.6em;padding-left:.6em;}.visual-signature small{display:block;margin-top:9px;color:#658596;font:8px var(--mono);letter-spacing:.17em;text-transform:uppercase;}
+.controls {display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;padding:22px 0;border-bottom:1px solid #193544;}
+.view-controls {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+button,select,input {font:12px system-ui;color:#a7c9d7;border:1px solid #294958;background:#091925;border-radius:6px;}
+button {padding:11px 15px;cursor:pointer;transition:border-color .15s,background .15s;}
+button:hover {border-color:#73cada;background:#103040;}button[aria-pressed="true"]{border-color:#e0b979;color:#efce97;}
+select{padding:10px 6px;}label{font:10px var(--mono);color:#7594a5;}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {outline:2px solid #efce97;outline-offset:4px;}
+.phrase-controls {display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:20px 0 0;}
+input {flex:1;min-width:160px;padding:12px 14px;max-width:600px;}#speak {border-color:#396b7a;}
+#status{font:10px/1.8 var(--mono);color:#7591a1;margin:15px 0 0;}
+@media(min-width:1900px){.avatar{max-width:1700px;}}
+@media(max-width:640px){.avatar{width:calc(100% - 24px);padding:20px 0}header{flex-direction:column;align-items:flex-start}h1{font-size:29px}nav{gap:20px}.visual-caption{left:20px;right:20px;font-size:8px}.visual-caption span:last-child{display:none}canvas{height:500px}.controls{gap:12px}button{padding:10px 12px}.phrase-controls{gap:10px}.phrase-controls label{width:100%}}
+@media(prefers-reduced-motion:reduce){*{transition:none !important;}}

@@ -14,6 +14,7 @@
   function show(t, sensitive) { return sensitive && !$("hud-reveal").checked ? M.mask(t) : String(t == null ? "" : t); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
+  function openDetail(id) {return api("POST", "/api/open", {target:id}).catch(function(){ $("deck-caption").textContent="No pude abrir el detalle. Revisa la ventana principal."; });}
   function render() {
     renderNodes();
     var g = $("grid"); while (g.firstChild) g.removeChild(g.firstChild);
@@ -27,7 +28,7 @@
       var when = c.as_of ? "Dato del " + String(c.as_of).slice(0, 16).replace("T", " ") : (c.demo ? "Ejemplo" : "");
       if (c.stale) when += " · DATO VIEJO (más de 3 días)";
       b.appendChild(el("div", "when", when));
-      b.onclick = function () { api("POST", "/api/open", { target: c.id }); };
+      b.onclick = function () { openDetail(c.id); };
       g.appendChild(b);
     });
   }
@@ -51,48 +52,46 @@
     $("deck-state").textContent = {ok:"Servidor conectado",demo:"Demostración",slow:"Con retraso",down:"Sin conexión",error:"Error",unpaired:"Sin emparejar",unknown:"Sin comprobar"}[h.state] || "Sin comprobar";
   }
   function renderNodes() {
-    lastFrame = 0;
+    if(visual)visual.setModules(cards);
+    $("deck-count").textContent=String(cards.length).padStart(2,"0");
     var parent = $("deck-nodes"); parent.textContent = "";
     cards.slice(0, 8).forEach(function (c, i) {
-      var angle = (i / Math.min(cards.length, 8)) * Math.PI * 2 - Math.PI / 2;
+      var small=$("deck-canvas").getBoundingClientRect().width<640;
+      var rows=Math.ceil(Math.min(cards.length,8)/2);
+      var position={x:i%2?(small ? .8 : .84):(small ? .2 : .16),y:rows===1 ? .45 : .20+Math.floor(i/2)*.57/(rows-1)};
       var b = el("button", "deck-node"); b.type = "button";
-      b.style.left = (50 + Math.cos(angle) * 36) + "%";
-      b.style.top = (50 + Math.sin(angle) * 37) + "%";
+      b.style.left = (position.x*100) + "%";
+      b.style.top = (position.y*100) + "%";
+      b.appendChild(el("span", "deck-node-index", String(i+1).padStart(2,"0")));
       b.appendChild(el("span", "deck-node-title", c.title));
       b.appendChild(el("small", "", c.demo ? "Ejemplo" : c.stale ? "Dato antiguo" : "Abrir detalle"));
-      b.onclick = function () { api("POST", "/api/open", {target:c.id}).catch(function () { $("deck-caption").textContent = "No pude abrir el detalle. Revisa la ventana principal."; }); };
+      b.onclick = function () { openDetail(c.id); };
       parent.appendChild(b);
     });
   }
-  var canvas = $("deck-canvas"), ctx = canvas.getContext("2d"), lastFrame = 0;
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)"), paused = reduced.matches;
-  function motionLabel() { $("deck-motion").textContent = paused ? "Activar animación" : "Pausar animación"; $("deck-motion").setAttribute("aria-pressed", String(paused)); }
-  function draw(time) {
-    requestAnimationFrame(draw);
-    if (document.hidden || (time - lastFrame < 40) || (paused && lastFrame)) return;
-    lastFrame = time;
-    var w = canvas.clientWidth, h = canvas.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width=Math.round(w*dpr); canvas.height=Math.round(h*dpr); }
-    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
-    var cx=w/2, cy=h/2, radius=Math.min(w,h)*0.22, t=paused?0:time/1800;
-    for (var n=0;n<4;n++) { ctx.beginPath(); ctx.strokeStyle=n===0?"#f5ce5e":"rgba(62,206,241,0.25)"; ctx.lineWidth=n===0?2:1;
-      ctx.arc(cx,cy,radius+n*13,0,Math.PI*2); ctx.stroke(); }
-    for (var i=0;i<150;i++) {
-      var a=i*2.39996+t*0.12, r=radius*Math.sqrt(i/150), pulse=1+Math.sin(i+t)*0.04;
-      ctx.fillStyle=i%5===0?"#ffda78":"rgba(67,209,244,0.65)"; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*r*pulse,cy+Math.sin(a)*r*pulse,1.3,0,Math.PI*2); ctx.fill();
-    }
-    cards.slice(0,8).forEach(function(c,i) {
-      var a=i/Math.min(cards.length,8)*Math.PI*2-Math.PI/2, nx=cx+Math.cos(a)*w*.36, ny=cy+Math.sin(a)*h*.37;
-      ctx.strokeStyle="rgba(54,208,241,0.3)"; ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*radius,cy+Math.sin(a)*radius);ctx.lineTo(nx,ny);ctx.stroke();
-      var f=(t*.3+i*.17)%1;ctx.fillStyle="#79e7ff";ctx.beginPath();ctx.arc(cx+(nx-cx)*f,cy+(ny-cy)*f,2,0,Math.PI*2);ctx.fill();
-    });
-  }
-  $("deck-motion").onclick=function(){paused=!paused;lastFrame=0;motionLabel();};
-  window.addEventListener("resize",function(){lastFrame=0;});
-  $("deck-fullscreen").onclick=function(){var fn=document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
-    if(fn){var p=fn.call(document.documentElement);if(p&&p.catch)p.catch(function(){$("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";});}
-    else $("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";};
-  motionLabel(); requestAnimationFrame(draw);
+  var view = "orbit";
+  var visual = window.JarvisVisual.create($("deck-canvas"), {scene:view, onQuality:function(tier,requested){$("deck-performance").textContent=(requested==="auto"?"AUTO · ":"")+({light:"LIGERO",detail:"DETALLE",eco:"AHORRO"}[tier]);}, onMotion:function(paused){
+    $("deck-motion").textContent = paused ? "Activar animación" : "Pausar animación";
+    $("deck-motion").setAttribute("aria-pressed",String(paused));
+  }});
+  $("deck-motion").onclick=function(){visual.toggleMotion();};
+  $("deck-view").onclick=function(){
+    view=view==="orbit"?"atlas":"orbit";visual.setScene(view);
+    $("deck-view").textContent=view==="orbit"?"Ver mapa":"Ver órbita";
+    $("deck-view").setAttribute("aria-pressed",String(view==="atlas"));
+    $("deck-view-name").textContent=view==="orbit"?"ÓRBITA":"MAPA DE MÓDULOS";
+    $("deck-core").hidden=view==="atlas";
+  };
+  $("deck-quality").onchange=function(){visual.setQuality(this.value);};
+  window.addEventListener("resize",renderNodes);
+  $("deck-fullscreen").onclick=function(){
+    var root=document.documentElement;
+    var exit=document.exitFullscreen||document.webkitExitFullscreen;
+    if((document.fullscreenElement||document.webkitFullscreenElement)&&exit){exit.call(document);return;}
+    var fn=root.requestFullscreen||root.webkitRequestFullscreen;
+    if(fn){var p=fn.call(root);if(p&&p.catch)p.catch(function(){$("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";});}
+    else $("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";
+  };
 
   $("hud-refresh").onclick = load;
   $("hud-reveal").onchange = render;
