@@ -1,0 +1,9 @@
+Tema: reglas
+El tope es 100 dólares por operación y 300 dólares por día.
+Confirmar queda fuera de la cola.
+Cada aprobación sirve una sola vez.
+El dictado y la voz son locales. No hay voz de pago.
+No hay pagos reales ni mensajes a clientes.
+La clave de cifrado no se cambia.
+Nadie fusiona ni despliega sin la revisión de Codex y la autorización del dueño.
+En las pruebas solo hay datos ficticios.

@@ -1,0 +1,9 @@
+Tema: mac
+El ejecutor corre en la Mac. El servidor no mueve el mouse.
+Un solo agente tiene el turno. Si otro lo pide, la respuesta es ocupado.
+Jarvis va siempre en modo supervisado.
+La denylist bloquea bancos, pagos, centrales de crédito, Terminal y atajos peligrosos.
+La confirmación es la tecla s, un código de un solo uso o el pulgar arriba.
+El puño cancela. El archivo STOP detiene todo.
+Los gestos no graban y no guardan fotos.
+WhatsApp, si algún día se activa, solo puede escribirle al dueño.

@@ -1,0 +1,7 @@
+Tema: voz
+La voz local es Piper en español, modelo sharvard medium.
+Cada nota abre un proceso nuevo y vuelve a cargar el modelo.
+El tope hablado de una respuesta de Telegram es 200 caracteres.
+Opus es la conversión para el audio. La síntesis tarda más que esa conversión.
+No se usa un servicio externo de voz.
+Un informe largo se corta antes de llenar la memoria.
