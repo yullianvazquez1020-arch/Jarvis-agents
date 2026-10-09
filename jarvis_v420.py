@@ -9,7 +9,7 @@ import os
 import re
 import secrets
 
-VERSION = "4.2.0"
+VERSION = "4.2.1"  # 4.2.1: /brief comercial (jarvis_brief.py); el resto de 4.2.0 sin cambios
 STATE_KEY = "jarvis:v420"
 BOOT_KEY = "jarvis:v420:boot"
 HARD_ORDER = 100.0
