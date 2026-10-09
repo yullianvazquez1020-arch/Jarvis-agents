@@ -17,7 +17,19 @@
       <label class="check"><input id="hud-reveal" type="checkbox"> Mostrar montos</label>
     </div>
   </header>
-  <main id="grid" class="grid" aria-label="Tarjetas"></main>
+  <section class="command-deck" aria-label="Centro visual de Jarvis">
+    <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · CENTRO DE OPERACIONES</span><h1>JARVIS <span>MONITOR</span></h1></div>
+      <nav class="deck-links"><a href="/" target="_blank" rel="noopener">Conversación ↗</a><a href="/avatar" target="_blank" rel="noopener">Avatar ↗</a>
+      <button id="deck-motion" type="button" aria-pressed="false">Pausar animación</button>
+      <button id="deck-fullscreen" type="button">Pantalla completa</button></nav></div>
+    <div class="deck-stage">
+      <canvas id="deck-canvas" aria-hidden="true"></canvas>
+      <div class="deck-core"><span class="deck-kicker">NÚCLEO</span><strong>JARVIS</strong><span id="deck-state">Sin comprobar</span><small>Vista de módulos · solo lectura</small></div>
+      <div id="deck-nodes" aria-label="Módulos"></div>
+    </div>
+    <div class="deck-bottom"><span id="deck-caption">Esperando datos del escritorio</span><span>01 CONVERSACIÓN / 02 OPERACIONES / 03 AVATAR</span></div>
+  </section>
+  <main id="grid" class="grid deck-cards" aria-label="Datos de los módulos"></main>
   <p class="small hud-note">Tocar una tarjeta abre el detalle en la ventana principal. Desde aquí no se cambia nada.</p>
   <script src="/ui/mask.js"></script>
   <script src="/ui/hud.js"></script>

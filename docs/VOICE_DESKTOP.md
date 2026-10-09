@@ -25,6 +25,42 @@ Los borradores por voz (fase 4), la conversación con interrupción por voz y la
 
 ---
 
+## Pantallas con diseño de centro de operaciones
+
+El escritorio incluye tres vistas del mismo acompañante local:
+
+| Monitor | Ruta local | Funciones |
+|---|---|---|
+| Conversación | `/` | Texto, voz local si está configurada, agenda y consultas de lectura |
+| Operaciones | `/hud` | Núcleo azul/dorado, módulos del panel, estado de conexión, montos ocultos por defecto, actualizar y pantalla completa |
+| Presencia | `/avatar` | Silueta de partículas o rostro, frase de prueba visual y pausa |
+
+Abre primero el enlace de un solo uso que imprime `python3 desktop/app.py`.
+Desde la sesión abierta, entra en `/hud` y usa los enlaces Conversación y Avatar.
+Mueve cada ventana al monitor que corresponda y activa pantalla completa desde el navegador.
+Los tres monitores comparten la sesión local; los detalles se abren en la ventana principal.
+Los módulos disponibles proceden de `/api/hud`: el diseño no inventa agentes conectados.
+
+Para probar el diseño sin conectar cuentas:
+
+```bash
+VOICE_DEMO=true python3 desktop/app.py
+```
+
+La demostración identifica sus datos como ejemplos. Para consultar los datos reales,
+usa el emparejamiento descrito abajo y desactiva `VOICE_DEMO`.
+La silueta y las partículas son animación visual, no una red neuronal nueva ni un indicador
+real de actividad de la IA. «Animar frase» no genera audio ni se sincroniza con el altavoz.
+La voz permanece en la ventana Conversación, con los motores que tengas configurados.
+Las animaciones usan Canvas 2D, limitan su frecuencia a unos 25 cuadros por segundo,
+se detienen visualmente en pestañas ocultas y permiten pausa. Respetan la preferencia
+inicial de reducir movimiento. No cargan bibliotecas ni recursos externos.
+
+Actualizar Render no instala estas pantallas en tu Mac: debes actualizar allí la carpeta
+`desktop/` del repositorio y volver a ejecutar el acompañante.
+
+---
+
 ## 1. Qué hay y dónde corre
 
 ```
