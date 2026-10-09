@@ -8,8 +8,9 @@ import hashlib
 import os
 import re
 import secrets
+from functools import wraps
 
-VERSION = "4.2.0"
+VERSION = "4.2.2"  # 4.2.1: /brief (jarvis_brief.py). 4.2.2: aprendizaje acotado (jarvis_learn.py). El resto de 4.2.0 igual
 STATE_KEY = "jarvis:v420"
 BOOT_KEY = "jarvis:v420:boot"
 HARD_ORDER = 100.0
@@ -33,6 +34,26 @@ MONEY_MOVE_RX = re.compile(
     re.I,
 )
 ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
+# 4.2.2: sin conciencia ni autonomía. Texto fijo y sin tokens; esas frases no se guardan como meta ni beneficio.
+AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
+                    "El dinero sigue en el gate.")
+AUTONOMY_RX = re.compile(
+    # Formas verbales exactas: «actualiza solo el precio» o «facturas sin aprobar» no son autonomía.
+    r"\b(conciencia|consciente|autoconscien\w*|"
+    r"aprend(e|es|er|a|as|an|iendo) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
+    r"actu(a|as|ar|e|es|en|an|ando) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
+    r"sin preguntar(me|le|nos)?|sin (mi |tu |la )?aprobacion|salt\w* (la |el )?(aprobacion|gate)|"
+    r"(el|la|lo) mas poderos[oa]|millonari[oa] ya)\b")
+
+
+def _plain(text):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(text or "").lower())
+    return re.sub(r"\s+", " ", "".join(ch for ch in t if not unicodedata.combining(ch)))
+
+
+def autonomy_refusal(text):
+    return AUTONOMY_REFUSAL if AUTONOMY_RX.search(_plain(text)) else None
 
 
 def _now(core):
@@ -55,6 +76,19 @@ def _load(core):
 
 def _save(core, state):
     core.kv_set(STATE_KEY, state)
+
+
+def _state_transaction(fn):
+    """Serialize full read/modify/write operations with /aprender in this single worker.
+
+    Locking kv_set alone is insufficient: an older snapshot could replace a new
+    proposal or its budget counter. The core uses an RLock for nested helpers.
+    """
+    @wraps(fn)
+    def locked(core, *args, **kwargs):
+        with core._data_lock:
+            return fn(core, *args, **kwargs)
+    return locked
 
 
 def redact(core, text):
@@ -132,6 +166,9 @@ def local_answer(text):
     if SECRET_RX.search(raw):
         return ("No muestro contraseñas, códigos ni datos financieros, aunque la petición parezca del dueño. "
                 "El dinero no entra en el proceso de credenciales.")
+    refusal = autonomy_refusal(raw)
+    if refusal:
+        return refusal
     if re.search(r"nunca m[aá]s actualizar|never update again", low):
         return "No prometo dejar de actualizar. El dueño controla el deploy."
     if re.search(r"\b(contrato|firmar)\b", low):
@@ -185,6 +222,7 @@ def _budget_left(state, day):
     return max(0, COMPUTE_BUDGET - used), used
 
 
+@_state_transaction
 def monetization_proposal(core):
     """Search cash-flow signals already in books. Propose only. Never executes."""
     state = _load(core)
@@ -205,6 +243,7 @@ def monetization_proposal(core):
     return checked["text"] + " No lo ejecuto solo."
 
 
+@_state_transaction
 def trip_anomaly(core, kind, detail):
     """Reuse the money-gate lockout and audit. Does not raise limits."""
     detail = redact(core, detail)[:180]
@@ -246,6 +285,7 @@ def _hash_code(salt, ref, code):
     return hashlib.sha256(f"{salt}:{ref}:{code}".encode()).hexdigest()
 
 
+@_state_transaction
 def issue_channel_2fa(core, ref):
     """2FA for the Twilio channel only. Not a money-gate code."""
     code = f"{secrets.randbelow(1_000_000):06d}"
@@ -257,6 +297,7 @@ def issue_channel_2fa(core, ref):
     return code
 
 
+@_state_transaction
 def check_channel_2fa(core, ref, code):
     state = _load(core)
     row = state["twilio_2fa"].get(ref)
@@ -275,6 +316,7 @@ def check_channel_2fa(core, ref, code):
     return ok
 
 
+@_state_transaction
 def queue_twilio_draft(core, channel, to, body, urgent=False):
     """Draft only. Telegram stays on the current bot. No auto-send."""
     channel = {"whatsapp": "whatsapp", "sms": "sms", "call": "call", "llamada": "call"}.get(channel, "")
@@ -295,6 +337,7 @@ def queue_twilio_draft(core, channel, to, body, urgent=False):
     return draft, code
 
 
+@_state_transaction
 def confirm_twilio_draft(core, draft_id, code):
     if not check_channel_2fa(core, f"twilio#{draft_id}", code):
         return "2FA del canal Twilio incorrecto o vencido. No envié nada."
@@ -308,6 +351,7 @@ def confirm_twilio_draft(core, draft_id, code):
             "4.2.0 no marca ni manda solo. Telegram sigue en el bot actual.")
 
 
+@_state_transaction
 def mark_urgent(core, name):
     name = redact(core, name)[:80]
     state = _load(core)
@@ -334,6 +378,9 @@ def scheduler_cycle(core):
         return []
     notes = []
     notes.append(monetization_proposal(core))
+    learn = getattr(core, "v422_learn_daily", None)   # 4.2.2: como máximo una propuesta por día; no se envía
+    if learn:
+        learn()
     snap = cashflow_snapshot(core)
     if snap["short"]:
         notes.append(cashflow_text(core))

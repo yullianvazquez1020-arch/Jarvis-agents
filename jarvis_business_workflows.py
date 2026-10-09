@@ -114,7 +114,7 @@ def cash_flow_report(account=''):
                           'conditional': True, 'formula': 'saldo observado + cobros futuros - pagos futuros'}
         return {'observed': observed, 'selected': chosen, 'recorded': totals, 'projection': projection,
                 'incoming': incoming, 'outgoing': outgoing, 'missing': sorted(set(missing)),
-                'overdue_jobs': [j['id'] for j in pending if j.get('due_date', '9999') < today.isoformat()],
+                'overdue_jobs': [j['id'] for j in pending if (j.get('due_date') or '9999') < today.isoformat()],
                 'warning': bool(projection and money(projection['end_balance'], negative=True) <= -CASH_WARNING_USD),
                 'note': 'Proyección condicional, no saldo actual ni cobros garantizados. No paga ni registra ingresos.'}
 

@@ -235,7 +235,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.2.0"
+VERSION = "4.2.2"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -7056,6 +7056,8 @@ async def health():
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "v420": {"status": globals().get("V420_STATUS", "no cargada")},
+            "brief": {"status": globals().get("BRIEF_STATUS", "no cargado")},
+            "learn": {"status": globals().get("LEARN_STATUS", "no cargado")},
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
                         "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase",
                         "client messages (approval)", "bank weekly", "paper trading"],
@@ -7143,3 +7145,25 @@ try:
 except Exception as _e:
     V420_STATUS = f"apagada ({type(_e).__name__})"
     logger.warning("v420 off: %s", type(_e).__name__)
+
+# 4.2.1: /brief comercial (solo lectura, sin tokens, solo chat privado del dueño). Si no carga, Jarvis arranca igual.
+BRIEF_STATUS = "no cargado"
+try:
+    import jarvis_brief as _brief
+    _brief.install(__import__("sys").modules[__name__])
+    BRIEF_STATUS = "activo"
+except Exception as _e:
+    BRIEF_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("brief off: %s", type(_e).__name__)
+
+# 4.2.2: aprendizaje acotado (/aprender, /meta, sexta sección del brief). Sin conciencia ni autonomía; sin tokens.
+LEARN_STATUS = "no cargado"
+try:
+    if BRIEF_STATUS != "activo":
+        raise RuntimeError("requiere el brief 4.2.1")
+    import jarvis_learn as _learn
+    _learn.install(__import__("sys").modules[__name__])
+    LEARN_STATUS = "activo"
+except Exception as _e:
+    LEARN_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("learn off: %s", type(_e).__name__)
