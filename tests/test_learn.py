@@ -3,6 +3,8 @@ Sin conciencia ni autonomía: solo trabajos ya cobrados -> una propuesta con exe
 import asyncio
 import datetime as dt
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, patch
 
 import test_brief as tb
@@ -130,6 +132,55 @@ class Aprender(LearnBase):
         text = learn.learn_command()
         self.assertIn("No propongo ni ejecuto ese movimiento", text)
         self.assertEqual(proposals(), [])
+
+    def test_scheduler_and_learn_preserve_both_proposals_and_budget(self):
+        self.paid_job()
+        scheduler_loaded = threading.Event()
+        learn_at_lock = threading.Event()
+        release_scheduler = threading.Event()
+        real_lock = j._data_lock
+        scheduler_holds_lock = []
+
+        class ObservedLock:
+            def __enter__(self):
+                if threading.current_thread().name.startswith("learner"):
+                    learn_at_lock.set()  # signal before blocking, no timing sleeps
+                real_lock.acquire()
+                return self
+
+            def __exit__(self, *args):
+                real_lock.release()
+
+        original_snapshot = v.cashflow_snapshot
+
+        def stalled_snapshot(core):
+            scheduler_holds_lock.append(real_lock._is_owned())
+            scheduler_loaded.set()  # monetization has already loaded its snapshot
+            if not release_scheduler.wait(10):
+                raise AssertionError("scheduler was not released")
+            return original_snapshot(core)
+
+        with patch.object(j, "_data_lock", ObservedLock()), \
+                patch.object(v, "cashflow_snapshot", side_effect=stalled_snapshot), \
+                patch.object(v, "COMPUTE_BUDGET", 2), \
+                ThreadPoolExecutor(max_workers=1, thread_name_prefix="scheduler") as scheduler, \
+                ThreadPoolExecutor(max_workers=1, thread_name_prefix="learner") as learner:
+            first = scheduler.submit(v.monetization_proposal, j)
+            try:
+                self.assertTrue(scheduler_loaded.wait(10))
+                second = learner.submit(learn._save_proposal, {"text": "learn"},
+                                        [{"job_id": 1}], once_per_day=False)
+                self.assertTrue(learn_at_lock.wait(10))
+            finally:
+                release_scheduler.set()
+            first.result(timeout=10)
+            self.assertIsNone(second.result(timeout=10))
+            self.assertEqual(scheduler_holds_lock, [True])
+            state = v._load(j)
+            self.assertEqual(len(state["proposals"]), 2)
+            self.assertEqual(len({p["id"] for p in state["proposals"]}), 2)
+            self.assertEqual(state["compute"][DAY], 2)
+            self.assertEqual(learn.learn_command(), learn.EXHAUSTED)
 
     def test_twenty_proposal_cap_kept(self):
         self.paid_job()

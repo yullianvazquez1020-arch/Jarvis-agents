@@ -62,3 +62,9 @@ En Render no hay variables nuevas. Si el módulo falla, Jarvis arranca igual y `
 - **Cuenta de crédito:** el saldo se rotula «cuenta de crédito: no es caja».
 - **`/diagnostico`:** muestra si el Brief 4.2.1 y el Aprendizaje 4.2.2 están activos y si `BUSINESS_NAME` coincide con ISLAFIX PRO LLC.
 - **`jarvis_learn.install`:** registra primero las respuestas y luego los comandos. Un comando nunca queda listado sin su función.
+
+## Revisión Codex previa a despliegue
+
+Se reprodujo una carrera entre el scheduler y `/aprender`: ambos podían leer el mismo estado y una escritura posterior borraba una propuesta o perdía el contador diario. Los siete mutadores de `jarvis:v420` ahora protegen la operación completa de lectura/modificación/escritura con el RLock existente. Esto no activa canales ni cambia límites. Se añadió prueba concurrente determinista que conserva las dos propuestas, sus IDs y el consumo de presupuesto.
+
+Dependencias reales instaladas en Python 3.12.14, con Redis 7.0.15 local compilado desde la fuente oficial. La validación usa `scripts/validate_suite.py`, sin sustitutos de FastAPI, Anthropic ni jiter. No se aplicó el antiguo parche de cifrado sobre 961047a; no pertenece a esta entrega.
