@@ -1,23 +1,80 @@
-
 const c = document.getElementById("c"), x = c.getContext("2d");
 let animationId = 0;
 let particleMode = true, paused = matchMedia("(prefers-reduced-motion: reduce)").matches, lastFrame = 0;
 let blink = 0, talk = 0, smile = 0, talking = false, t = 0, viseme = "rest";
 const shapes = { a: 1, e: 0.7, i: 0.35, o: 0.9, u: 0.6, m: 0.05, rest: 0.15 };
+
+function hand() {
+  const h = window.JarvisHands;
+  if (!h) return { x: 0, y: 0, open: 0, seen: false, landmarks: null };
+  return h;
+}
+
+const HAND_LINKS = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [17, 18], [18, 19], [19, 20],
+  [0, 17]
+];
+
+function drawHand(h) {
+  if (h.landmarks && h.landmarks.length === 21) {
+    x.strokeStyle = "#50c878";
+    x.lineWidth = 2;
+    x.fillStyle = "#ffd700";
+    HAND_LINKS.forEach(function (pair) {
+      var a = h.landmarks[pair[0]], b = h.landmarks[pair[1]];
+      x.beginPath();
+      x.moveTo(a.x * 960, a.y * 540);
+      x.lineTo(b.x * 960, b.y * 540);
+      x.stroke();
+    });
+    h.landmarks.forEach(function (p) {
+      x.beginPath();
+      x.arc(p.x * 960, p.y * 540, 3, 0, Math.PI * 2);
+      x.fill();
+    });
+    return;
+  }
+  const hx = 480 + h.x * 220;
+  const hy = 430 + h.y * 40;
+  const reach = 18 + h.open * 46;
+  x.strokeStyle = "rgba(87,215,255,.35)";
+  x.fillStyle = "#57d7ff";
+  x.lineWidth = 2;
+  x.beginPath();
+  x.arc(hx, hy, 10, 0, Math.PI * 2);
+  x.stroke();
+  for (let f = 0; f < 5; f++) {
+    const a = -2.4 + f * 0.55;
+    const tx = hx + Math.cos(a) * reach;
+    const ty = hy + Math.sin(a) * reach;
+    x.beginPath();
+    x.moveTo(hx, hy);
+    x.lineTo(tx, ty);
+    x.stroke();
+  }
+}
+
 function particles() {
+  const h = hand();
+  const cx = 480 + h.x * 80;
+  const yaw = h.x;
+  const depth = 0.72 + (1 - Math.abs(yaw)) * 0.28;
   x.clearRect(0, 0, 960, 540);
-  const phase = t / 50;
-  // A bounded visual silhouette, not a neural-network or microphone measurement.
+  const phase = paused ? 0 : t / 50;
   for (let row = 0; row < 58; row++) {
-    const y = 90 + row * 6;
-    const head = y < 252;
-    const width = head ? 72 * Math.sqrt(Math.max(0, 1 - Math.pow((y - 170) / 82, 2))) :
-      30 + Math.min(175, Math.max(0, (y - 265) * 2.6));
+    const y = 90 + row * 6 + h.y * 24;
+    const head = y < 252 + h.y * 24;
+    const width = (head ? 72 * Math.sqrt(Math.max(0, 1 - Math.pow((y - 170 - h.y * 24) / 82, 2))) :
+      30 + Math.min(175, Math.max(0, (y - 265) * 2.6))) * depth * (0.9 + h.open * 0.2);
     for (let col = 0; col < 24; col++) {
       const a = col / 24 * Math.PI * 2 + Math.sin(phase + row * .08) * .09;
-      const px = 480 + Math.cos(a) * width;
+      const px = cx + Math.cos(a) * width;
       const py = y + Math.sin(a) * (head ? 11 : 16);
-      x.fillStyle = head && row > 12 && row < 28 ? "#ffd27a" : "#57d7ff";
+      x.fillStyle = head && row > 12 && row < 28 ? "#ffd27a" : (h.seen ? "#7cf0c2" : "#57d7ff");
       x.globalAlpha = .22 + (Math.sin(a) + 1) * .32;
       x.beginPath(); x.arc(px, py, 1.1 + (talking ? talk : 0), 0, Math.PI * 2); x.fill();
     }
@@ -25,62 +82,67 @@ function particles() {
   x.globalAlpha = 1; x.lineWidth = 1;
   for (let ring = 0; ring < 5; ring++) {
     x.strokeStyle = "rgba(77,194,249,.18)"; x.beginPath();
-    x.ellipse(480, 250, 115 + ring * 19, 150 + ring * 16, 0, 0, Math.PI * 2); x.stroke();
+    x.ellipse(cx, 250 + h.y * 20, (115 + ring * 19) * depth, 150 + ring * 16, yaw * 0.4, 0, Math.PI * 2); x.stroke();
   }
+  drawHand(h);
   x.fillStyle = "#83dafa"; x.font = "13px sans-serif";
-  x.fillText("PRESENCIA LOCAL · VISUAL", 32, 38);
-  x.fillText(talking ? "FRASE DE PRUEBA" : "ANIMACIÓN AMBIENTE", 32, 510);
+  x.fillText("PRESENCIA LOCAL · " + (h.seen ? "MANO" : "VISUAL"), 32, 38);
+  x.fillText(talking ? "FRASE DE PRUEBA" : (h.seen ? "SIGUE LA PALMA" : "ANIMACIÓN AMBIENTE"), 32, 510);
 }
+
 function loop(time) {
   requestAnimationFrame(loop);
-  if (document.hidden || time - lastFrame < 40 || (paused && lastFrame)) return;
+  if (document.hidden || time - lastFrame < 40 || (paused && lastFrame && !(hand().seen))) return;
   lastFrame = time;
   t += 1;
   blink = Math.max(0, blink - 0.07);
-  if (Math.random() < 0.006) blink = 1;
+  if (!paused && Math.random() < 0.006) blink = 1;
   talk = talking ? (shapes[viseme] || 0.2) : talk * 0.85;
   smile *= 0.98;
   if (particleMode) { particles(); return; }
+  const h = hand();
+  const cx = 480 + h.x * 70;
   x.clearRect(0, 0, 960, 540);
   x.strokeStyle = "#1c6c90"; x.strokeRect(20, 20, 220, 120); x.strokeRect(720, 20, 220, 120);
   x.strokeRect(20, 400, 220, 110); x.strokeRect(720, 400, 220, 110);
   x.fillStyle = "#7fd4ff"; x.font = "14px sans-serif";
   x.fillText("AVATAR LOCAL", 36, 50);
-  x.fillText("ANIMACIÓN " + (talking ? "ACTIVA" : "LISTA"), 736, 50);
-  x.beginPath(); x.strokeStyle = "#3ec4ff"; x.arc(480, 250, 150 + Math.sin(t / 20) * 4, 0, Math.PI * 2); x.stroke();
-  x.beginPath(); x.arc(480, 390, 70, 0, Math.PI * 2); x.stroke();
-  const g = x.createRadialGradient(460, 200, 10, 480, 230, 120);
+  x.fillText(h.seen ? "MANO ACTIVA" : ("ANIMACIÓN " + (talking ? "ACTIVA" : "LISTA")), 736, 50);
+  x.beginPath(); x.strokeStyle = "#3ec4ff"; x.arc(cx, 250, 150 + (paused ? 0 : Math.sin(t / 20) * 4), 0, Math.PI * 2); x.stroke();
+  x.beginPath(); x.arc(cx, 390, 70, 0, Math.PI * 2); x.stroke();
+  const g = x.createRadialGradient(cx - 20, 200, 10, cx, 230, 120);
   g.addColorStop(0, "#8fd6ff"); g.addColorStop(1, "#0a3148");
-  x.fillStyle = g; x.beginPath(); x.ellipse(480, 230, 78, 96, 0, 0, Math.PI * 2); x.fill();
+  x.fillStyle = g; x.beginPath(); x.ellipse(cx, 230 + h.y * 16, 78 * (0.8 + (1 - Math.abs(h.x)) * 0.2), 96, h.x * 0.3, 0, Math.PI * 2); x.fill();
   for (const side of [-1, 1]) {
-    x.save(); x.translate(480 + side * 28, 214); x.scale(1, 1 - blink * 0.92);
+    x.save(); x.translate(cx + side * 28, 214 + h.y * 16); x.scale(1, 1 - blink * 0.92);
     x.fillStyle = "#e9fbff"; x.beginPath(); x.ellipse(0, 0, 10, 7, 0, 0, Math.PI * 2); x.fill();
-    x.fillStyle = "#083044"; x.beginPath(); x.arc(0, 0, 3, 0, Math.PI * 2); x.fill();
+    x.fillStyle = "#083044"; x.beginPath(); x.arc(h.x * 3, 0, 3, 0, Math.PI * 2); x.fill();
     x.restore();
   }
   x.strokeStyle = "#dff6ff"; x.lineWidth = 2;
-  x.beginPath(); x.arc(480, 268, 16, 0.15 - smile, Math.PI - 0.15 + smile); x.stroke();
+  x.beginPath(); x.arc(cx, 268, 16, 0.15 - smile, Math.PI - 0.15 + smile); x.stroke();
   x.fillStyle = "#062033";
-  x.beginPath(); x.ellipse(480, 276, 10, 3 + talk * 10, 0, 0, Math.PI * 2); x.fill();
-  const lift = talk * 24;
+  x.beginPath(); x.ellipse(cx, 276, 10, 3 + talk * 10, 0, 0, Math.PI * 2); x.fill();
+  const lift = talk * 24 + h.open * 30;
   for (const side of [-1, 1]) {
-    const hx = 480 + side * 150, hy = 340 - lift;
+    const hx = cx + side * 150, hy = 340 - lift;
     x.strokeStyle = "#3ec4ff"; x.lineWidth = 6;
-    x.beginPath(); x.moveTo(480 + side * 60, 300); x.quadraticCurveTo(480 + side * 100, hy, hx, hy); x.stroke();
+    x.beginPath(); x.moveTo(cx + side * 60, 300); x.quadraticCurveTo(cx + side * 100, hy, hx, hy); x.stroke();
     x.beginPath(); x.arc(hx, hy, 12, 0, Math.PI * 2); x.stroke();
   }
+  drawHand(h);
 }
 requestAnimationFrame(loop);
 document.getElementById("speak").onclick = () => {
   const id = ++animationId;
   const text = document.getElementById("phrase").value.slice(0, 1000).toLowerCase();
   const timeline = [];
-  let t = 0;
+  let at = 0;
   for (const ch of text) {
     const base = ch.normalize("NFD")[0];
     const boca = "aeiou".includes(base) ? base : "mbp".includes(base) ? "m" : "rest";
-    timeline.push({ t, boca });
-    t += boca === "rest" ? 60 : 140;
+    timeline.push({ t: at, boca });
+    at += boca === "rest" ? 60 : 140;
   }
   talking = true;
   const start = Date.now();
@@ -88,7 +150,7 @@ document.getElementById("speak").onclick = () => {
     if (id !== animationId) return;
     const now = Date.now() - start;
     const hit = timeline.filter(item => item.t <= now).pop();
-    if (!hit || now > t) { talking = false; viseme = "rest"; return; }
+    if (!hit || now > at) { talking = false; viseme = "rest"; return; }
     viseme = hit.boca;
     requestAnimationFrame(run);
   };
@@ -102,11 +164,11 @@ async function pulso() {
     return;
   }
   try {
-    const r = await fetch("/api/state", {credentials:"same-origin"});
+    const r = await fetch("/api/state", { credentials: "same-origin" });
     if (!r.ok) throw new Error("sin sesión");
     const s = await r.json();
     status.textContent = (s.demo ? "DEMO · " : "") + "Servidor: " + ((s.server || {}).state || "sin comprobar") +
-      " · Animación aproximada, sin audio ni acceso al micrófono.";
+      " · Animación local. La cámara, si la enciendes, no se envía.";
   } catch (e) { status.textContent = "Sin conexión comprobada al escritorio. Animación sin audio."; }
   setTimeout(pulso, 5000);
 }
