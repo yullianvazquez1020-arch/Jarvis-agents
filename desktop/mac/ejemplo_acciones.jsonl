@@ -1,0 +1,6 @@
+{"agent":"claude","action":"open_url","url":"https://github.com/"}
+{"agent":"chatgpt","action":"click","x":400,"y":300}
+{"agent":"claude","action":"open_url","url":"https://www.paypal.com/checkout"}
+{"agent":"claude","action":"type","text":"nota ficticia sin enviar"}
+{"agent":"claude","action":"hotkey","keys":["cmd","q"]}
+{"agent":"claude","action":"scroll","dy":-3}

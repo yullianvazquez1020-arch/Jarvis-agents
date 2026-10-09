@@ -1,0 +1,8 @@
+# MacBook Pro 2015 (Intel), Python 3.12. La rueda nueva de mediapipe es solo ARM.
+# --dry-run y --self-test no importan estos paquetes.
+mediapipe==0.10.21
+opencv-python
+pyautogui
+# Opcionales:
+# pynput        parada.py --escuchar
+# playwright    web_leer.py --leer
