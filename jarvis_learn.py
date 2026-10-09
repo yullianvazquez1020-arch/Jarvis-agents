@@ -17,7 +17,7 @@ from decimal import Decimal
 import jarvis_brief as brief
 import jarvis_v420 as v
 
-VERSION = "4.2.2"
+VERSION = "4.2.4"
 KIND = "aprender"
 COMMANDS = {"/aprender", "/meta", "/terminado"}
 PHRASES = {"aprender": "/aprender", "que repetir": "/aprender"}
@@ -151,15 +151,47 @@ def pattern_line(facts):
     return "; ".join(parts) + "."
 
 
+FLOOR_FIELD = "ticket_min_usd"         # lo escribe /piso; aquí solo se lee
+
+
+def saved_floor():
+    """Piso guardado por el dueño, o None. No inventa 38500 ni 1000000."""
+    try:
+        prof = core.kv_get(brief.PROFILE_KEY, {})
+    except Exception:
+        return None
+    raw = prof.get(FLOOR_FIELD) if isinstance(prof, dict) else None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    if not math.isfinite(raw) or raw <= 0:
+        return None
+    return Decimal(str(raw)).quantize(Decimal(".01"))
+
+
+def floor_advice(facts):
+    """Compara lo ya cobrado con el piso. No crea un precio ni un cliente."""
+    floor = saved_floor()
+    if floor is None:
+        return "Sin piso. /piso N lo guarda para comparar; no cambia lo ya cobrado."
+    under = [f for f in facts if f["amount"] < floor]
+    if not under:
+        return f"Esos cobros llegan al piso {brief._usd(floor)}. Repetir ese patrón no autoriza a subir el ticket."
+    return (f"{len(under)} cobro(s) están bajo el piso {brief._usd(floor)}. "
+            "No son el camino a la meta. El siguiente trabajo tiene que llegar a ese piso. "
+            "No invento cliente ni precio.")
+
+
 def build(facts, open_rx=()):
     """facts: solo trabajos con finalización confirmada y pagados. -> (texto, propuesta revisada o None si fue rechazada)."""
     line = pattern_line(facts)
-    checked = v.consult_before_propose(core, "Repetir solo trabajos con finalización confirmada y pagados: " + line)
+    advice = floor_advice(facts)
+    checked = v.consult_before_propose(core, "Repetir solo trabajos con finalización confirmada y pagados: " + line + " " + advice)
     if not checked["ok"]:
         return checked["text"], None
     text = "\n".join(["HECHOS"] + ["- " + fact_line(f) for f in facts] + receipts_lines(open_rx) + [
         "PROPUESTA — no ejecutada",
         "Repetir solo trabajos con finalización confirmada y pagados: " + line,
+        advice,
         NOT_PROFIT,
         "No visito, no cobro, no publico y no opero."])
     return text, checked

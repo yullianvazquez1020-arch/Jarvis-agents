@@ -105,6 +105,25 @@ class Aprender(LearnBase):
         self.assertEqual(json.dumps(j._cload(), sort_keys=True), clients_before)
         self.assertEqual(j.kv_get(v.STATE_KEY, {})["compute"][DAY], 1)
 
+    def test_under_floor_is_not_the_path_to_the_goal(self):
+        job = self.paid_job(450)
+        j.kv_set("jarvis:profile", {**j.DEFAULT_PROFILE, "ticket_min_usd": 38500})
+        text = learn.learn_command()
+        proposal = text.split("PROPUESTA — no ejecutada", 1)[1]
+        self.assertIn("bajo el piso $38,500.00", proposal)
+        self.assertIn("No son el camino a la meta", proposal)
+        self.assertIn("$450.00", proposal)
+        self.assertNotIn("cliente inventado", proposal.lower())
+        self.assertIn(f"#{job['id']}", proposal)
+        self.assertEqual(v.cashflow_snapshot(j)["income"], 450.0)
+
+    def test_jobs_at_the_floor_stay_the_pattern(self):
+        self.paid_job(400)
+        j.kv_set("jarvis:profile", {**j.DEFAULT_PROFILE, "ticket_min_usd": 400})
+        text = learn.learn_command()
+        self.assertIn("llegan al piso $400.00", text)
+        self.assertNotIn("bajo el piso", text)
+
     def test_payment_on_unfinished_job_is_not_profit_nor_a_pattern(self):
         c = self.client("Cliente grande")
         job = j.add_job(c["id"], "Remodelación", price=12000, status="in_progress", location="Caguas")
