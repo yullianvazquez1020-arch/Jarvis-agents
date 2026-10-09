@@ -26,10 +26,11 @@ with TestClient(main.app) as client:
         response = client.get(path)
         assert response.status_code == 200, response.text
         state = response.json()
-        assert state["version"] == "4.2.1"
+        assert state["version"] == "4.2.2"
         assert state["v420"]["status"] == "activa"
         assert state["brief"]["status"] == "activo"
-        assert main.kv_get("jarvis:v420:boot", {})["version"] == "4.2.1"
+        assert state["learn"]["status"] == "activo"
+        assert main.kv_get("jarvis:v420:boot", {})["version"] == "4.2.2"
         assert state["instance"]["leader"] is True
         assert state["coinbase"]["practice_only"] is True
         assert state["coinbase"]["trading"] is False

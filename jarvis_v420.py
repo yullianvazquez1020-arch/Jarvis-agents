@@ -9,7 +9,7 @@ import os
 import re
 import secrets
 
-VERSION = "4.2.1"  # 4.2.1: /brief comercial (jarvis_brief.py); el resto de 4.2.0 sin cambios
+VERSION = "4.2.2"  # 4.2.1: /brief (jarvis_brief.py). 4.2.2: aprendizaje acotado (jarvis_learn.py). El resto de 4.2.0 igual
 STATE_KEY = "jarvis:v420"
 BOOT_KEY = "jarvis:v420:boot"
 HARD_ORDER = 100.0
@@ -33,6 +33,23 @@ MONEY_MOVE_RX = re.compile(
     re.I,
 )
 ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
+# 4.2.2: sin conciencia ni autonomía. Texto fijo y sin tokens; esas frases no se guardan como meta ni beneficio.
+AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
+                    "El dinero sigue en el gate.")
+AUTONOMY_RX = re.compile(
+    r"\b(conciencia|consciente|autoconscien\w*|aprend\w* (por (si|ti) )?(sol[oa]s?|mism[oa])|"
+    r"actu\w* (por (si|ti) )?(sol[oa]s?|mism[oa])|sin preguntar\w*|sin (mi |tu |la )?aprobacion|sin aprobar|"
+    r"(el|la|lo) mas poderos[oa]|millonari[oa] ya)\b")
+
+
+def _plain(text):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(text or "").lower())
+    return re.sub(r"\s+", " ", "".join(ch for ch in t if not unicodedata.combining(ch)))
+
+
+def autonomy_refusal(text):
+    return AUTONOMY_REFUSAL if AUTONOMY_RX.search(_plain(text)) else None
 
 
 def _now(core):
@@ -132,6 +149,9 @@ def local_answer(text):
     if SECRET_RX.search(raw):
         return ("No muestro contraseñas, códigos ni datos financieros, aunque la petición parezca del dueño. "
                 "El dinero no entra en el proceso de credenciales.")
+    refusal = autonomy_refusal(raw)
+    if refusal:
+        return refusal
     if re.search(r"nunca m[aá]s actualizar|never update again", low):
         return "No prometo dejar de actualizar. El dueño controla el deploy."
     if re.search(r"\b(contrato|firmar)\b", low):
@@ -334,6 +354,9 @@ def scheduler_cycle(core):
         return []
     notes = []
     notes.append(monetization_proposal(core))
+    learn = getattr(core, "v422_learn_daily", None)   # 4.2.2: como máximo una propuesta por día; no se envía
+    if learn:
+        learn()
     snap = cashflow_snapshot(core)
     if snap["short"]:
         notes.append(cashflow_text(core))
