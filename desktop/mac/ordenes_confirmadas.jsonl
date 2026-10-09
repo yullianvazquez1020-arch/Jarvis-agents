@@ -1,0 +1,4 @@
+{"agent":"jarvis","action":"move","x":720,"y":450}
+{"agent":"chatgpt","action":"screenshot"}
+{"agent":"grok","action":"scroll","dy":-3}
+{"agent":"claude","action":"wait","seconds":1}
