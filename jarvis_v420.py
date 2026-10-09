@@ -37,8 +37,11 @@ ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
 AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
                     "El dinero sigue en el gate.")
 AUTONOMY_RX = re.compile(
-    r"\b(conciencia|consciente|autoconscien\w*|aprend\w* (por (si|ti) )?(sol[oa]s?|mism[oa])|"
-    r"actu\w* (por (si|ti) )?(sol[oa]s?|mism[oa])|sin preguntar\w*|sin (mi |tu |la )?aprobacion|sin aprobar|"
+    # Formas verbales exactas: «actualiza solo el precio» o «facturas sin aprobar» no son autonomía.
+    r"\b(conciencia|consciente|autoconscien\w*|"
+    r"aprend(e|es|er|a|as|an|iendo) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
+    r"actu(a|as|ar|e|es|en|an|ando) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
+    r"sin preguntar(me|le|nos)?|sin (mi |tu |la )?aprobacion|salt\w* (la |el )?(aprobacion|gate)|"
     r"(el|la|lo) mas poderos[oa]|millonari[oa] ya)\b")
 
 

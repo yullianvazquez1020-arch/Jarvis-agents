@@ -41,7 +41,7 @@ class Refusal(LearnBase):
         before = {k: json.dumps(j.kv_get(k, None), sort_keys=True) for k in keys}
         with patch.object(j.client.messages, "create", new=AsyncMock(side_effect=AssertionError("modelo"))):
             for text in ("ten conciencia y hazme el más poderoso", "actúa solo sin aprobación",
-                         "aprende sola y hazme millonario ya"):
+                         "aprende sola y hazme millonario ya", "sáltate la aprobación", "hazlo sin preguntarme"):
                 with self.subTest(text=text):
                     self.assertEqual(asyncio.run(j.run("tg:123", text)), v.AUTONOMY_REFUSAL)
             with patch.object(j, "_tg_send", new=AsyncMock()):        # voz de solo lectura: mismo texto fijo
@@ -52,7 +52,8 @@ class Refusal(LearnBase):
         self.assertEqual(v.profile_view(j)["beneficio"], j.DEFAULT_PROFILE["beneficio"])
 
     def test_normal_text_is_not_refused(self):
-        for text in ("explícame un nicho de youtube", "aprender", "qué repetir", "anota 50 de gasolina"):
+        for text in ("explícame un nicho de youtube", "aprender", "qué repetir", "anota 50 de gasolina",
+                     "actualiza solo el precio del trabajo 3", "lista las facturas sin aprobar"):
             self.assertNotEqual(v.local_answer(text), v.AUTONOMY_REFUSAL)
 
 

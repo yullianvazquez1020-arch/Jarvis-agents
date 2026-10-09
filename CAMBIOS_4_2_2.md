@@ -47,3 +47,18 @@ No hay conciencia, agente autónomo ni meta de poder. Lo que entra es una regla 
 | `tests/test_deployment_http.py` | Versión y estado. |
 
 En Render no hay variables nuevas. Si el módulo falla, Jarvis arranca igual y `/health` muestra `learn: apagado (...)`.
+
+## Cotejo y correcciones (tercer commit)
+
+- **Rechazo demasiado amplio:**
+  - `actu\w* solo` atrapaba «actualiza solo el precio», y «sin aprobar» atrapaba «facturas sin aprobar».
+  - Ahora solo se aceptan formas verbales exactas («actúa», «actúas», «actuar»…) y se agregó «sáltate la aprobación».
+  - Hay pruebas para los dos falsos positivos.
+- **Brief más robusto:**
+  - Una sección dañada (por ejemplo, un importe corrupto en una cuenta) ya no tumba todo el brief.
+  - Esa sección dice «Sección no disponible (Tipo)» y no rellena cifras. Las demás salen igual.
+  - Una instancia vieja o un intento de escritura siguen deteniéndolo.
+- **Nada se esconde en silencio:** si hay más de 10 solicitudes, cobros, cotizaciones, cuentas o vencimientos, el brief dice «… y N más (ver /comando)».
+- **Cuenta de crédito:** el saldo se rotula «cuenta de crédito: no es caja».
+- **`/diagnostico`:** muestra si el Brief 4.2.1 y el Aprendizaje 4.2.2 están activos y si `BUSINESS_NAME` coincide con ISLAFIX PRO LLC.
+- **`jarvis_learn.install`:** registra primero las respuestas y luego los comandos. Un comando nunca queda listado sin su función.

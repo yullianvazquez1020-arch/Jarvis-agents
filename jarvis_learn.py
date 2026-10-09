@@ -227,9 +227,10 @@ def _meta_reply(arg):
 def install(j):
     global core
     core = j
-    j._extensions.COMMANDS.update(COMMANDS)
+    # Primero las respuestas, después el registro: un comando nunca queda listado sin su función.
     brief.REPLIES["/aprender"] = lambda arg: learn_command()
     brief.REPLIES["/meta"] = _meta_reply
+    j._extensions.COMMANDS.update(COMMANDS)
     brief.PHRASES.update(PHRASES)
     brief.WRITING_PHRASE_COMMANDS.add("/aprender")
     brief.EXTRA_SECTIONS.append(brief_section)

@@ -113,6 +113,38 @@ class OwnerBrief(BriefBase):
         self.assertIsNone(j._WRITE_BLOCK.get())                # el bloqueo se libera
 
 
+class Robustness(BriefBase):
+    def test_damaged_section_does_not_hide_the_rest(self):
+        self.bank(500)
+        with patch.object(j._business_workflows, "cash_flow_report", side_effect=ValueError("dañado")):
+            text = brief.commercial_brief()
+        self.assertIn("1) CAJA\nSección no disponible (ValueError)", text)
+        for s in SECTIONS[1:]:
+            self.assertIn(s, text)
+        self.assertIn("Cobrado esta semana:", text)
+        self.assertNotIn("$500.00", text.split("2) SOLICITUDES")[0])     # no rellena la caja
+
+    def test_truncated_lists_say_how_many_more(self):
+        c = self.client()
+        for n in range(brief.MAX_ITEMS + 3):
+            j.add_job(c["id"], f"Trabajo {n}", price=100, status="delivered", due_date="2026-10-01")
+        text = brief.commercial_brief()
+        self.assertIn("… y 3 más (ver /cobros).", text)
+        self.assertEqual(text.count("BORRADOR — no enviado"), brief.MAX_ITEMS)
+
+    def test_credit_account_flagged(self):
+        self.bank(-250, type="CREDITCARD")
+        text = brief.commercial_brief()
+        self.assertIn("cuenta de crédito: no es caja", text)
+        self.assertIn("bloqueada; no estimo", text)
+
+    def test_diagnostics_reports_status(self):
+        with patch.object(j, "_tg_send", new=AsyncMock()):
+            text = asyncio.run(j.diagnostics_text())
+        self.assertIn("Brief 4.2.1: activo", text)
+        self.assertIn("negocio ISLAFIX PRO LLC", text)
+
+
 class Cash(BriefBase):
     def test_no_observed_balance_never_fabricates_a_number(self):
         text = brief.commercial_brief()

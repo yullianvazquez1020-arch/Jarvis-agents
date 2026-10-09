@@ -23,6 +23,7 @@ PHRASES = {"brief": "/brief", "brief de hoy": "/brief", "caja y cobros": "/brief
 WRITING_PHRASE_COMMANDS: set = set()
 REPLIES = {}                             # comando -> función sync(arg) -> texto, para frases y voz
 MAX_ITEMS = 10
+CREDIT_TYPES = ("CREDITCARD", "CREDITLINE", "LOAN")
 
 core = None
 
@@ -55,6 +56,12 @@ def _clean(text, limit=60):
     """Texto guardado por terceros (nombre de una solicitud): una línea, corto, sin comandos."""
     t = re.sub(r"\s+", " ", str(text or "")).strip().replace("/", " ")
     return core._redact_secrets(t)[0][:limit] or "cliente"
+
+
+def _more(rows, where):
+    """Nunca esconder en silencio lo que no cabe."""
+    extra = len(rows) - MAX_ITEMS
+    return [f"… y {extra} más (ver {where})."] if extra > 0 else []
 
 
 def _date(value):
@@ -127,12 +134,15 @@ def section_cash(report):
             tag = f" — SALDO VIEJO ({chosen['stale_days']} días)"
         if chosen.get("future_date"):
             tag = " — FECHA FUTURA, no válida"
+        if str(chosen.get("type", "")).upper() in CREDIT_TYPES:
+            tag += " — cuenta de crédito: no es caja"
         lines.append(f"Saldo observado: {_usd(chosen['balance'])} al {chosen['date']} "
                      f"({chosen.get('name') or 'cuenta'}, clave {chosen['account']}){tag}.")
     elif observed:
         lines.append("Hay más de una cuenta importada; no las sumo. Elige una con /caja CLAVE:")
         for a in observed[:MAX_ITEMS]:
             lines.append(f"• {a.get('name') or 'cuenta'} {_usd(a['balance'])} al {a['date']} (clave {a['account']})")
+        lines += _more(observed, "/caja")
     else:
         lines.append("Saldo observado: sin saldo observado.")
     rec = report["recorded"]
@@ -151,10 +161,12 @@ def section_cash(report):
         parts = []
         if future_in:
             parts.append("cobros por vencer " + ", ".join(f"trabajo #{x['id']} {_usd(x['amount'])} el {x['date']}"
-                                                         for x in future_in[:MAX_ITEMS]))
+                                                         for x in future_in[:MAX_ITEMS])
+                         + (f" y {len(future_in) - MAX_ITEMS} más" if len(future_in) > MAX_ITEMS else ""))
         if future_out:
             parts.append("pagos por vencer " + ", ".join(f"cuenta #{x['id']} {_usd(x['amount'])} el {x['date']}"
-                                                        for x in future_out[:MAX_ITEMS]))
+                                                        for x in future_out[:MAX_ITEMS])
+                         + (f" y {len(future_out) - MAX_ITEMS} más" if len(future_out) > MAX_ITEMS else ""))
         lines.append("Futuro, no disponible todavía: " + "; ".join(parts) + ".")
     else:
         lines.append("Futuro: nada registrado con importe en los próximos 7 días.")
@@ -171,6 +183,7 @@ def followup_items():
                 and _norm(r.get("business")) == _norm(EXPECTED_BUSINESS)]
         clients = core._cload()
         overdue = core.overdue_jobs()          # exige due_date: un trabajo sin fecha no está «vencido»
+    notes += _more(reqs, "/solicitudes") + _more(overdue, "/cobros")
     for r in reqs[:MAX_ITEMS]:
         items.append({"kind": "solicitud", "id": r["id"], "who": _clean(r.get("name")),
                       "line": f"Solicitud #{r['id']} de {_clean(r.get('name'))}, recibida {str(r.get('created', ''))[:10]}"})
@@ -183,7 +196,9 @@ def followup_items():
         ops = []
         notes.append(f"Cotizaciones viejas: no pude leerlas ({type(exc).__name__}).")
     by_id = {j["id"]: j for j in clients["jobs"]}
-    for op in [o for o in ops if o.get("kind") == "quote"][:MAX_ITEMS]:
+    quotes = [o for o in ops if o.get("kind") == "quote"]
+    notes += _more(quotes, "/seguimientos")
+    for op in quotes[:MAX_ITEMS]:
         j = by_id.get(op["id"])
         if not j:
             continue
@@ -276,6 +291,26 @@ def marker_line():
 EXTRA_SECTIONS = []     # cortes posteriores añaden funciones de solo lectura -> lista de líneas
 
 
+def _section(fn, *args):
+    """Una sección dañada no tumba el resto del brief. Una instancia vieja o una escritura sí se detienen."""
+    try:
+        return fn(*args)
+    except (core.StaleInstance, core.ReadOnlyViolation):
+        raise
+    except Exception as exc:
+        core.logger.warning("brief section %s failed: %s", getattr(fn, "__name__", "?"), type(exc).__name__)
+        return [f"Sección no disponible ({type(exc).__name__}). No estimo ni relleno esa parte."]
+
+
+def _cash_block():
+    return section_cash(core._business_workflows.cash_flow_report())
+
+
+def _follow_blocks():
+    items, notes = followup_items()
+    return section_followups(items, notes)
+
+
 def commercial_brief():
     """Texto del brief. Corre con el bloqueo de escritura del almacenamiento: no puede guardar nada."""
     stop = business_check()
@@ -283,15 +318,19 @@ def commercial_brief():
         return stop
     token = core._WRITE_BLOCK.set("brief")
     try:
-        report = core._business_workflows.cash_flow_report()
-        items, notes = followup_items()
-        follow, drafts = section_followups(items, notes)
-        blocks = [section_cash(report), follow, drafts, section_social(), section_receivables()]
+        cash = _section(_cash_block)
+        follow = _section(_follow_blocks)
+        if not (isinstance(follow, tuple) and len(follow) == 2):
+            follow = (["2) SOLICITUDES Y SEGUIMIENTOS VENCIDOS"] + follow,
+                      ["3) BORRADORES DE RESPUESTA", "Sin borradores: la sección 2 no se pudo leer."])
+        if cash and not cash[0].startswith("1)"):
+            cash = ["1) CAJA"] + cash
+        receivables = _section(section_receivables)
+        if receivables and not receivables[0].startswith("5)"):
+            receivables = ["5) POR COBRAR"] + receivables
+        blocks = [cash, follow[0], follow[1], section_social(), receivables]
         for extra in EXTRA_SECTIONS:
-            try:
-                blocks.append(extra())
-            except Exception as exc:
-                blocks.append([f"Sección adicional no disponible ({type(exc).__name__})."])
+            blocks.append(_section(extra))
         marker = marker_line()
     finally:
         core._WRITE_BLOCK.reset(token)
@@ -389,5 +428,14 @@ def install(j):
     except Exception as exc:  # la voz es opcional; el comando escrito sigue
         j.logger.warning("brief voice phrase off: %s", type(exc).__name__)
 
+    old_diag = j.diagnostics_text
+
+    async def diagnostics_text():
+        text = await old_diag()
+        return (text + f"\n• Brief 4.2.1: {getattr(j, 'BRIEF_STATUS', 'cargando')} · "
+                f"Aprendizaje 4.2.2: {getattr(j, 'LEARN_STATUS', 'no cargado')} · negocio "
+                + ("ISLAFIX PRO LLC" if business_check() is None else "NO coincide (revisa BUSINESS_NAME)"))
+
+    j.diagnostics_text = diagnostics_text
     j.commercial_brief = commercial_brief
     j.HELP_TEXT += "\n4.2.1: /brief — caja, solicitudes, borradores (no enviados), por cobrar y marcador semanal"
