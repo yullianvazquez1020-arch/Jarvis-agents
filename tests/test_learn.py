@@ -1,5 +1,6 @@
 """Jarvis 4.2.2 aprendizaje acotado. Servicios simulados, sin red y sin Redis de producción.
-Sin conciencia ni autonomía: solo trabajos ya cobrados -> una propuesta con executed False."""
+Sin conciencia ni autonomía: solo trabajos terminados y pagados -> una propuesta con executed False.
+Un pago de un trabajo abierto no es proyecto terminado ni ganancia."""
 import asyncio
 import datetime as dt
 import json
@@ -22,10 +23,12 @@ def proposals(kind=None):
 
 
 class LearnBase(tb.BriefBase):
-    def paid_job(self, amount=450, location="Bayamón", date="2026-10-06"):
+    def paid_job(self, amount=450, location="Bayamón", date="2026-10-06", confirm=True):
         c = self.client("Carmen")
         job = j.add_job(c["id"], "Pintura", price=amount, status="confirmed", due_date="2026-10-01", location=location)
         j.record_job_payment(job["id"], amount, date=date)
+        if confirm:                                   # confirmación explícita del dueño (/terminado N)
+            self.assertIn("finalización confirmada", learn.complete_command(str(job["id"])))
         return job
 
     def guarded(self):
@@ -90,7 +93,7 @@ class Aprender(LearnBase):
         for m in mocks:
             if isinstance(m, AsyncMock):
                 m.assert_not_awaited()
-        self.assertIn(f"- trabajo {job['id']}: $450.00 ya cobrado, zona Bayamón", text)
+        self.assertIn(f"- trabajo {job['id']} (finalización confirmada y pagado): $450.00 cobrado, zona Bayamón", text)
         self.assertIn("PROPUESTA — no ejecutada", text)
         self.assertIn("No visito, no cobro, no publico y no opero.", text)
         self.assertNotIn("oficio", text)                                  # campo ausente: no se rellena
@@ -101,6 +104,76 @@ class Aprender(LearnBase):
         self.assertEqual(json.dumps(j._bload(), sort_keys=True), books_before)
         self.assertEqual(json.dumps(j._cload(), sort_keys=True), clients_before)
         self.assertEqual(j.kv_get(v.STATE_KEY, {})["compute"][DAY], 1)
+
+    def test_payment_on_unfinished_job_is_not_profit_nor_a_pattern(self):
+        c = self.client("Cliente grande")
+        job = j.add_job(c["id"], "Remodelación", price=12000, status="in_progress", location="Caguas")
+        j.record_job_payment(job["id"], 5000, date="2026-10-06")          # adelanto real, trabajo sin terminar
+        text = learn.learn_command()
+        self.assertTrue(text.startswith(learn.NO_FACTS))
+        self.assertIn(f"- trabajo {job['id']}: $5,000.00 recibido; estado en proceso, saldo pendiente $7,000.00", text)
+        self.assertIn("no son ganancia ni se repiten", text)
+        self.assertNotIn("PROPUESTA", text)
+        rest = text.lower().replace("no son ganancia", "").replace("no es ganancia", "")
+        self.assertNotIn("ganancia", rest)                                 # solo aparece negada
+        self.assertNotIn("repetir", rest)
+        self.assertEqual(proposals(), [])
+        self.assertEqual(j.kv_get(v.STATE_KEY, {}).get("compute", {}), {})   # no gasta presupuesto
+        with patch.object(j, "_tg_send", new=AsyncMock()):
+            v.scheduler_cycle(j)
+        self.assertEqual(proposals("aprender"), [])                        # el ciclo diario tampoco
+
+    def test_only_finished_jobs_enter_the_pattern(self):
+        done = self.paid_job(450, location="Bayamón")
+        c = self.client("Otro")
+        open_job = j.add_job(c["id"], "Remodelación", price=12000, status="in_progress", location="Caguas")
+        j.record_job_payment(open_job["id"], 5000, date="2026-10-07")
+        delivered = j.add_job(c["id"], "Entregado con saldo", price=900, status="delivered", location="Ponce")
+        j.record_job_payment(delivered["id"], 400, date="2026-10-07")     # terminado pero no pagado completo
+        text = learn.learn_command()
+        proposal = text.split("PROPUESTA — no ejecutada")[1]
+        self.assertIn(f"#{done['id']}", proposal)
+        self.assertIn("$450.00", proposal)
+        for absent in ("$5,000.00", "Caguas", "$400.00", "Ponce", f"#{open_job['id']}", f"#{delivered['id']}"):
+            self.assertNotIn(absent, proposal)
+        self.assertIn(learn.NOT_PROFIT, text)
+        self.assertIn("estado entregado, saldo pendiente $500.00", text)
+        self.assertEqual(proposals("aprender")[0]["jobs"], [done["id"]])
+
+    def test_paid_status_without_price_is_not_finished(self):
+        c = self.client()
+        job = j.add_job(c["id"], "Sin precio", price=300, status="confirmed")
+        j.record_job_payment(job["id"], 300, date="2026-10-06")
+        data = j._cload()
+        data["jobs"][0]["price"] = 0                                       # dato inconsistente
+        j.kv_set(j.C_KEY, data)
+        self.assertTrue(learn.learn_command().startswith(learn.NO_FACTS))
+
+    def test_auto_paid_status_is_not_completion(self):
+        job = self.paid_job(5000, confirm=False)
+        self.assertEqual(j._cload()["jobs"][0]["status"], "paid")         # main.py lo puso solo al saldo 0
+        text = learn.learn_command()
+        self.assertTrue(text.startswith(learn.NO_FACTS))
+        self.assertIn(f"- trabajo {job['id']}: $5,000.00 recibido; estado pagado, saldo $0.00; "
+                      f"finalización no confirmada (/terminado {job['id']})", text)
+        self.assertNotIn("PROPUESTA", text)
+        rest = text.lower().replace("no son ganancia", "").replace("no es ganancia", "")
+        self.assertNotIn("ganancia", rest)
+        self.assertNotIn("repetir", rest)
+        self.assertEqual(proposals(), [])
+        with patch.object(j, "_tg_send", new=AsyncMock()):
+            v.scheduler_cycle(j)
+        self.assertEqual(proposals("aprender"), [])
+        self.assertIn("finalización no confirmada", brief.commercial_brief().split("6) APRENDIZAJE")[1])
+
+    def test_confirmed_but_unpaid_is_not_learned(self):
+        c = self.client()
+        job = j.add_job(c["id"], "Techo", price=3000, status="in_progress")
+        j.record_job_payment(job["id"], 1000, date="2026-10-06")
+        learn.complete_command(str(job["id"]))
+        text = learn.learn_command()
+        self.assertTrue(text.startswith(learn.NO_FACTS))
+        self.assertIn("saldo pendiente $2,000.00; finalización confirmada", text)
 
     def test_income_linked_to_another_job_is_not_learned(self):
         self.paid_job()
@@ -114,7 +187,8 @@ class Aprender(LearnBase):
         job = j.add_job(c["id"], "Verja", price=200, status="confirmed")
         inc = j.add_income(200, source="depósito", date="2026-10-07")
         j.record_job_payment(job["id"], 200, date="2026-10-07", add_to_books=False, existing_income_id=inc["id"])
-        self.assertIn(f"trabajo {job['id']}: $200.00 ya cobrado", learn.learn_command())
+        learn.complete_command(str(job["id"]))
+        self.assertIn(f"trabajo {job['id']} (finalización confirmada y pagado): $200.00 cobrado", learn.learn_command())
 
     def test_zero_budget_no_second_proposal_and_no_model(self):
         self.paid_job()
@@ -271,7 +345,7 @@ class Channels(LearnBase):
         text = brief.commercial_brief()
         self.assertEqual(tb.snapshot_storage(), before)
         sixth = text.split("6) APRENDIZAJE")[1]
-        self.assertIn(learn.build(learn.paid_facts())[0], sixth)
+        self.assertIn(learn.build(*learn.split_facts())[0], sixth)
         self.assertGreater(text.index("Cobrado esta semana"), text.index("6) APRENDIZAJE"))
 
     def test_limits_unchanged(self):
@@ -282,6 +356,72 @@ class Channels(LearnBase):
         learn.goal_command("167000")
         self.assertLessEqual(v.profile_view(j)["techo_usd"], 100)
         self.assertEqual(j._profile_ceiling()[0], float(j.MONEY_MAX_ORDER))
+
+
+class Terminado(LearnBase):
+    def test_owner_confirms_without_touching_status_price_balance_or_books(self):
+        c = self.client()
+        job = j.add_job(c["id"], "Baño", price=800, status="delivered")
+        books = json.dumps(j._bload(), sort_keys=True)
+        reply = self.post(f"/terminado {job['id']}", 8400)[0]
+        self.assertIn("finalización confirmada", reply)
+        self.assertIn("Saldo pendiente $800.00", reply)
+        row = j._cload()["jobs"][0]
+        self.assertEqual((row["status"], row["price"], row["balance"]), ("delivered", 800, 800))
+        self.assertEqual(row["completion"]["by"], "owner")
+        self.assertEqual(json.dumps(j._bload(), sort_keys=True), books)
+        self.assertIn("retirada", self.post(f"/terminado {job['id']} quitar", 8401)[0])
+        self.assertNotIn("completion", j._cload()["jobs"][0])
+
+    def test_other_chat_cannot_confirm(self):
+        c = self.client()
+        job = j.add_job(c["id"], "Baño", price=800, status="delivered")
+        self.assertEqual(self.post(f"/terminado {job['id']}", 8410, chat_type="group"),
+                         ["Este comando requiere tu chat privado."])
+        self.assertNotIn("completion", j._cload()["jobs"][0])
+
+    def test_quote_cancelled_unknown_and_bad_input_rejected(self):
+        c = self.client()
+        q = j.add_job(c["id"], "Cotización", price=100, status="quote")
+        x = j.add_job(c["id"], "Cancelado", price=100, status="cancelled")
+        for arg in (str(q["id"]), str(x["id"]), "999", "", "abc", f"{q['id']} talvez"):
+            with self.subTest(arg=arg):
+                self.assertNotIn("finalización confirmada.", learn.complete_command(arg))
+        self.assertFalse(any("completion" in r for r in j._cload()["jobs"]))
+
+    def test_ambiguous_undo_does_not_change_confirmation(self):
+        job = self.paid_job()
+        before = tb.snapshot_storage()
+        for arg in (f"{job['id']} quitar no", f"{job['id']} quitar mañana", "²"):
+            learn.complete_command(arg)
+        self.assertEqual(tb.snapshot_storage(), before)
+
+    def test_zero_balance_needs_fully_recorded_receipts(self):
+        job = self.paid_job(5000)
+        j.edit_job(job["id"], {"price": 12000, "advance": 12000})
+        self.assertEqual(j._cload()["jobs"][0]["balance"], 0)
+        text = learn.learn_command()
+        self.assertNotIn("PROPUESTA — no ejecutada", text)
+        self.assertEqual(proposals("aprender"), [])
+
+    def test_invalid_balance_never_means_fully_paid(self):
+        self.paid_job()
+        for value in (None, "nan", "inf"):
+            data = j._cload()
+            data["jobs"][0]["balance"] = value
+            j._csave(data)
+            self.assertFalse(learn.split_facts()[0])
+
+    def test_ai_tools_cannot_set_completion(self):
+        c = self.client()
+        job = j.add_job(c["id"], "Baño", price=100, status="confirmed")
+        j.edit_job(job["id"], {"completion": {"confirmed": True, "by": "owner"}, "status": "paid", "advance": 100})
+        row = j._cload()["jobs"][0]
+        self.assertEqual(row["status"], "paid")                           # el estado automático sí cambia
+        self.assertNotIn("completion", row)                               # la confirmación no
+        self.assertFalse(learn.completion_confirmed(row))
+        names = {t["name"] for t in j.TOOLS} | set(j.HANDLERS)
+        self.assertFalse([n for n in names if "job" in n.lower() and "complet" in n.lower() or "terminad" in n.lower()])
 
 
 if __name__ == "__main__":
