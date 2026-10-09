@@ -29,3 +29,12 @@ input {
 canvas {max-width:100%;height:auto;} #status {margin:12px;}
 
 .avatar{text-align:center;}
+
+body {background:radial-gradient(ellipse at 50% 30%,#073453,#020b13 70%);font-family:system-ui,sans-serif;}
+.avatar {width:min(1100px,96vw);}
+.avatar header {display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;color:#ffdc83;letter-spacing:.15em;font-size:13px;}
+.avatar nav {display:flex;gap:20px;letter-spacing:normal;}
+a {color:#83dafa;text-decoration:none;}
+canvas {border:1px solid #1b506b;border-radius:18px;background:radial-gradient(ellipse,#052637,#020b13 70%);}
+button {cursor:pointer;} button:focus-visible,a:focus-visible {outline:2px solid #ffdc83;outline-offset:4px;}
+@media(max-width:600px){.avatar header{flex-direction:column;}}

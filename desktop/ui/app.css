@@ -86,3 +86,29 @@ h2 { margin: 14px 0 2px; font-size: 18px; color: var(--cyan); font-weight: 600; 
 .card.demo .t::before { content: "DEMO · "; color: var(--amber); }
 .hud-note { padding: 0 18px 18px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Reference-inspired command deck: bounded 2D rendering, no external assets. */
+.hud-page {background:radial-gradient(ellipse at 50% 28%,#063a50 0,#021725 45%,#020c15 85%);}
+.command-deck {margin:24px 28px 0;border:1px solid #19516a;background:linear-gradient(135deg,#082b3d77,#00121e99);border-radius:8px;overflow:hidden;}
+.deck-heading {display:flex;justify-content:space-between;align-items:center;gap:20px;padding:24px 28px;border-bottom:1px solid #13445a;}
+.deck-kicker {font-size:10px;letter-spacing:.23em;color:#80afc1;}
+.deck-heading h1 {font-size:25px;letter-spacing:.3em;margin:8px 0 0;color:#d6f5ff;font-weight:500;}
+.deck-heading h1 span {font-size:12px;letter-spacing:.2em;color:#64d7ed;}
+.deck-links {display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.deck-links a {text-decoration:none;color:#81d6e6;font-size:12px;}
+.deck-links button {background:transparent;color:#80bccf;border:1px solid #205269;font-size:11px;padding:8px 10px;}
+.deck-stage {position:relative;height:490px;max-height:65vh;min-height:340px;background:repeating-linear-gradient(0deg,transparent,transparent 39px,#14627c12 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,#14627c12 40px);}
+#deck-canvas {position:absolute;inset:0;width:100%;height:100%;}
+.deck-core {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;width:220px;padding:32px 10px;background:radial-gradient(ellipse,#022335e8,transparent 70%);pointer-events:none;}
+.deck-core strong {display:block;font-size:28px;font-weight:400;letter-spacing:.28em;margin:10px 0;color:#ffdd7a;}
+.deck-core #deck-state {display:block;font-size:12px;color:#9de7eb;}
+.deck-core small {display:block;font-size:10px;margin-top:8px;color:#6aafc5;}
+.deck-node {position:absolute;transform:translate(-50%,-50%);padding:9px 15px;background:#042636ef;border:1px solid #2583a0;color:#c5effa;border-radius:4px;min-width:105px;box-shadow:0 0 20px #32bcdc13;text-align:center;}
+.deck-node:hover,.deck-node:focus-visible {border-color:#ffdb7b;background:#0c4053;}
+.deck-node-title {display:block;font-size:13px;}
+.deck-node small {font-size:10px;color:#70a9ba;}
+.deck-bottom {display:flex;justify-content:space-between;gap:12px;padding:15px 24px;color:#78aabb;font-size:10px;letter-spacing:.05em;border-top:1px solid #15435a;}
+.deck-cards {margin:18px 28px 24px;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));}
+.deck-cards .card {background:#031c2a;border:1px solid #15455c;min-height:135px;}
+.deck-cards .card .v {color:#ffe3a0;font-size:24px;}
+@media(max-width:700px){.command-deck{margin:12px 10px 0}.deck-heading{padding:18px;display:block}.deck-links{margin-top:16px}.deck-stage{height:400px}.deck-node{min-width:70px;padding:8px;font-size:11px}.deck-node-title{font-size:11px}.deck-core{width:150px}.deck-core strong{font-size:20px}.deck-bottom{display:block}.deck-bottom span{display:block;margin:5px 0}.deck-cards{margin:12px 10px}.deck-core small{font-size:8px}}
