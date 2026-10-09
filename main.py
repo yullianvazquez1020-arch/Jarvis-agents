@@ -235,7 +235,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.2.2"
+VERSION = "4.2.3"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -7058,6 +7058,7 @@ async def health():
             "v420": {"status": globals().get("V420_STATUS", "no cargada")},
             "brief": {"status": globals().get("BRIEF_STATUS", "no cargado")},
             "learn": {"status": globals().get("LEARN_STATUS", "no cargado")},
+            "ops": {"status": globals().get("OPS_STATUS", "no cargado")},
             "builtin": ["personal", "accountant", "edit/delete", "proactive", "calendar",
                         "bank (read-only)", "research (phase 5)", "clients & jobs", "inventory", "coinbase",
                         "client messages (approval)", "bank weekly", "paper trading"],
@@ -7167,3 +7168,15 @@ try:
 except Exception as _e:
     LEARN_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("learn off: %s", type(_e).__name__)
+
+# 4.2.3: /ruta, /huecos y /piso. Sin tokens. El piso no es un ingreso y no mueve dinero.
+OPS_STATUS = "no cargado"
+try:
+    if BRIEF_STATUS != "activo" or LEARN_STATUS != "activo":
+        raise RuntimeError("requiere el brief y el aprendizaje")
+    import jarvis_ops as _ops
+    _ops.install(__import__("sys").modules[__name__])
+    OPS_STATUS = "activo"
+except Exception as _e:
+    OPS_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("ops off: %s", type(_e).__name__)
