@@ -4,6 +4,54 @@ let particleMode = true, paused = matchMedia("(prefers-reduced-motion: reduce)")
 let blink = 0, talk = 0, smile = 0, talking = false, t = 0, viseme = "rest";
 const shapes = { a: 1, e: 0.7, i: 0.35, o: 0.9, u: 0.6, m: 0.05, rest: 0.15 };
 
+// Voz real: envolvente + reloj que publica la ventana de conversación al reproducir (lipsync.js).
+// La frase de prueba del botón sigue siendo aproximada y sin audio, y se rotula así.
+const L = window.JarvisLipsync;
+const voice = { env: null, clock: null, filter: L ? new L.ClockFilter() : null, follower: L ? new L.Follower() : null,
+                active: false, why: "" };
+const measure = /[?&]medir=1\b/.test(location.search), syncLog = [];
+function wallNow() { return (performance.timeOrigin || Date.now() - performance.now()) + performance.now(); }
+function voiceStatus(text) { const el = document.getElementById("voice-status"); if (el && el.textContent !== text) el.textContent = text; }
+let channel = null;
+try { if (L && "BroadcastChannel" in window) channel = new BroadcastChannel(L.CHANNEL); } catch (e) { channel = null; }
+if (channel) {
+  channel.onmessage = (ev) => {
+    const m = ev.data;
+    if (!L.valid(m)) return;
+    if (m.k === "env") { voice.env = m; if (voice.clock && voice.clock.id !== m.id) voice.clock = null; }
+    else if (m.k === "clock") {
+      if (!voice.clock || voice.clock.id !== m.id || m.at >= voice.clock.at) { voice.clock = m; voice.filter.push(m); }
+    }
+    else if (m.k === "stop") {
+      if (!voice.clock || voice.clock.id === m.id) { voice.clock = null; voice.why = m.why || ""; }
+    }
+    lastFrame = 0;
+  };
+  voiceStatus("Boca: sin audio sonando. Sigue la voz que suena en la ventana de conversación.");
+} else {
+  voiceStatus("Boca: este navegador no comparte el audio entre ventanas; solo la frase de prueba aproximada.");
+}
+
+/* Nivel de boca según el audio que suena ahora. null = no hay voz real activa. */
+function voiceLevel(now, dt) {
+  const c = voice.clock, env = voice.env;
+  if (!c || !env || c.id !== env.id) {
+    if (voice.active) { voice.active = false; voiceStatus("Boca: sin audio sonando." + (voice.why ? " (" + voice.why + ")" : "")); }
+    return null;
+  }
+  const pos = voice.filter.position(now);
+  const playing = c.playing && pos <= env.duration + 0.05;
+  const target = playing ? L.level(env, pos + L.LOOKAHEAD_S) : 0;
+  const value = voice.follower.step(target, dt);
+  if (measure && syncLog.length < 20000) syncLog.push([now, pos, target, value, playing ? 1 : 0]);
+  if (playing !== voice.active) {
+    voice.active = playing;
+    voiceStatus(playing ? "Boca: sigue la amplitud del audio real (no fonemas)." : "Boca: audio en pausa o terminado.");
+  }
+  return playing || value > 0.01 ? value : null;
+}
+window.JarvisAvatar = { syncLog: () => (measure ? syncLog.slice() : []) };
+
 function hand() {
   const h = window.JarvisHands;
   if (!h) return { x: 0, y: 0, open: 0, seen: false, landmarks: null };
@@ -87,17 +135,29 @@ function particles() {
   drawHand(h);
   x.fillStyle = "#83dafa"; x.font = "13px sans-serif";
   x.fillText("PRESENCIA LOCAL · " + (h.seen ? "MANO" : "VISUAL"), 32, 38);
-  x.fillText(talking ? "FRASE DE PRUEBA" : (h.seen ? "SIGUE LA PALMA" : "ANIMACIÓN AMBIENTE"), 32, 510);
+  const mouthY = 205 + h.y * 24;
+  x.fillStyle = "#ffd27a"; x.globalAlpha = .85;
+  x.beginPath(); x.ellipse(cx, mouthY, 20 * depth, 1.5 + talk * 12, 0, 0, Math.PI * 2); x.fill();
+  x.globalAlpha = 1; x.fillStyle = "#83dafa";
+  x.fillText(voice.active ? "VOZ REAL · BOCA SEGÚN AMPLITUD" : talking ? "FRASE DE PRUEBA (APROXIMADA, SIN AUDIO)" :
+    (h.seen ? "SIGUE LA PALMA" : "ANIMACIÓN AMBIENTE"), 32, 510);
 }
 
+let lastVoice = 0;
 function loop(time) {
   requestAnimationFrame(loop);
-  if (document.hidden || time - lastFrame < 40 || (paused && lastFrame && !(hand().seen))) return;
+  const speaking = voice.active || (voice.clock && voice.clock.playing);
+  // Con voz real se dibuja a la frecuencia de pantalla (no a 25 cuadros) para no sumar hasta 40 ms de retraso.
+  // Con movimiento reducido, solo se mueve la boca mientras habla.
+  if (document.hidden || time - lastFrame < (speaking ? 0 : 40) || (paused && lastFrame && !hand().seen && !speaking)) return;
   lastFrame = time;
   t += 1;
   blink = Math.max(0, blink - 0.07);
   if (!paused && Math.random() < 0.006) blink = 1;
-  talk = talking ? (shapes[viseme] || 0.2) : talk * 0.85;
+  const now = wallNow(), real = L && voice.follower ? voiceLevel(now, lastVoice ? now - lastVoice : 16) : null;
+  lastVoice = now;
+  if (real !== null) { talking = false; animationId++; talk = real; }
+  else talk = talking ? (shapes[viseme] || 0.2) : talk * 0.85;
   smile *= 0.98;
   if (particleMode) { particles(); return; }
   const h = hand();

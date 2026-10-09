@@ -529,10 +529,13 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
-        self.assertIn(b'Animar frase', body)
+        self.assertIn('Probar boca (sin audio)'.encode(), body)       # la frase de prueba se rotula como aproximada
+        self.assertIn(b'id="voice-status"', body)
         self.assertNotIn(b'<script>', body)
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
         self.assertEqual(self.req("GET", "/ui/avatar.js")[0], 200)
+        self.assertEqual(self.req("GET", "/ui/lipsync.js")[0], 200)
+        self.assertEqual(self.req("GET", "/ui/lipsync.js", cookie=False)[0], 401)
         self.assertEqual(self.req("GET", "/ui/avatar.css")[0], 200)
 
 
@@ -575,6 +578,49 @@ class JavaScript(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         import base64
         self.assertEqual(check_wav(base64.b64decode(out.stdout)), 1.0)    # what Safari sends passes the Python check
+
+    def test_lipsync_follows_known_bursts_and_robust_clock(self):
+        """Envolvente de un WAV con ráfagas en instantes conocidos (la misma voz de prueba que usa la medición)."""
+        import shutil, subprocess, tempfile
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node no está instalado")
+        ui = ROOT / "desktop" / "ui"
+        for f in ("lipsync.js", "avatar.js", "app.js"):
+            self.assertEqual(subprocess.run([node, "--check", str(ui / f)]).returncode, 0, f)
+        fake = ROOT / "scripts" / "fake_tts_bursts.py"
+        spans = json.loads(subprocess.run([sys.executable, str(fake), "--schedule"], stdout=subprocess.PIPE).stdout)["spans"]
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "b.wav"
+            subprocess.run([sys.executable, str(fake), "--output_file", str(wav)], input=b"x", check=True)
+            script = r"""
+const L=require(%r),fs=require('fs');const b=fs.readFileSync(%r);const n=(b.length-44)/2,s=new Float32Array(n);
+for(let i=0;i<n;i++)s[i]=b.readInt16LE(44+i*2)/32768;
+const e=L.envelope(s,22050);let p=0,on=[],off=[];e.values.forEach((v,i)=>{if(v>=.5&&p<.5)on.push(i/e.fps);if(v<.5&&p>=.5)off.push(i/e.fps);p=v});
+const c=new L.ClockFilter(),id='a';
+for(let k=0;k<9;k++)c.push({id,t:k*.1,at:1000+k*100,rate:1,playing:true});
+c.push({id,t:.9,at:1000+900+40,rate:1,playing:true});            // un mensaje tardío no mueve la mediana
+const steady=c.position(2000);
+c.push({id,t:5,at:2100,rate:1,playing:true});                      // salto: reinicia
+const jumped=c.position(2100);
+c.push({id,t:5.2,at:2300,rate:1,playing:false});
+const paused=c.position(9999);
+const f=new L.Follower();let v=0;for(let i=0;i<10;i++)v=f.step(1,16);const up=v;for(let i=0;i<10;i++)v=f.step(0,16);
+process.stdout.write(JSON.stringify({on,off,steady,jumped,paused,up,down:v,
+  ok:[L.valid({k:'clock',id:'x',t:1,at:2}),L.valid({k:'env',id:'x',fps:100,values:[0]}),L.valid({k:'stop',id:'x'})],
+  bad:[L.valid({k:'env',id:'x',fps:0,values:[]}),L.valid({k:'run',id:'x'}),L.valid(null),L.valid({k:'clock',id:1,t:1,at:1})],
+  outside:[L.level(e,-1),L.level(e,99)]}));""" % (str(ui / "lipsync.js"), str(wav))
+            out = json.loads(subprocess.run([node, "-e", script], stdout=subprocess.PIPE, check=True).stdout)
+        for (a, b), on, off in zip(spans, out["on"], out["off"]):
+            self.assertLessEqual(abs(on - a), 0.011)                         # una muestra de 10 ms
+            self.assertLessEqual(abs(off - b), 0.011)
+        self.assertEqual(len(out["on"]), len(spans))
+        self.assertAlmostEqual(out["steady"], 1.0, delta=0.005)
+        self.assertAlmostEqual(out["jumped"], 5.0, delta=0.005)
+        self.assertEqual(out["paused"], 5.2)
+        self.assertGreater(out["up"], 0.95); self.assertLess(out["down"], 0.05)
+        self.assertEqual(out["ok"], [True, True, True]); self.assertEqual(out["bad"], [False, False, False, False])
+        self.assertEqual(out["outside"], [0, 0])
 
 
 if __name__ == "__main__":
