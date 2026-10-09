@@ -1,13 +1,21 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis · Avatar local</title><link rel="stylesheet" href="/ui/avatar.css"></head><body>
-  <div class="avatar">
-    <header><span>JARVIS · PRESENCIA VISUAL</span><nav><a href="/">Conversación</a><a href="/hud">Operaciones</a></nav></header>
-    <canvas id="c" width="960" height="540" aria-label="Avatar visual de Jarvis, sin audio"></canvas>
-    <div>
-      <button id="speak" type="button">Animar frase</button>
-      <button id="smile" type="button">Sonreír</button>
-      <button id="style" type="button">Ver rostro</button>
-      <button id="motion" type="button" aria-pressed="false">Pausar animación</button>
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis · Presencia</title><link rel="stylesheet" href="/ui/avatar.css"></head>
+<body>
+  <main class="avatar">
+    <header><div><span class="eyebrow">JARVIS / DISPLAY 03</span><h1>Presencia<span>.</span></h1></div>
+      <nav><a href="/" target="_blank" rel="noopener">Conversación ↗</a><a href="/hud" target="_blank" rel="noopener">Operaciones ↗</a></nav></header>
+    <section class="visual-stage" aria-label="Presencia visual de Jarvis">
+      <div class="visual-caption"><span>SILUETA DE PARTÍCULAS</span><span>ANIMACIÓN VISUAL · <span id="performance">AUTO · LIGERO</span></span></div>
+      <canvas id="c" width="960" height="640" aria-label="Avatar visual de Jarvis, sin audio"></canvas>
+      <div class="visual-signature"><span>JARVIS</span><small>Presencia local</small></div>
+    </section>
+    <div class="controls">
+      <div class="view-controls"><button id="style" type="button" aria-pressed="false">Ver rostro</button><button id="smile" type="button">Sonreír</button><button id="motion" type="button" aria-pressed="false">Pausar animación</button></div>
+      <div class="view-controls"><label for="quality">Calidad</label><select id="quality"><option value="auto">Automática</option><option value="light">Ligero</option><option value="detail">Detalle</option></select><button id="fullscreen" type="button">Pantalla completa</button></div>
     </div>
-    <p id="status" role="status">Sin conexión comprobada.</p><label for="phrase">Frase de prueba</label><input maxlength="1000" id="phrase" value="Hola, soy Jarvis">
-  </div>
-<script src="/ui/avatar.js"></script></body></html>
+    <div class="phrase-controls"><label for="phrase">Frase de prueba</label><input maxlength="1000" id="phrase" value="Hola, soy Jarvis"><button id="speak" type="button">Animar frase</button></div>
+    <p id="status" role="status">Sin conexión comprobada. Animación sin audio.</p>
+  </main>
+  <script src="/ui/visuals.js"></script><script src="/ui/avatar.js"></script>
+</body></html>

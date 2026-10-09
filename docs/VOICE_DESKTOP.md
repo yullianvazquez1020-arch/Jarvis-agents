@@ -52,9 +52,25 @@ usa el emparejamiento descrito abajo y desactiva `VOICE_DEMO`.
 La silueta y las partículas son animación visual, no una red neuronal nueva ni un indicador
 real de actividad de la IA. «Animar frase» no genera audio ni se sincroniza con el altavoz.
 La voz permanece en la ventana Conversación, con los motores que tengas configurados.
-Las animaciones usan Canvas 2D, limitan su frecuencia a unos 25 cuadros por segundo,
-se detienen visualmente en pestañas ocultas y permiten pausa. Respetan la preferencia
-inicial de reducir movimiento. No cargan bibliotecas ni recursos externos.
+Las animaciones usan Canvas 2D sin bibliotecas ni recursos externos. La calidad
+**Automática** empieza en Ligero, mide el coste de dibujar y el intervalo entre cuadros,
+y pasa a Detalle cuando hay margen; si el dibujo se vuelve lento baja a Ligero o Ahorro.
+La etiqueta AUTO muestra el nivel realmente elegido. También puedes fijar Ligero o Detalle.
+Los objetivos máximos son unos 30 cuadros/segundo en Detalle, 24 en Ligero y 18 en Ahorro;
+la frecuencia efectiva depende del equipo y del navegador. El lienzo nunca supera
+1920 × 1080 píxeles internos, incluso en pantallas Retina o televisores grandes.
+
+La geometría se reutiliza entre cuadros. La animación cancela su ciclo en pestañas ocultas
+y al pausar; no mantiene un bucle de dibujo vacío. Se aplica la preferencia de reducir
+movimiento, incluso si cambia mientras la ventana está abierta.
+
+El HUD permite alternar Órbita y Mapa: los grupos multicolor corresponden a las tarjetas
+que devuelve Jarvis. No son neuronas ni conexiones de agentes medidas. El avatar utiliza
+contornos con volumen y conserva la prueba de frase sin audio. El estilo de Conversación
+se actualiza para coincidir con los otros monitores.
+
+Las [vistas del motor visual](previews/README.md) muestran fotogramas generados por el
+mismo código Canvas. No son capturas completas del navegador ni mediciones de tu Mac.
 
 Actualizar Render no instala estas pantallas en tu Mac: debes actualizar allí la carpeta
 `desktop/` del repositorio y volver a ejecutar el acompañante.

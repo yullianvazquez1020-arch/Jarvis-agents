@@ -112,3 +112,48 @@ h2 { margin: 14px 0 2px; font-size: 18px; color: var(--cyan); font-weight: 600; 
 .deck-cards .card {background:#031c2a;border:1px solid #15455c;min-height:135px;}
 .deck-cards .card .v {color:#ffe3a0;font-size:24px;}
 @media(max-width:700px){.command-deck{margin:12px 10px 0}.deck-heading{padding:18px;display:block}.deck-links{margin-top:16px}.deck-stage{height:400px}.deck-node{min-width:70px;padding:8px;font-size:11px}.deck-node-title{font-size:11px}.deck-core{width:150px}.deck-core strong{font-size:20px}.deck-bottom{display:block}.deck-bottom span{display:block;margin:5px 0}.deck-cards{margin:12px 10px}.deck-core small{font-size:8px}}
+
+/* Cinematic visual system shared by the conversation and operations monitors. */
+:root {--panel:#071521;--line:#173b4b;--text:#d8e7ec;--muted:#77959f;--cyan:#79dfeb;--amber:#efc37b;}
+html,body {font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+body {background:radial-gradient(ellipse at 50% 0,#092330,#030b12 75%);min-height:100vh;}
+.top {padding:18px 28px;background:#040e18e8;border-bottom:1px solid #153343;}
+.brand {font-size:15px;letter-spacing:.3em;font-weight:500;}
+.status dd,.chip,.small,.section-eyebrow,.deck-kicker,.deck-bottom,.deck-telemetry {font-family:var(--mono);}
+.chip {padding:6px 10px;border-radius:4px;}
+.layout {padding:28px 28px 130px;gap:18px;}
+.voice,.work,.alerts {background:linear-gradient(135deg,#0a1d2a,#05121c);border:1px solid #183d4f;border-radius:12px;padding:24px;box-shadow:0 20px 60px #0002;}
+.section-eyebrow {font-size:10px;letter-spacing:.2em;color:#759cae;margin-bottom:26px;}
+.state {font-family:var(--mono);font-size:11px;}
+.reply {font-size:clamp(22px,2.5vw,34px);font-weight:300;line-height:1.4;min-height:140px;margin:20px 0;}
+textarea {padding:14px;border-radius:8px;font-size:15px;background:#020d16;}
+button {border-radius:6px;font-size:13px;padding:9px 14px;transition:border-color .15s,background .15s;}
+.foot {background:#04121cf5;border-top:1px solid #1b4153;gap:12px;padding:16px 28px;flex-wrap:wrap;}
+.talk {border-radius:50px;background:#72d6e6;color:#04141d;border:0;padding:15px 25px;}
+.tabs {gap:6px;margin-bottom:24px;}.tabs button[aria-pressed="true"] {background:#143342;color:#a7e8f0;border-color:#73cddb;}
+.alerts-head {font-family:var(--mono);font-size:11px;letter-spacing:.13em;}
+.hud-page {background:radial-gradient(ellipse at 50% 30%,#102837,#030c15 75%);}
+.command-deck {margin:24px 28px 0;border:1px solid #244757;border-radius:14px;background:linear-gradient(140deg,#0c202e,#030e19);box-shadow:0 25px 90px #0005;}
+.deck-heading {padding:25px 30px;gap:24px;border-bottom:1px solid #193b4a;}
+.deck-heading h1 {display:flex;align-items:baseline;gap:20px;font-size:25px;letter-spacing:.26em;font-weight:400;}
+.deck-heading h1 span {font-family:var(--mono);font-size:10px;color:#718f9a;letter-spacing:.13em;}
+.deck-links {gap:8px;}.deck-links a {padding:8px 10px;}.deck-links button {border-radius:5px;padding:9px 11px;background:#081c29;color:#9dc4d0;}
+.deck-links button[aria-pressed="true"] {border-color:#e7c17d;color:#f6cf8b;}
+.visual-quality {display:flex;align-items:center;gap:6px;color:#718f9a;font:10px var(--mono);}
+.visual-quality select {font:11px system-ui;color:#a2cad5;background:#081c29;border:1px solid #205269;border-radius:5px;padding:8px 4px;}
+.deck-stage {height:clamp(470px,58vh,790px);max-height:none;min-height:470px;background:radial-gradient(ellipse,#06213644,transparent 68%);overflow:hidden;}
+.deck-telemetry {position:absolute;z-index:2;top:28px;left:34px;right:34px;display:flex;gap:28px;font-size:9px;letter-spacing:.1em;color:#7392a3;pointer-events:none;}
+.deck-telemetry strong {font-weight:400;color:#a1c3cf;margin-left:8px;}.deck-telemetry span:last-child {margin-left:auto;}
+.deck-core {top:87%;padding:0;background:none;width:260px;}.deck-core strong {font-size:18px;letter-spacing:.5em;margin:8px 0;}.deck-core small{font-size:9px;}
+.deck-node {padding:11px 16px 11px 30px;min-width:150px;max-width:205px;background:linear-gradient(110deg,#092635ee,#061623ee);border:1px solid #246278;border-left:2px solid #6acdde;border-radius:5px;box-shadow:0 8px 24px #0003;text-align:left;}
+.deck-node-index {position:absolute;top:12px;left:9px;color:#3f778a;font:8px var(--mono);}
+.deck-node-title {font-size:13px;font-weight:400;color:#c0e2ed;}.deck-node small {display:block;margin-top:5px;font:9px var(--mono);color:#7f9fae;}
+.deck-node:hover,.deck-node:focus-visible {background:#0d3243;border-color:#eaca8d;box-shadow:0 0 24px #edbd7015;}
+.deck-bottom {background:#061521;border-color:#163644;padding:15px 30px;font-size:9px;}
+.deck-cards {grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:15px;}
+.deck-cards .card {padding:20px;border:1px solid #204455;background:linear-gradient(130deg,#0a202e,#06131e);border-radius:10px;gap:10px;min-height:175px;}
+.deck-cards .card .t {font-family:var(--mono);font-size:10px;}.deck-cards .card .v{font-size:27px;font-weight:300;}.deck-cards .card ul{color:#8fa9b6;line-height:1.7;font-size:12px;}
+[hidden] {display:none !important;}
+@media(min-width:1800px){.command-deck,.deck-cards{max-width:1900px;margin-left:auto;margin-right:auto;}.top{padding-left:40px;padding-right:40px;}}
+@media(max-width:1000px){.deck-heading{align-items:flex-start;flex-direction:column}.deck-links{gap:6px}.deck-heading h1{margin:10px 0 0}}
+@media(max-width:640px){.top{padding:15px}.command-deck{margin:12px 10px 0}.deck-heading{padding:20px}.deck-heading h1{font-size:20px;gap:12px}.deck-heading h1 span{font-size:8px}.deck-stage{height:510px;min-height:510px}.deck-telemetry{left:20px;right:20px;gap:12px;font-size:8px}.deck-telemetry span:last-child{display:none}.deck-node{min-width:0;width:105px;max-width:105px;padding:10px 8px;text-align:center}.deck-node-index{display:none}.deck-node-title{font-size:11px;overflow-wrap:anywhere}.deck-node small{font-size:8px}.deck-core{width:180px;top:86%}.deck-core .deck-kicker{font-size:8px}.deck-core strong{font-size:15px}.deck-bottom{padding:15px 20px}.layout{padding:15px 12px 220px}.voice,.work,.alerts{padding:20px}.foot{padding:12px}.deck-cards{margin:12px 10px}}

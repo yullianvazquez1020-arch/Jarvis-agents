@@ -18,13 +18,16 @@
     </div>
   </header>
   <section class="command-deck" aria-label="Centro visual de Jarvis">
-    <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · CENTRO DE OPERACIONES</span><h1>JARVIS <span>MONITOR</span></h1></div>
+    <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · CENTRO DE OPERACIONES</span><h1>JARVIS<span> OPERACIONES / 02</span></h1></div>
       <nav class="deck-links"><a href="/" target="_blank" rel="noopener">Conversación ↗</a><a href="/avatar" target="_blank" rel="noopener">Avatar ↗</a>
+      <button id="deck-view" type="button" aria-pressed="false">Ver mapa</button>
+      <label class="visual-quality">Calidad <select id="deck-quality"><option value="auto">Automática</option><option value="light">Ligero</option><option value="detail">Detalle</option></select></label>
       <button id="deck-motion" type="button" aria-pressed="false">Pausar animación</button>
       <button id="deck-fullscreen" type="button">Pantalla completa</button></nav></div>
     <div class="deck-stage">
+      <div class="deck-telemetry"><span>VISTA <strong id="deck-view-name">ÓRBITA</strong></span><span>MÓDULOS <strong id="deck-count">—</strong></span><span id="deck-performance">AUTO · LIGERO</span></div>
       <canvas id="deck-canvas" aria-hidden="true"></canvas>
-      <div class="deck-core"><span class="deck-kicker">NÚCLEO</span><strong>JARVIS</strong><span id="deck-state">Sin comprobar</span><small>Vista de módulos · solo lectura</small></div>
+      <div class="deck-core" id="deck-core"><span class="deck-kicker">CENTRO DE OPERACIONES</span><strong>JARVIS</strong><span id="deck-state">Sin comprobar</span><small>Vista de módulos · solo lectura</small></div>
       <div id="deck-nodes" aria-label="Módulos"></div>
     </div>
     <div class="deck-bottom"><span id="deck-caption">Esperando datos del escritorio</span><span>01 CONVERSACIÓN / 02 OPERACIONES / 03 AVATAR</span></div>
@@ -32,6 +35,7 @@
   <main id="grid" class="grid deck-cards" aria-label="Datos de los módulos"></main>
   <p class="small hud-note">Tocar una tarjeta abre el detalle en la ventana principal. Desde aquí no se cambia nada.</p>
   <script src="/ui/mask.js"></script>
+  <script src="/ui/visuals.js"></script>
   <script src="/ui/hud.js"></script>
 </body>
 </html>
