@@ -1,6 +1,13 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis · Órbita</title><link rel="stylesheet" href="/ui/avatar.css"></head><body>
   <div class="avatar">
     <header><span>JARVIS / ÓRBITA · CENTRO VISUAL</span><nav><a href="/">Conversación</a><a href="/hud">Operaciones</a></nav></header>
+    <section id="portfolio" aria-label="Portafolio de propuestas">
+      <div class="portfolio-heading"><div><small>JARVIS / ATLAS DE NEGOCIOS</small><h1>Cinco ideas. Un centro de control.</h1></div><span class="proposal-label">PROPUESTAS · SIN EJECUTAR</span></div>
+      <div class="atlas-tabs" aria-label="Vistas del portafolio"><button data-atlas="tower" aria-pressed="true">01 / Torre</button><button data-atlas="galaxy" aria-pressed="false">02 / Galaxia</button><button data-atlas="cell" aria-pressed="false">03 / Membrana</button><button id="hand-navigation" aria-pressed="false">Navegar con la mano</button></div>
+      <div class="atlas-layout"><div class="atlas-scene"><canvas id="atlas" width="1100" height="650" aria-label="Representación ilustrativa del portafolio. Selecciona un piso en la lista para consultar su propuesta."></canvas><div class="atlas-caption"><strong id="atlas-view-name">TORRE / UN PISO POR PRUEBA</strong><span>Mapa conceptual · no representa actividad real</span></div></div><aside><div id="atlas-list" aria-label="Pruebas propuestas"></div><div id="atlas-detail" aria-live="polite"></div></aside></div>
+      <p id="atlas-hand-status" role="status">Control de esta página solamente. Cámara apagada; ningún cursor del sistema está conectado.</p>
+      <p class="atlas-policy">30 días por prueba · revisión semanal pendiente · ingresos sin registrar · empleados sin conectar. Límites: $100 por operación / $300 al día. Publicar, contactar y gastar requieren aprobación.</p>
+    </section>
     <div class="stage">
       <canvas id="c" width="960" height="540" aria-label="Avatar visual de Jarvis; la boca sigue la amplitud del audio que suena en la ventana de conversación"></canvas>
       <video id="hand-video" muted playsinline aria-hidden="true"></video>
@@ -18,4 +25,5 @@
   </div>
 <script src="/ui/lipsync.js"></script>
 <script src="/ui/hands.js"></script>
+<script src="/ui/atlas.js"></script>
 <script src="/ui/avatar.js"></script></body></html>

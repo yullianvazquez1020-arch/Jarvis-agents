@@ -10,8 +10,11 @@
   var stream = null;
   var landmarker = null;
   var running = false;
+  var loading = false;
+  var generation = 0;
+  var lastDetection = 0;
   var lastVideoTime = -1;
-  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null };
+  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0 };
 
   function say(text) { if (status) status.textContent = text; }
 
@@ -31,15 +34,19 @@
     state.y = Math.max(-1, Math.min(1, (wrist.y - 0.5) * 2));
     state.open = Math.max(0, Math.min(1, (Math.hypot(tip.x - wrist.x, tip.y - wrist.y) - 0.12) / 0.28));
     state.seen = true;
+    state.updatedAt = performance.now();
     state.landmarks = landmarks.map(function (p) { return { x: 1 - p.x, y: p.y }; });
   }
 
   function loop() {
     if (!running) return;
     requestAnimationFrame(loop);
+    if (document.hidden) { decay(); return; }
+    if (performance.now() - lastDetection < 1000 / 15) return;
     if (!landmarker || !video || video.readyState < 2) return;
     if (video.currentTime === lastVideoTime) return;
     lastVideoTime = video.currentTime;
+    lastDetection = performance.now();
     var result;
     try {
       result = landmarker.detectForVideo(video, performance.now());
@@ -53,9 +60,13 @@
   }
 
   function stop() {
+    generation++;
+    loading = false;
     running = false;
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = null;
+    if (video) video.srcObject = null;
+    lastVideoTime = -1;
     decay();
     if (button) {
       button.textContent = "Activar mano";
@@ -65,10 +76,13 @@
   }
 
   function start() {
+    if (loading || running) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       say("Este navegador no entregó la cámara.");
       return;
     }
+    loading = true;
+    var ticket = ++generation;
     say("Cargando MediaPipe…");
     var ready = landmarker ? Promise.resolve() : import(VISION).then(function (vision) {
       return vision.FilesetResolver.forVisionTasks(VISION + "/wasm").then(function (files) {
@@ -83,15 +97,19 @@
     }).then(function (created) { landmarker = created; });
 
     ready.then(function () {
+      if (ticket !== generation) throw new Error("Inicio cancelado");
       return navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
         audio: false
       });
     }).then(function (s) {
+      if (ticket !== generation) { s.getTracks().forEach(function (t) { t.stop(); }); throw new Error("Inicio cancelado"); }
       stream = s;
       video.srcObject = s;
       return video.play();
     }).then(function () {
+      if (ticket !== generation) return;
+      loading = false;
       running = true;
       if (button) {
         button.textContent = "Apagar mano";
@@ -100,12 +118,15 @@
       say("MediaPipe activo, 21 puntos, CPU. La imagen no se envía.");
       requestAnimationFrame(loop);
     }).catch(function (err) {
+      if (ticket !== generation) return;
       stop();
       say("No pude iniciar la mano: " + (err && err.message ? err.message : "permiso o red"));
     });
   }
 
   window.JarvisHands = state;
-  if (button) button.onclick = function () { running ? stop() : start(); };
+  addEventListener("pagehide", stop);
+  addEventListener("keydown", function (e) { if (e.key === "Escape") stop(); });
+  if (button) button.onclick = function () { running || loading ? stop() : start(); };
   say("Mano apagada.");
 })();
