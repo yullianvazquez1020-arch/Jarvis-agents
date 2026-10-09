@@ -10,7 +10,7 @@ import re
 import secrets
 from functools import wraps
 
-VERSION = "4.2.2"  # 4.2.1: /brief (jarvis_brief.py). 4.2.2: aprendizaje acotado (jarvis_learn.py). El resto de 4.2.0 igual
+VERSION = "4.2.3"  # 4.2.3: /ruta /huecos /piso (jarvis_ops.py). 4.2.2 sigue en jarvis_learn.py.
 STATE_KEY = "jarvis:v420"
 BOOT_KEY = "jarvis:v420:boot"
 HARD_ORDER = 100.0
