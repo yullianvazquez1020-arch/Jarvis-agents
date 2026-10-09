@@ -68,3 +68,33 @@ En Render no hay variables nuevas. Si el módulo falla, Jarvis arranca igual y `
 Se reprodujo una carrera entre el scheduler y `/aprender`: ambos podían leer el mismo estado y una escritura posterior borraba una propuesta o perdía el contador diario. Los siete mutadores de `jarvis:v420` ahora protegen la operación completa de lectura/modificación/escritura con el RLock existente. Esto no activa canales ni cambia límites. Se añadió prueba concurrente determinista que conserva las dos propuestas, sus IDs y el consumo de presupuesto.
 
 Dependencias reales instaladas en Python 3.12.14, con Redis 7.0.15 local compilado desde la fuente oficial. La validación usa `scripts/validate_suite.py`, sin sustitutos de FastAPI, Anthropic ni jiter. No se aplicó el antiguo parche de cifrado sobre 961047a; no pertenece a esta entrega.
+
+## Pagos recibidos ≠ trabajos terminados (sobre PR #24)
+
+- **Antes:** `/aprender` aceptaba cualquier pago vinculado a un ingreso. Un adelanto de $5,000 de un trabajo en proceso aparecía como «ya cobrado» y servía para proponer repetir el trabajo.
+- **`status="paid"` tampoco basta:** `main.py` lo asigna solo cuando el saldo llega a cero (`record_job_payment`, `edit_job`). Eso prueba el cobro, no que el trabajo haya terminado.
+- **Ahora**, un trabajo solo entra al patrón si cumple las tres condiciones:
+  1. El dueño confirmó la finalización con `/terminado N`, que guarda `completion = {confirmed: true, by: "owner", at}`.
+  2. El saldo está en 0.
+  3. Tiene precio guardado.
+- **`/terminado N`:**
+  - Solo funciona en el chat privado del dueño; `/terminado N quitar` retira la confirmación.
+  - No cambia el estado, el precio, el saldo ni los libros.
+  - Rechaza cotizaciones, trabajos cancelados, ids que no existen y texto ambiguo.
+  - Ninguna herramienta de la IA lo escribe: `edit_job` ignora el campo.
+- **Pagos sin confirmación o con saldo** (adelanto, abono o pago completo sin `/terminado`):
+  - Se listan aparte bajo «PAGOS RECIBIDOS SIN FINALIZACIÓN CONFIRMADA O CON SALDO — no son ganancia ni se repiten», con su estado, su saldo y el comando para confirmar.
+  - No generan propuesta y no gastan presupuesto; el ciclo diario tampoco los usa.
+- **Toda salida con importes** dice: «Cobrado no es ganancia: no descuenta costos, materiales ni gastos.» Lo mismo aparece en la sección 6 de `/brief`.
+- **Se conserva la serialización del estado de PR #24** (`_state_transaction`); `jarvis_v420.py` no cambia.
+- **Pruebas nuevas:**
+  - Adelanto de $5,000 en un trabajo de $12,000 en proceso.
+  - Pago completo con `paid` automático y sin confirmar.
+  - Trabajo confirmado con saldo pendiente.
+  - Mezcla de trabajos.
+  - `/terminado`: privado, grupo, quitar, cotización, cancelado, id inexistente.
+  - `edit_job` no puede confirmar la finalización.
+
+### Revisión Codex del parche de finalización
+
+Se conserva íntegra la serialización del PR #24. Se rechazan argumentos sobrantes en `/terminado` sin modificar datos. El saldo debe ser explícito y finito; un valor ausente no equivale a cero. Además, para usar un trabajo como pagado completo, los ingresos USD vinculados y no futuros deben cubrir el precio: editar manualmente el adelanto hasta saldo cero no basta. Tres pruebas adicionales cubren estos casos. No se modifica ningún trabajo real ni se confirma el trabajo #1 del dueño.
