@@ -46,7 +46,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8"}
 LAUNCH_TTL = 120
@@ -645,8 +645,10 @@ def make_handler(app, host, port):
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; "
-                             "img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; "
-                             "frame-ancestors 'none'")
+                             "img-src 'self' data: blob:; style-src 'self'; "
+                             "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; "
+                             "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; "
+                             "worker-src 'self' blob:; frame-ancestors 'none'")
             for k, v in (headers or {}).items():
                 self.send_header(k, v)
             self.end_headers()
