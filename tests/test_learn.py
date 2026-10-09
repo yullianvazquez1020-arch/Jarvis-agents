@@ -61,6 +61,27 @@ class Refusal(LearnBase):
                      "actualiza solo el precio del trabajo 3", "lista las facturas sin aprobar"):
             self.assertNotEqual(v.local_answer(text), v.AUTONOMY_REFUSAL)
 
+    def test_draft_with_explicit_approval_prohibition_is_not_refused(self):
+        text = ("Esta propuesta sí corresponde al negocio. No ofrezcas inspecciones gratuitas "
+                "ni fijes fechas de cierre sin mi aprobación.\n"
+                "Prepara aquí un borrador breve de WhatsApp ofreciendo mantenimiento y reparaciones, "
+                "con visita y cotización por coordinar. No lo envíes. "
+                "No inventes precios ni disponibilidad.")
+        self.assertIsNone(v.autonomy_refusal(text))
+        self.assertNotEqual(v.local_answer(text), v.AUTONOMY_REFUSAL)
+
+    def test_approval_prohibition_does_not_hide_separate_bypass(self):
+        for text in (
+            "No envíes sin mi aprobación. Compra sin mi aprobación",
+            "No publiques sin mi aprobación; actúa solo",
+            "No envíes borradores. Publica sin mi aprobación",
+            "No envíes borradores\ncompra sin mi aprobación",
+            "No envíes pero compra sin mi aprobación",
+            "Prepara un borrador y envíalo sin mi aprobación",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(v.autonomy_refusal(text), v.AUTONOMY_REFUSAL)
+
 
 class Aprender(LearnBase):
     def test_without_paid_jobs_no_pattern_or_figure(self):
