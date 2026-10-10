@@ -259,10 +259,10 @@
     for(let i=0;i<5;i++){const a=i*Math.PI*.4-1.4,xx=cx+Math.cos(a)*215,yy=cy+Math.sin(a)*135,col=ideas[i].color;line([[cx,cy],[xx,yy]],col+'55');ellipse(xx,yy,i===selected?70:55,40,col,2);for(let j=0;j<12;j++)dot(xx+Math.cos(j*2.4+phase*.1)*34,yy+Math.sin(j*2.4)*21,1.5,col);label(`0${i+1} / ${ideas[i].name}`,xx-55,yy+60,col);}
     ellipse(cx,cy,65,54,'#8bddff');label('JARVIS',cx-24,cy+4,'#e0faff');label('MEMBRANA / LÍMITES Y APROBACIONES',60,70);
   }
-  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);const fps=quality==='rich'?24:window.JarvisHandMouseActive?10:15;if(now-last<1000/fps)return;const elapsed=last?Math.min(.2,(now-last)/1000):1/fps;last=now;if(!paused)phase+=elapsed;ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
+  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);const fps=window.JarvisHands?.running?8:quality==='rich'?24:15;if(now-last<1000/fps)return;const elapsed=last?Math.min(.2,(now-last)/1000):1/fps;last=now;if(!paused)phase+=elapsed;ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
 
   // Deterministic deep-space field; no extra animation loop or asset downloads.
-  for(let star=0;star<720;star++){
+  for(let star=0;star<(window.JarvisHands?.running?240:720);star++){
     const sx=(star*197.31)%1100,sy=(star*97.93)%650;
     ctx.globalAlpha=.3+.55*(.5+.5*Math.sin(phase*.7+star));
     ctx.fillStyle=star%13===0?'#ffcf79':star%5===0?'#54caff':'#e6f7ff';

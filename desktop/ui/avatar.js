@@ -152,7 +152,7 @@ function particles() {
   x.fillStyle='#020912';x.fillRect(0,0,960,540);
   const glow=x.createRadialGradient(478,250,10,478,250,300);glow.addColorStop(0,'#102239');glow.addColorStop(1,'#020912');x.fillStyle=glow;x.fillRect(260,0,440,540);
   // Deterministic deep-space field; no extra animation loop or asset downloads.
-  for(let star=0;star<(window.JarvisHandMouseActive?180:420);star++){
+  for(let star=0;star<(hand().running?120:420);star++){
     const sx=(star*197.31)%960,sy=(star*97.93)%540;
     x.globalAlpha=.3+.55*(.5+.5*Math.sin(phase*.7+star));
     x.fillStyle=star%13===0?'#ffcf79':star%5===0?'#54caff':'#e6f7ff';
@@ -185,7 +185,7 @@ function particles() {
     x.beginPath();x.ellipse(cx,cy,radius+12+ring*12,radius+12+ring*12,0,0,Math.PI*2);
     x.strokeStyle=['#65eeff','#ffd878','#36a8ff','#54ffbd','#ffad38'][ring%5]+'b0';x.lineWidth=ring===0?1.5:.7;x.stroke();
   }
-  const bands=window.JarvisHandMouseActive?8:particleMode?18:8;
+  const bands=hand().running?8:particleMode?18:8;
   for(let k=0;k<bands;k++){
     const tilt=k*Math.PI/bands+turn,pts=[];
     for(let j=0;j<=90;j++){
@@ -238,7 +238,7 @@ function loop(time) {
   const speaking = voice.active || (voice.clock && voice.clock.playing);
   // Con voz real se dibuja a la frecuencia de pantalla (no a 25 cuadros) para no sumar hasta 40 ms de retraso.
   // Con movimiento reducido, solo se mueve la boca mientras habla.
-  if (document.hidden || !avatarVisible || time - lastFrame < (speaking ? 0 : window.JarvisHandMouseActive ? 67 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
+  if (document.hidden || !avatarVisible || time - lastFrame < (speaking ? 0 : hand().running ? 67 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
   lastFrame = time;
   if (!paused) t += 1;
   if (!paused) blink = Math.max(0, blink - 0.07);

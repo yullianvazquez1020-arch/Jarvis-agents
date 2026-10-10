@@ -47,7 +47,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8"}
 LAUNCH_TTL = 120
@@ -56,7 +56,7 @@ WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
             "VOICE_TTS_BACKEND": "none", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop")}
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop")}
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
 SLOW_MS = 1500
@@ -383,6 +383,7 @@ class Companion:
             p = self.pairing
             return {"version": VERSION, "demo": self.demo, "server_configured": bool(self.client.url),
                     "paired": bool(self._token()), "server_version": self.server_version,
+                    "startup": {"camera": truthy(self.cfg.get("VOICE_AUTO_CAMERA", "false")), "audio": truthy(self.cfg.get("VOICE_STARTUP_AUDIO", "false"))},
                     "stt": {"engine": self.stt.name, "problem": self.stt.problem()},
                     "tts": {"engine": self.tts.name, "problem": self.tts.problem()},
                     "processing": "Todo el audio se procesa en esta Mac" if self.stt.name != "none" else
