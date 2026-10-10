@@ -118,7 +118,14 @@ async def claude(prompt,web=False):
     if not _core.AI_READY: raise ValueError('Claude no está configurado')
     reserve('claude')
     kw={'model':env('CLAUDE_REVIEW_MODEL',_core.MODEL),'max_tokens':1800,'system':SYSTEM,'messages':[{'role':'user','content':text(prompt,16000)}]}
-    if web: kw['tools']=[_core.WEB_SEARCH_TOOL]
+    if not web:
+        # Text only: single gate _core.llm_text (Anthropic as before, or the router if the owner turns it on).
+        out=await _core.llm_text(SYSTEM,kw['messages'][0]['content'],kw['max_tokens'],kw['model'])
+        answer=clean(out.text).strip()
+        if not answer: raise ValueError('Claude no devolvió texto')
+        usage(out.tokens)
+        return {'text':answer,'provider':'claude' if out.backend=='anthropic' else 'router','model':out.model,'web_search_used':False,'sources':[],'incomplete':out.truncated}
+    kw['tools']=[_core.WEB_SEARCH_TOOL]
     r=await _core.client.messages.create(**kw)
     answer=clean(''.join(b.text for b in r.content if b.type=='text')).strip()
     if not answer: raise ValueError('Claude no devolvió texto')
