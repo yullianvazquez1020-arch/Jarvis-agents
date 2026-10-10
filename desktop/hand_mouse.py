@@ -59,7 +59,7 @@ class MacPointer:
         self.button_held = False
 
     def click(self):
-        self.gui.click(button="left", clicks=1)
+        self.gui.click(button="left", clicks=1, _pause=False)
 
 
 class HandMouse:
@@ -80,6 +80,7 @@ class HandMouse:
         self.deadline = 0
         self.target = None
         self.last_seq = -1
+        self.motion_at = None
         self.mode = "move"
         self.dragging = False
         self.drag_offset = (0, 0)
@@ -154,6 +155,7 @@ class HandMouse:
             self.owner, self.lease = owner, secrets.token_urlsafe(24)
             self.deadline = self.clock() + self.TTL
             self.last_seq = -1
+            self.motion_at = self.clock() - .020
             self.target = None
             self.mode = {"SOLO_MOVER_60S":"move", "MOVER_Y_CLIC_60S":"click",
                          "DESPLAZAR_60S":"scroll", "ARRASTRAR_60S":"drag"}[data["confirm"]]
@@ -302,6 +304,9 @@ class HandMouse:
                 if self.pointer.escape():
                     self._stop("Detenido con Escape.")
                     return
+                moment = self.clock()
+                dt = min(.040, max(0.0, moment - self.motion_at)) if self.motion_at is not None else .020
+                self.motion_at = moment
                 px, py = self.pointer.position()
                 if not (2 < px < self.width - 3 and 2 < py < self.height - 3):
                     self._stop("Detenido al llevar el puntero al borde o a otra pantalla.")
@@ -350,18 +355,20 @@ class HandMouse:
                 # Continuous gain avoids a speed jump at a threshold; no prediction.
                 if error <= 2:
                     return
-                gain = 0.18 + 0.38 * min(1.0, error / 300.0)
+                base_gain = 0.18 + 0.38 * min(1.0, error / 300.0)
+                gain = 1 - (1 - base_gain) ** (dt / .020)
                 dx, dy = (tx - px) * gain, (ty - py) * gain
                 distance = math.hypot(dx, dy)
-                if distance > 90:
-                    dx, dy = dx * 90 / distance, dy * 90 / distance
+                limit = 4500 * dt
+                if distance > limit:
+                    dx, dy = dx * limit / distance, dy * limit / distance
                 if math.hypot(dx, dy) >= 1:
                     self.pointer.move(round(px + dx), round(py + dy))
             except Exception:
                 self._stop("El control del puntero falló y se apagó. Revisa Accesibilidad.")
 
     def _loop(self):
-        while not self.closed.wait(0.020):
+        while not self.closed.wait(0.016):
             self.tick()
 
     def close(self):

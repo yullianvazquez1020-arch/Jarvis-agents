@@ -14,3 +14,7 @@ Un gesto sostenido ejecuta su comando una vez. Suelta o cambia de gesto para rep
 La Torre limita el canvas a 24 FPS, no dibuja con la pestaña oculta y congela el canvas en pausa. El suavizado de navegación y zoom se calcula según el tiempo entre cuadros.
 
 Comprobado con landmarks y navegador simulados; falta medir la precisión y el rendimiento con la cámara en Safari de la Mac 2015. Las mejoras del escritorio necesitan actualizar los archivos locales y reiniciar app.py; Render sirve el agente remoto.
+
+El mouse recibe cada detección al terminar el análisis, sin esperar el sondeo de 40 ms. Si una petición sigue en curso, se conserva solo la muestra más reciente. El movimiento nativo usa suavizado por tiempo y pasos limitados, sin predecir posiciones; el clic evita la pausa adicional de PyAutoGUI. No se renuevan permisos ni se activa el control automáticamente.
+
+Las pruebas simuladas comparan ritmos de 8, 16, 24 y 40 ms, límite de velocidad, temblor, muestras antiguas, fallos, parada y pérdida de seguimiento. Esto verifica el código, pero no mide la latencia real de cámara y Safari.
