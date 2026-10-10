@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Jarvis · Torre</title>
+  <link rel="stylesheet" href="/ui/torre.css">
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="rig">
+    <div class="cam" id="cam">
+      <img src="/ui/torre.jpg" alt="Torre flotante de muchos pisos con ventanas encendidas, suspendida sobre nubes y un valle con granjas, ríos y ciudades bajo un cielo nocturno con luna">
+      <canvas id="stars" aria-hidden="true"></canvas>
+      <div class="rays" aria-hidden="true"></div>
+      <div class="halo" aria-hidden="true"></div>
+      <div id="lamps" aria-hidden="true"></div>
+      <div class="flash" id="flash" aria-hidden="true"></div>
+    </div>
+  </div>
+  <canvas class="fog" id="fog" aria-hidden="true"></canvas>
+  <div class="grade" aria-hidden="true"></div>
+  <div class="grain" id="grain" aria-hidden="true"></div>
+  <div class="bar top" aria-hidden="true"></div><div class="bar bot" aria-hidden="true"></div>
+
+  <div class="title">
+    <h1>JARVIS</h1>
+    <p>Torre de mando · ISLAFIX PRO LLC · Puerto Rico</p>
+  </div>
+
+  <div class="hud">
+    <div class="tl">
+      <div><span class="rec" aria-hidden="true"></span><b>ESCENA LOCAL</b> <span class="x">· Toma 1 · Cámara aérea</span></div>
+      <div id="clock">--:--:-- AST</div>
+    </div>
+    <div class="tr">
+      <div class="agents"><span class="lead">Jarvis</span><span>ChatGPT</span><span>Grok</span><span>Claude</span></div>
+      <div>Un agente a la vez · el dueño confirma</div>
+      <div class="x">Imagen artística · no muestra métricas</div>
+    </div>
+  </div>
+
+  <nav class="ctl" aria-label="Controles de la torre">
+    <a href="/">Conversación</a>
+    <a href="/avatar">Órbita</a>
+    <button id="bPlay" type="button">Pausa</button>
+    <button id="bHud" type="button">Ocultar texto</button>
+    <button id="bFull" type="button">Pantalla completa</button>
+  </nav>
+</div>
+<script src="/ui/torre.js"></script>
+</body>
+</html>
