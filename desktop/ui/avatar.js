@@ -254,7 +254,7 @@ function loop(time) {
   // Con movimiento reducido, solo se mueve la boca mientras habla.
   if (document.hidden || !avatarVisible) return;
   const currentHand = hand();
-  if (time - lastFrame < (speaking ? 0 : currentHand.running ? 67 : 40) || (paused && lastFrame && !currentHand.seen && !speaking && !talking && talk === 0)) {
+  if (time - lastFrame < (speaking ? 0 : currentHand.running ? (paused ? 250 : 125) : 40) || (paused && lastFrame && !currentHand.seen && !speaking && !talking && talk === 0)) {
     if (lastHandStamp !== currentHand.updatedAt || lastHandSeen !== Boolean(currentHand.seen)) drawHandInset(currentHand);
     return;
   }

@@ -38,7 +38,7 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   const context = {
     Event: class { constructor(type) { this.type = type; } },
     document: { dispatchEvent: event => { events.lastDetectionEvent = event.type; }, hidden: false, getElementById: id => elements[id], createElement: tag => {
-      const e = element(); if (tag === 'select') chooser = e; return e;
+      const e = element(); if (tag === 'select' && !chooser) chooser = e; return e;
     } },
     navigator: { mediaDevices: {
       enumerateDevices: async () => typeof cameraList === 'function' ? cameraList() : cameraList,
@@ -152,13 +152,13 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
     .replace('import(VISION + "/vision_bundle.mjs")', 'Promise.resolve(testVision)');
   const messages = [];
   let throwInference = false, closed = 0;
-  const workerContext = { self: {postMessage: m => messages.push(m)}, OffscreenCanvas: class {},
+  const workerContext = { performance: {now:()=>100}, self: {postMessage: m => messages.push(m)}, OffscreenCanvas: class {},
     testVision: { FilesetResolver: { forVisionTasks: async () => ({}) }, HandLandmarker: { createFromOptions: async () => ({
       detectForVideo: () => { if (throwInference) throw new Error('inference failure'); return {landmarks:[]}; }
     }) } }
   };
   vm.runInNewContext(workerSource, workerContext);
-  await workerContext.self.onmessage({data:{type:'init'}});
+  await workerContext.self.onmessage({data:{type:'init',delegate:'CPU'}});
   assert.equal(messages.pop().type, 'ready');
   await workerContext.self.onmessage({data:{type:'frame', id:7, timestamp:100, bitmap:{close(){closed++;}}}});
   assert.equal(messages.pop().id, 7);
@@ -166,5 +166,32 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   await workerContext.self.onmessage({data:{type:'frame', id:8, timestamp:200, bitmap:{close(){closed++;}}}});
   assert.equal(messages.pop().type, 'error');
   assert.equal(closed, 2);
+  // Real worker protocol with mocked engines: GPU selection, fallback, and no stale replay.
+  async function gpuCase(failInit, failFrame, hands) {
+    const outputs=[], delegates=[]; let bitmapClosed=0, detectorClosed=0;
+    const context={performance:{now:()=>100}, OffscreenCanvas:class{}, self:{postMessage:m=>outputs.push(m)},
+      testVision:{FilesetResolver:{forVisionTasks:async()=>({})},HandLandmarker:{createFromOptions:async(_,options)=>{
+        delegates.push(options.baseOptions.delegate);
+        assert.equal(options.numHands,hands);
+        if(failInit && options.baseOptions.delegate==='GPU')throw Error('no GPU');
+        return {close(){detectorClosed++;},detectForVideo(){
+          if(failFrame && options.baseOptions.delegate==='GPU')throw Error('context lost');
+          return {landmarks:[],handedness:[]};
+        }};
+      }}}};
+    vm.runInNewContext(workerSource,context);
+    await context.self.onmessage({data:{type:'init',numHands:hands}});
+    assert.equal(outputs[0].backend,failInit?'CPU':'GPU');
+    await context.self.onmessage({data:{type:'frame',id:1,timestamp:1,bitmap:{close(){bitmapClosed++;}}}});
+    assert.equal(outputs[1].type,'result');
+    assert.equal(outputs[1].backend,failInit||failFrame?'CPU':'GPU');
+    assert.equal(bitmapClosed,1);
+    assert.deepEqual(delegates,failInit||failFrame?['GPU','CPU']:['GPU']);
+    if(failFrame){assert.equal(detectorClosed,1);assert.equal(outputs[1].landmarks.length,0);}
+  }
+  await gpuCase(false,false,2);
+  await gpuCase(true,false,1);
+  await gpuCase(false,true,2);
+  console.log('PASS: GPU, CPU fallback on startup/context loss, one/two hands, bitmap release');
   console.log('PASS: worker aislado, arranque colgado, cuadro colgado, cola de un cuadro, parada; Brio exacta, audio apagado, selección explícita, Escape, ausencia de Brio, cancelación y error visible.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

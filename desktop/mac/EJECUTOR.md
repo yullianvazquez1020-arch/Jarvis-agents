@@ -85,3 +85,22 @@ Este servicio mantiene el panel y sus consultas de estado. No genera tareas, no 
 continuo y no vuelve a ejecutar `ordenes_confirmadas.jsonl`. El mouse sigue necesitando órdenes concretas,
 permisos de un uso y sesión vigente. Los recordatorios y la práctica programada del servidor dependen
 de su propia configuración y no necesitan el mouse local.
+
+
+### Comparar la fluidez de manos
+
+En Avatar, «Aceleración automática» intenta GPU y vuelve a CPU si falla; «CPU · comparar»
+permite medir el mismo recorrido sin GPU. No se elige el motor por una estimación de velocidad:
+el indicador muestra cuál está funcionando realmente. «Una mano · menor carga» limita el detector
+a una mano y desactiva de hecho el zoom con ambas; «Dos manos · zoom» conserva el seguimiento doble.
+Cambiar una opción detiene la cámara y el modo de mouse; después pulsa Activar mano.
+
+Muestra la palma durante al menos 10 segundos por configuración y compara «ms/cuadro» y
+«detecciones/s» junto a los botones. El detalle debajo del video separa el tiempo interno del
+motor («detector») del tiempo de captura, preparación, detección y entrega («análisis»).
+Ninguno mide la latencia física completa desde el movimiento hasta la pantalla. La tasa se
+calcula con los últimos 30 resultados y se reinicia al apagar. No son números simulados.
+
+La escena decorativa baja a 8 FPS con cámara (4 si está pausada); las manos conservan su
+redibujado independiente con cada resultado. Audio activo mantiene su actualización anterior.
+No se promete 30 FPS ni latencia cero: hay que medir cada navegador y equipo físico.

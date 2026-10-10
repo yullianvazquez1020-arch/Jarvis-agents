@@ -38,6 +38,39 @@
   selector.appendChild(automatic);
   if (button) button.parentNode.appendChild(selector);
   if (video && status) status.parentNode.insertBefore(video, status);
+  function choice(id, label, options, initial) {
+    var select = document.createElement("select");
+    select.id = id; select.setAttribute("aria-label", label);
+    options.forEach(function(pair) {
+      var option = document.createElement("option");
+      option.value = pair[0]; option.textContent = pair[1]; select.appendChild(option);
+    });
+    select.value = initial;
+    try { var saved = localStorage.getItem(id); if (options.some(function(p) { return p[0] === saved; })) select.value = saved; } catch (_) {}
+    select.onchange = function() {
+      try { localStorage.setItem(id, select.value); } catch (_) {}
+      stop(); say("Opción guardada. Pulsa Activar mano. Una mano reduce carga; dos permiten zoom con ambas.");
+    };
+    if (button) button.parentNode.appendChild(select);
+    return select;
+  }
+  var compute = choice("jarvis-hand-compute-v1", "Procesamiento de manos", [["AUTO", "Aceleración automática"], ["CPU", "CPU · comparar"]], "AUTO");
+  var capacity = choice("jarvis-hand-count-v1", "Número de manos", [["1", "Una mano · menor carga"], ["2", "Dos manos · zoom"]], "2");
+  var meter = document.createElement("span");
+  meter.id = "hand-performance";
+  meter.style = "display:inline-block;font-size:14px;padding:8px;color:#b5ffdc";
+  if (button) button.parentNode.appendChild(meter);
+  var resultTimes = [], lastStatusAt = 0;
+  function measurements() {
+    var now = performance.now();
+    resultTimes.push(now); if (resultTimes.length > 30) resultTimes.shift();
+    state.fps = resultTimes.length > 1 ? Math.round(10000 * (resultTimes.length - 1) / Math.max(1, now - resultTimes[0])) / 10 : 0;
+    meter.textContent = state.backend + " · " + state.inferenceMs + " ms/cuadro · " + (state.fps || "—") + " detecciones/s";
+    if (now - lastStatusAt >= 250) {
+      lastStatusAt = now;
+      say("Cámara: " + state.camera + " · " + state.count + " mano(s) · análisis " + state.inferenceMs + " ms · detector " + (state.detectorMs == null ? "—" : state.detectorMs) + " ms · " + state.backend + (state.fallbackReason ? " · " + state.fallbackReason : "") + ". Control de una mano, sin cambio automático.");
+    }
+  }
   var savedCamera = "";
   try { savedCamera = localStorage.getItem("jarvis-hand-camera-v1") || ""; } catch (_) {}
   selector.onchange = function () {
@@ -121,7 +154,7 @@
     apply(selected.points);
     state.hands = candidates.map(function(item) { return {label:item.label, active:item===selected, landmarks:item.points.map(function(p) { return {x:1-p.x,y:p.y}; })}; });
     state.count = state.hands.length;
-    say("Cámara: " + state.camera + " · " + state.count + " mano(s) · análisis " + state.inferenceMs + " ms · control de una mano, sin cambio automático.");
+
   }
 
   function fail(message) { stop(); say(message); }
@@ -137,6 +170,8 @@
           clearTimeout(watchdog);
           watchdog = null;
           rejectReady = null;
+          state.backend = message.backend || "CPU";
+          state.fallbackReason = message.fallbackReason || "";
           resolve();
         } else if (message.type === "error") {
           fail("Detector detenido: " + message.message);
@@ -145,8 +180,12 @@
           watchdog = null;
           busy = false;
           state.inferenceMs = Math.round(Math.max(1,performance.now()-lastDetection));
+          state.backend = message.backend || state.backend;
+          state.fallbackReason = message.fallbackReason || "";
+          state.detectorMs = Number.isFinite(message.detectorMs) ? Math.round(message.detectorMs) : null;
           if (document.hidden || performance.now() - lastDetection > 350) decay();
           else applyResult(message);
+          measurements();
           // Notify the pointer bridge immediately; the capture timestamp stays unchanged.
           document.dispatchEvent(new Event("jarvis-hand-frame"));
         }
@@ -159,7 +198,7 @@
       watchdog = setTimeout(function () {
         if (ticket === generation) fail("La carga del detector superó 40 segundos. Se detuvo; puedes volver a intentarlo.");
       }, 40000);
-      worker.postMessage({ type: "init" });
+      worker.postMessage({ type: "init", delegate: compute.value, numHands: Number(capacity.value) });
     });
   }
 
@@ -208,6 +247,9 @@
     loading = false;
     running = false;
     state.running = false;
+    resultTimes = []; state.fps = 0; lastStatusAt = 0;
+    meter.textContent = "Cámara apagada";
+    document.dispatchEvent(new Event("jarvis-hand-frame"));
     state.camera = "";
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = null;
