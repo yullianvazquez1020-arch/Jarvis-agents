@@ -21,3 +21,5 @@ read('talking=false;window.JarvisHands.seen=false;for(let n=600;n<4000;n+=50)loo
 els.motion.onclick();read('loop(4100)');assert.ok(read('t')>frozen,'resume continues phase');
 assert.match(els['animation-status'].textContent,/activa/);
 console.log('PASS: pause with hand, face toggle, persistent smile toggle, mouth during pause, resume');
+
+const beforeHidden=read('t');read('avatarVisible=false;loop(4200)');assert.equal(read('t'),beforeHidden,'off-screen body skips rendering');read('avatarVisible=true;lastFrame=0;loop(4300)');assert.ok(read('t')>beforeHidden,'body resumes on return');console.log('PASS: off-screen rendering suspension and resume');

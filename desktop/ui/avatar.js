@@ -253,13 +253,22 @@ function particles() {
   x.fillStyle='#91cadb';x.font='9px monospace';x.fillText(voice.active?'SEÑAL DE VOZ RECIBIDA':talking?'PRUEBA VISUAL SIN AUDIO':'ANIMACIÓN AMBIENTE',728,489);
 }
 
+// Do not render the off-screen body while the tower occupies the viewport.
+// Camera inference and native pointer control run independently.
+let avatarVisible = true;
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(entries => {
+    avatarVisible = entries[0].isIntersecting;
+    if (avatarVisible) { lastFrame = 0; lastVoice = 0; }
+  }, {rootMargin: '80px'}).observe(c);
+}
 let lastVoice = 0;
 function loop(time) {
   requestAnimationFrame(loop);
   const speaking = voice.active || (voice.clock && voice.clock.playing);
   // Con voz real se dibuja a la frecuencia de pantalla (no a 25 cuadros) para no sumar hasta 40 ms de retraso.
   // Con movimiento reducido, solo se mueve la boca mientras habla.
-  if (document.hidden || time - lastFrame < (speaking ? 0 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
+  if (document.hidden || !avatarVisible || time - lastFrame < (speaking ? 0 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
   lastFrame = time;
   if (!paused) t += 1;
   if (!paused) blink = Math.max(0, blink - 0.07);
