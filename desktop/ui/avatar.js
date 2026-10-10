@@ -128,7 +128,7 @@ function brain(cx,cy,s,phase) {
 function panel(px,py,w,h,title,subtitle) {
   x.fillStyle='#03121dd9';x.fillRect(px,py,w,h);x.strokeStyle='#205069';x.lineWidth=.6;x.strokeRect(px,py,w,h);
   x.fillStyle='#0c3042';x.fillRect(px,py,w,21);x.fillStyle='#a0e8f2';x.font='9px monospace';x.fillText(title,px+9,py+14);
-  x.fillStyle='#5f94a8';x.font='8px monospace';x.fillText(subtitle,px+9,py+h-9);
+  x.fillStyle='#9dbad7';x.font='8px monospace';x.fillText(subtitle,px+9,py+h-9);
   x.strokeStyle='#76dce8';x.beginPath();x.moveTo(px,py+7);x.lineTo(px,py);x.lineTo(px+7,py);x.stroke();
 }
 function particles() {
@@ -148,10 +148,10 @@ function particles() {
   // Original orbital identity: projected luminous sphere, no humanoid anatomy.
   const cx=478,cy=250,radius=145+talk*12,turn=phase*.16;
   const halo=x.createRadialGradient(cx,cy,5,cx,cy,230);
-  halo.addColorStop(0,'#baffff22');halo.addColorStop(.62,'#6ce4ff18');halo.addColorStop(1,'#040c1800');x.fillStyle=halo;x.fillRect(cx-230,cy-230,460,460);
+  halo.addColorStop(0,'#c6ffff38');halo.addColorStop(.4,'#65eeff28');halo.addColorStop(.72,'#bd8aff28');halo.addColorStop(1,'#040c1800');x.fillStyle=halo;x.fillRect(cx-230,cy-230,460,460);
   for(let ring=0;ring<7;ring++){
     x.beginPath();x.ellipse(cx,cy,radius+12+ring*12,radius+12+ring*12,0,0,Math.PI*2);
-    x.strokeStyle=ring%2?'#e5c38388':'#88eafa88';x.lineWidth=ring===0?1.5:.7;x.stroke();
+    x.strokeStyle=['#65eeff','#ffd878','#bd8aff','#54ffbd','#ff69ce'][ring%5]+'b0';x.lineWidth=ring===0?1.5:.7;x.stroke();
   }
   const bands=particleMode?18:8;
   for(let k=0;k<bands;k++){
@@ -160,16 +160,16 @@ function particles() {
       const angle=j*Math.PI/45,xx=Math.cos(angle)*radius,yy=Math.sin(angle)*radius;
       pts.push([cx+xx*Math.cos(tilt)-yy*.28*Math.sin(tilt),cy+xx*Math.sin(tilt)+yy*.28*Math.cos(tilt)]);
     }
-    strokePath(pts,k%4===0?'#ffe2a0':'#c3ffff',.8,.4+talk*.25);
+    strokePath(pts,['#d6ffff','#65eeff','#ffd878','#bd8aff','#ff69ce'][k%5],.8,.55+talk*.25);
   }
   for(let i=0;i<85;i++){
     const latitude=Math.asin(-1+2*(i+.5)/85),angle=i*2.399963+turn;
     const xx=cx+Math.cos(angle)*Math.cos(latitude)*radius,yy=cy+Math.sin(latitude)*radius;
-    x.fillStyle=i%9===0?'#ffe6a0':'#c7ffff';x.beginPath();x.arc(xx,yy,1.2+talk,0,7);x.fill();
+    x.fillStyle=['#edffff','#65eeff','#ffd878','#bd8aff','#54ffbd'][i%5];x.beginPath();x.arc(xx,yy,1.2+talk,0,7);x.fill();
   }
   const core=x.createRadialGradient(cx,cy,0,cx,cy,30+talk*30);
   core.addColorStop(0,smile?'#fff1bd':'#e8ffff');core.addColorStop(.15,'#bdffffaa');core.addColorStop(1,'#a2ffff00');x.fillStyle=core;x.fillRect(cx-65,cy-65,130,130);
-  x.fillStyle='#d9f7ff';x.font='11px monospace';x.fillText('Ó R B I T A',432,29);x.fillStyle='#689bb0';x.font='8px monospace';x.fillText('NÚCLEO ORBITAL · VISUAL',391,44);
+  x.fillStyle='#d9f7ff';x.font='11px monospace';x.fillText('Ó R B I T A',432,29);x.fillStyle='#9dbad7';x.font='8px monospace';x.fillText('NÚCLEO ORBITAL · VISUAL',391,44);
   // Facial detail; mouth uses the exact existing voice follower.
   for(let ring=0;ring<8;ring++){const pts=[];for(let j=0;j<=60;j++){const a=j*Math.PI/30;pts.push([130+Math.cos(a)*(22+ring*6),337+Math.sin(a)*(22+ring*6)]);}strokePath(pts,ring%2?'#ffe2a0':'#aaffff',.6,.5);}
   // Hand inset displays real landmarks only, never fabricated sensor values.
