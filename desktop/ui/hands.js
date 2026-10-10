@@ -30,12 +30,17 @@
   selector.appendChild(automatic);
   if (button) button.parentNode.appendChild(selector);
   if (video && status) status.parentNode.insertBefore(video, status);
-  selector.onchange = function () { stop(); say("Cámara seleccionada. Pulsa Activar mano."); };
+  var savedCamera = "";
+  try { savedCamera = localStorage.getItem("jarvis-hand-camera-v1") || ""; } catch (_) {}
+  selector.onchange = function () {
+    savedCamera = selector.value;
+    try { localStorage.setItem("jarvis-hand-camera-v1", savedCamera); } catch (_) {}
+    stop(); say("Cámara seleccionada. Pulsa Activar mano."); };
 
   function release(s) { if (s) s.getTracks().forEach(function (t) { t.stop(); }); }
 
   async function cameraStream(ticket) {
-    var selected = selector.value;
+    var selected = selector.value || savedCamera;
     var devices = await navigator.mediaDevices.enumerateDevices();
     if (ticket !== generation) throw new Error("Inicio cancelado");
     // Labels may require a camera permission first. Release that temporary stream.

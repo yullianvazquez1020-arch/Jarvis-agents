@@ -42,7 +42,7 @@ class MovementPolicy(unittest.TestCase):
         self.control.tick()
         self.assertEqual(len(self.pointer.moves), 1)
         self.assertLess(self.pointer.pos[0], 1900)
-        self.assertLessEqual(math.dist((1900,500),self.pointer.pos),61)
+        self.assertLessEqual(math.dist((1900,500),self.pointer.pos),91)
 
     def test_no_motion_without_frame_or_after_freshness_window(self):
         self.control.tick(); self.assertEqual(self.pointer.moves, [])
@@ -240,3 +240,20 @@ class NativeMovementPacing(unittest.TestCase):
         pointer.gui.moveTo.assert_called_once_with(400, 300, duration=0, _pause=False)
         pointer.click()
         pointer.gui.click.assert_called_once_with(button="left", clicks=1)
+
+
+class AdaptiveMovement(unittest.TestCase):
+    def test_precision_tremor_and_long_reach(self):
+        for offset in (1, 20, 300, 1600):
+            p = Pointer()
+            c = HandMouse(True, lambda:p, lambda:1000, lambda:1000, False)
+            lease = c.arm("owner", {"confirm":"SOLO_MOVER_60S"})["lease"]
+            start=p.pos
+            c.frame("owner",dict(lease=lease,seq=1,x=(start[0]+offset-12)/(3840-25),
+                                 y=(start[1]-12)/(1080-25),captured_ms=1000000))
+            c.tick()
+            moved=p.pos[0]-start[0]
+            if offset==1: self.assertEqual(moved,0)
+            elif offset==20: self.assertTrue(1<=moved<=5)
+            else: self.assertTrue(60<moved<=90)
+            self.assertLessEqual(moved,offset)

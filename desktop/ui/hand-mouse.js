@@ -20,8 +20,46 @@
   practice.onclick = () => { practice.textContent = 'Probar clic · ' + (++practiceClicks); };
   status.insertAdjacentElement('afterend', practice);
   let lease = '', pending = false, busy = false, generation = 0, seq = 0, lastSample = 0;
-  let clickMode = false;
+  let clickMode = false, mode = 'move';
   window.JarvisHandMouseActive = false;
+  const profileKey = 'jarvis-hand-profile-v1';
+  let profile = {span:.8, cx:.5, cy:.5};
+  try {
+    const saved = JSON.parse(localStorage.getItem(profileKey) || 'null');
+    if (saved && [.5,.65,.8,1].includes(saved.span) &&
+        Number.isFinite(saved.cx) && Number.isFinite(saved.cy) &&
+        saved.cx>=.2 && saved.cx<=.8 && saved.cy>=.2 && saved.cy<=.8) profile = saved;
+  } catch (_) {}
+  function saveProfile() { try { localStorage.setItem(profileKey, JSON.stringify(profile)); } catch (_) {} }
+  function extra(label) {
+    const e = document.createElement('button'); e.type='button'; e.textContent=label;
+    handsButton.parentNode.appendChild(e); return e;
+  }
+  const scrollButton = extra('Desplazar con dos dedos · 60 s');
+  const dragButton = extra('Arrastrar con pinza · 60 s');
+  const calibrate = extra('Calibrar centro');
+  const resetProfile = extra('Restablecer calibración');
+  const sensitivity = document.createElement('select');
+  sensitivity.setAttribute('aria-label','Recorrido de la mano');
+  for (const [value,label] of [[.5,'Recorrido corto'],[.65,'Recorrido medio'],[.8,'Recorrido normal'],[1,'Recorrido amplio']]) {
+    const option=document.createElement('option');option.value=String(value);option.textContent=label;
+    sensitivity.appendChild(option);
+  }
+  sensitivity.value=String(profile.span);handsButton.parentNode.appendChild(sensitivity);
+  sensitivity.onchange=()=>{stop('Calibración guardada. Activa el modo deseado.');profile.span=Number(sensitivity.value);saveProfile();};
+  calibrate.onclick=()=>{
+    stop('Calibración: muestra el índice en el centro cómodo de tu alcance.');
+    const h=window.JarvisHands,p=h?.landmarks?.[8];
+    if(!h?.seen || performance.now()-h.updatedAt>300 || !p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    profile.cx=Math.max(.2,Math.min(.8,p.x));profile.cy=Math.max(.2,Math.min(.8,p.y));saveProfile();
+    status.textContent='Centro guardado. Activa el mouse; puedes elegir un recorrido más corto.';
+  };
+  resetProfile.onclick=()=>{stop('Calibración restablecida.');profile={span:.8,cx:.5,cy:.5};sensitivity.value='.8';saveProfile();};
+  const cursor = document.createElement('span');cursor.className='hand-cursor-status';cursor.textContent='Pausado';
+  handsButton.parentNode.appendChild(cursor);
+  // In-page indicator follows the physical pointer while it is inside this window.
+  addEventListener('mousemove',event=>{cursor.style.left=Math.min(innerWidth-160,event.clientX+18)+'px';cursor.style.top=Math.max(8,event.clientY+18)+'px';});
+
 
   async function post(action, data, keepalive = false) {
     const response = await fetch('/api/hand-mouse/' + action, {
@@ -36,7 +74,7 @@
     generation++; pending = false; lease = ''; busy = false;
     window.JarvisHandMouseActive = false;
     button.textContent = 'Mover mouse de Mac · prueba 60 s'; button.setAttribute('aria-pressed','false');
-    clickMode = false;
+    clickMode = false; mode='move'; cursor.textContent='Pausado';
     clickButton.textContent = 'Mover + clic con pinza · 60 s'; clickButton.setAttribute('aria-pressed','false');
     status.textContent = text;
   }
@@ -45,25 +83,36 @@
     stopped(text);
     if (old) post('stop', {lease:old}, true).catch(() => {});
   }
-  async function activate(withClick) {
+  async function activate(requestedMode) {
+    const withClick = requestedMode === 'click' || requestedMode === 'drag';
     if (lease || pending) { stop(); return; }
     if (!window.JarvisHands?.running) { status.textContent = 'Primero activa la cámara y comprueba que detecta tu mano.'; return; }
-    if (withClick && !window.confirm('Activar clic izquierdo real por 60 segundos: abre los dedos, apunta y junta pulgar e índice durante medio segundo. Prueba sobre una zona vacía, lejos de botones de envío o compra. Escape detiene. ¿Activar?')) return;
-    clickMode = withClick;
+    if (withClick && requestedMode === 'click' && !window.confirm('Activar clic izquierdo real por 60 segundos: abre los dedos, apunta y junta pulgar e índice durante medio segundo. Prueba sobre una zona vacía, lejos de botones de envío o compra. Escape detiene. ¿Activar?')) return;
+    if(requestedMode==='drag' && !window.confirm('Arrastre real por 60 segundos. Abre los dedos, apunta, mantén la pinza medio segundo y mueve la mano. Abre para soltar. Escape y pérdida de mano sueltan el objeto. ¿Activar?')) return;
+    if(requestedMode==='scroll' && !window.confirm('Desplazamiento real por 60 segundos. Extiende índice y medio; recoge los otros dedos. Escape detiene. ¿Activar?')) return;
+    mode=requestedMode; clickMode = withClick;
     const ticket = ++generation;
     pending = true; button.textContent = 'Cancelar prueba de mouse';
     try {
-      const result = await post('arm', {confirm:withClick ? 'MOVER_Y_CLIC_60S' : 'SOLO_MOVER_60S'});
+      const result = await post('arm', {confirm:{move:'SOLO_MOVER_60S',click:'MOVER_Y_CLIC_60S',scroll:'DESPLAZAR_60S',drag:'ARRASTRAR_60S'}[mode]});
       if (ticket !== generation) { post('stop', {lease:result.lease}, true).catch(() => {}); return; }
       pending = false; lease = result.lease; seq = 0; lastSample = 0;
       window.JarvisHandMouseActive = true;
       button.textContent = 'Detener mouse de Mac'; button.setAttribute('aria-pressed','true');
       clickButton.textContent = 'Detener mouse de Mac'; clickButton.setAttribute('aria-pressed', withClick ? 'true' : 'false');
-      status.textContent = `${withClick ? 'Abre pulgar e índice primero; pinza sostenida hace clic' : 'Solo mover'} · ${result.width}×${result.height} · máximo 60 s. Escape o borde de pantalla detienen.`;
+      status.textContent = `${{move:'Solo mover',click:'Abre los dedos; pinza sostenida hace clic',drag:'Pinza sostenida toma; abre para soltar',scroll:'Extiende índice y medio y muévelos verticalmente'}[mode]} · ${result.width}×${result.height} · máximo 60 s. Escape o borde de pantalla detienen.`;
     } catch (error) { if (ticket === generation) stopped(error.message); }
   }
-  button.onclick = () => activate(false);
-  clickButton.onclick = () => activate(true);
+  button.onclick = () => activate('move');
+  clickButton.onclick = () => activate('click');
+  scrollButton.onclick=()=>activate('scroll');
+  dragButton.onclick=()=>activate('drag');
+  function twoFingers(points) {
+    if(!points || points.length!==21 || !points.every(p=>p && Number.isFinite(p.x) && Number.isFinite(p.y))) return false;
+    const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+    const extended=(tip,pip)=>d(points[tip],points[0])>d(points[pip],points[0])*1.12;
+    return extended(8,6) && extended(12,10) && !(extended(16,14) && extended(20,18));
+  }
   async function tick() {
     if (!lease || busy) return;
     const h = window.JarvisHands;
@@ -80,11 +129,16 @@
       }
       valid = Number.isFinite(ratio);
     }
-    if (!valid && !clickMode) return;
+    if (!valid && !clickMode && mode!=='scroll') return;
     const payload = {lease, seq:++seq,
-      x:valid ? Math.max(0,Math.min(1,(point.x-.1)/.8)) : .5,
-      y:valid ? Math.max(0,Math.min(1,(point.y-.1)/.8)) : .5,
+      x:valid ? Math.max(0,Math.min(1,(point.x-profile.cx)/profile.span+.5)) : .5,
+      y:valid ? Math.max(0,Math.min(1,(point.y-profile.cy)/profile.span+.5)) : .5,
       captured_ms:Date.now()-(valid ? Math.max(0,age) : 0)};
+    if(mode==='scroll') {
+      payload.two_fingers=Boolean(valid && twoFingers(h.landmarks));
+      // Raw midpoint avoids calibration clipping and individual finger jitter.
+      payload.y=payload.two_fingers ? Math.max(0,Math.min(1,(h.landmarks[8].y+h.landmarks[12].y)/2)) : .5;
+    }
     if (clickMode) payload.pinch_ratio = valid ? ratio : null;
     const ticket = generation;
     lastSample = h.updatedAt; busy = true;
@@ -92,7 +146,7 @@
       const result = await post('frame', payload);
       if (ticket !== generation) return;
       if (!result.active) stop(result.reason);
-      else status.textContent = `Mouse de Mac activo · ${result.remaining} s · ${clickMode ? result.gesture || 'Pinza activa' : 'SIN CLICS'}. Escape detiene.`;
+      else { cursor.textContent=result.dragging?'Arrastrando':mode==='scroll'?'Desplazar':ratio!==null && ratio<.8?'Pinza':'Listo'; status.textContent = `Mouse de Mac activo · ${result.remaining} s · ${clickMode ? result.gesture || 'Pinza activa' : mode==='scroll' ? result.gesture : 'SIN CLICS'}. Escape detiene.`; }
     } catch (error) { if (ticket === generation) stop(error.message); }
     finally { if (ticket === generation) busy = false; }
   }

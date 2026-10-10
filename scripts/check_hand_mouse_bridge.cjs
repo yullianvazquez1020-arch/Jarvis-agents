@@ -2,13 +2,14 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict'), path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,'../desktop/ui/hand-mouse.js'),'utf8');
 const flush = async () => { for(let i=0;i<30;i++) await Promise.resolve(); };
-function setup() {
+function setup(savedProfile=null) {
   const elements=[], listeners={}, intervals=[], calls=[];
   const parent={appendChild(){},insertAdjacentElement(){}};
   const h={running:true,seen:true,updatedAt:990,landmarks:Array.from({length:21},()=>({x:.5,y:.5}))};
-  let deferred=null;
+  let deferred=null; const storage=new Map(savedProfile ? [["jarvis-hand-profile-v1",JSON.stringify(savedProfile)]] : []);
   const context={
-    document:{hidden:false,getElementById:()=>({parentNode:parent}),createElement:()=>{const e={setAttribute(){},insertAdjacentElement(){}};elements.push(e);return e;},addEventListener:(name,cb)=>listeners[name]=cb},
+    document:{hidden:false,getElementById:()=>({parentNode:parent}),createElement:()=>{const e={style:{},appendChild(){},setAttribute(){},insertAdjacentElement(){}};elements.push(e);return e;},addEventListener:(name,cb)=>listeners[name]=cb},
+    localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
     window:{JarvisHands:h,confirm:()=>true},performance:{now:()=>1000},Date,
     setInterval:(cb,ms)=>intervals.push({cb,ms}),addEventListener:(name,cb)=>listeners[name]=cb,
     fetch:async(url,options)=>{
@@ -18,7 +19,7 @@ function setup() {
     }
   };
   vm.runInNewContext(source,context);
-  return {context,h,calls,listeners,button:elements[0],clickButton:elements[1],practice:elements[3],intervals,
+  return {context,h,calls,listeners,elements,storage,button:elements[0],clickButton:elements[1],practice:elements[3],intervals,
     defer:()=>{let resolve;const promise=new Promise(r=>resolve=r);deferred={promise,resolve};return resolve;}};
 }
 (async()=>{
@@ -66,5 +67,22 @@ function setup() {
   t.listeners.pagehide();releaseClick();await armingClick;await flush();
   assert.equal(t.context.window.JarvisHandMouseActive,false);
   assert.equal(t.calls.at(-1).url,'/api/hand-mouse/stop');
-  console.log('PASS: move-only isolation, explicit click consent, measured ratio, tracking loss, Escape, hidden tab and late activation cancellation.');
+  t=setup();await t.elements[4].onclick();assert.equal(t.calls[0].body.confirm,'DESPLAZAR_60S');
+  t.h.landmarks[0]={x:.5,y:.8};
+  for(const i of [6,10,14,18]) t.h.landmarks[i]={x:.5,y:.6};
+  for(const i of [8,12]) t.h.landmarks[i]={x:.5,y:.2};
+  for(const i of [16,20]) t.h.landmarks[i]={x:.5,y:.7};
+  await t.intervals[0].cb();assert.equal(t.calls.at(-1).body.two_fingers,true);
+  assert.equal('pinch_ratio' in t.calls.at(-1).body,false);
+  t.h.seen=false;await t.intervals[0].cb();assert.equal(t.calls.at(-1).body.two_fingers,false);
+  t=setup();await t.elements[5].onclick();assert.equal(t.calls[0].body.confirm,'ARRASTRAR_60S');
+  t.listeners.keydown({key:'Escape'});await flush();assert.equal(t.calls.at(-1).url,'/api/hand-mouse/stop');
+  t=setup({span:.5,cx:.5,cy:.5});assert.equal(t.calls.length,0); // saved profile does not activate
+  await t.button.onclick();t.h.landmarks[8]={x:.6,y:.5};await t.intervals[0].cb();
+  assert.ok(Math.abs(t.calls.at(-1).body.x-.7)<1e-9);
+  t.elements[6].onclick();assert.equal(t.context.window.JarvisHandMouseActive,false);
+  assert.equal(JSON.parse(t.storage.get('jarvis-hand-profile-v1')).cx,.6);
+  t=setup({span:0,cx:999,cy:null});await t.button.onclick();await t.intervals[0].cb();
+  assert.equal(t.calls.at(-1).body.x,.5); // invalid persisted calibration ignored
+  console.log('PASS: scroll/drag isolation, loss of hand, saved calibration without autoactivation; move-only isolation, explicit click consent, measured ratio, tracking loss, Escape, hidden tab and late activation cancellation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
