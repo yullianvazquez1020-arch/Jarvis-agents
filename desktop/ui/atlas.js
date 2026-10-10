@@ -216,10 +216,10 @@
     for(let i=0;i<5;i++){const a=i*Math.PI*.4-1.4,xx=cx+Math.cos(a)*215,yy=cy+Math.sin(a)*135,col=ideas[i].color;line([[cx,cy],[xx,yy]],col+'55');ellipse(xx,yy,i===selected?70:55,40,col,2);for(let j=0;j<12;j++)dot(xx+Math.cos(j*2.4+phase*.1)*34,yy+Math.sin(j*2.4)*21,1.5,col);label(`0${i+1} / ${ideas[i].name}`,xx-55,yy+60,col);}
     ellipse(cx,cy,65,54,'#dabdff');label('JARVIS',cx-24,cy+4,'#ecddff');label('MEMBRANA / LÍMITES Y APROBACIONES',60,70);
   }
-  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);if(now-last<1000/(quality==='rich'?24:15))return;last=now;if(!paused)phase+=1/(quality==='rich'?24:15);ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
+  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);const fps=quality==='rich'?24:window.JarvisHandMouseActive?10:15;if(now-last<1000/fps)return;const elapsed=last?Math.min(.2,(now-last)/1000):1/fps;last=now;if(!paused)phase+=elapsed;ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
     for(let i=0;i<420;i++){const xx=(i*197.3)%1100,yy=(i*97.9)%650;dot(xx,yy,i%9===0?1:.5,i%11===0?'#b6ddefaa':'#739fc355');}
     ctx.strokeStyle='#27516b20';ctx.lineWidth=1;for(let xx=0;xx<1100;xx+=55)line([[xx,0],[xx,650]],'#27516b15');for(let yy=0;yy<650;yy+=50)line([[0,yy],[1100,yy]],'#27516b15');
-    ({tower,galaxy,cell})[mode]();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
+    ({tower,galaxy,cell})[mode]();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':window.JarvisHandMouseActive?'GESTOS PRIORITARIOS / 10 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
   }
   if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;}).observe(canvas);
   select(0);requestAnimationFrame(frame);
