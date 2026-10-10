@@ -585,6 +585,26 @@ class Displays(CompanionBase):
         self.assertEqual(st, 200); self.assertIn(b"HUD", body)
         self.assertEqual(self.req("GET", "/ui/hud.js")[0], 200); self.assertEqual(self.req("GET", "/ui/mask.js")[0], 200)
 
+    def test_torre_is_local_scene_behind_session_and_csp(self):
+        for path in ("/torre", "/ui/torre.js", "/ui/torre.css", "/ui/torre.jpg"):
+            self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
+        status, _, response, body = self.req("GET", "/torre")
+        self.assertEqual(status, 200)
+        self.assertIn(b'<script src="/ui/torre.js">', body)
+        self.assertNotIn(b"<script>", body)
+        self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
+        self.assertNotIn(b"https://", body)
+        self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
+        self.assertIn(b'href="/torre"', self.req("GET", "/")[3])
+        st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
+        self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
+        self.assertTrue(jpg.startswith(b"\xff\xd8"))
+        js = self.req("GET", "/ui/torre.js")[3]
+        css = self.req("GET", "/ui/torre.css")[3]
+        for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"getUserMedia", b"https://"):
+            self.assertNotIn(banned, js, banned)
+        self.assertNotIn(b"@import", css); self.assertNotIn(b"https://", css)
+
     def test_avatar_preserves_session_guard_and_content_security_policy(self):
         self.assertEqual(self.req("GET", "/avatar", cookie=False)[0], 401)
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)

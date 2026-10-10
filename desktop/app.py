@@ -49,7 +49,9 @@ VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
 UI_FILES = {"startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
-            "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8"}
+            "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
+            "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
+            "torre.jpg": "image/jpeg"}
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
@@ -704,10 +706,10 @@ def make_handler(app, host, port):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(303, b"", headers={"Location": "/", "Set-Cookie":
                                   f"jd_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}"})
-            if u.path in ("/", "/hud", "/avatar"):                       # /hud = second monitor (4.0.5, 3.2)
+            if u.path in ("/", "/hud", "/avatar", "/torre"):             # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html"}[u.path]
+                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html"}[u.path]
                 return self._send(200, (HERE / "ui" / page).read_bytes(), "text/html; charset=utf-8")
             if not self._guard():
                 return
