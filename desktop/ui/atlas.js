@@ -39,15 +39,49 @@
       m.fillStyle=i%3?'#61d6d6':'#b58cff';m.beginPath();m.arc(xx,yy,2.5,0,7);m.fill();
     }
     for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#bb8cff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
-    for(let k=0;k<14;k++){
-      b.beginPath();b.strokeStyle=ideas[k%5].color+'88';
-      for(let j=0;j<=80;j++){const angle=j*Math.PI/40,rr=1+.08*Math.sin(angle*11+k);const xx=150+Math.cos(angle)*(87-k*2)*rr,yy=88+Math.sin(angle)*(61-k)*rr; j?b.lineTo(xx,yy):b.moveTo(xx,yy);}b.stroke();
+    // Paired lobes and irregular cortical folds, decorative rather than biometric.
+    for(const side of [-1,1])for(let fold=0;fold<12;fold++){
+      b.beginPath();b.strokeStyle=ideas[fold%5].color+'88';
+      for(let j=0;j<=70;j++){
+        const angle=j*Math.PI/35, wobble=1+.075*Math.sin(angle*9+fold*.7);
+        const xx=150+side*(5+(36+30*Math.cos(angle))*(1-fold*.025)*wobble);
+        const yy=88+Math.sin(angle)*(65-fold*2)*wobble;
+        j?b.lineTo(xx,yy):b.moveTo(xx,yy);
+      }b.stroke();
     }
+    b.strokeStyle='#8be8ff99';b.beginPath();b.moveTo(148,130);b.lineTo(140,166);b.lineTo(159,164);b.stroke();
     for(let i=0;i<10;i++){b.fillStyle=ideas[i%5].color;b.beginPath();b.arc(150+Math.sin(i*3+phase*.5)*68,88+Math.cos(i*1.4+phase*.4)*43,2,0,7);b.fill();}
     const amp=window.JarvisAvatar?.telemetry?.().amplitude||0;
     a.strokeStyle='#6bf5ad';a.beginPath();a.moveTo(0,60);a.lineTo(300,60);a.stroke();
     a.fillStyle='#6bf5ad';a.fillRect(12,60-amp*48,276,amp*48);
   }
+  // Explicit read-only refresh. No new server route, model call or background polling.
+  const connect=document.getElementById('atlas-connect');
+  if(connect)connect.onclick=async()=>{
+    connect.disabled=true;
+    const status=document.getElementById('atlas-live-status'),output=document.getElementById('atlas-live');
+    output.replaceChildren();status.textContent='Consultando conexión…';
+    try{
+      const stateResponse=await fetch('/api/state',{credentials:'same-origin'});
+      if(!stateResponse.ok)throw new Error('estado no disponible');
+      const state=await stateResponse.json();
+      if(state.demo||!state.paired||!state.server_configured){status.textContent='Sin datos reales: panel DEMO o equipo sin emparejar';return;}
+      const results=await Promise.allSettled(['estado','agenda','cobros'].map(async name=>{
+        const response=await fetch('/api/panels/'+name,{credentials:'same-origin'});
+        if(!response.ok)throw new Error(name+' no disponible');
+        const panel=await response.json();if(panel.demo)throw new Error('datos DEMO');return panel;
+      }));
+      let loaded=0;
+      for(const result of results){
+        if(result.status!=='fulfilled')continue;
+        const panel=result.value;add('h3',panel.title||panel.panel,output);
+        for(const line of (panel.lines||[]).slice(0,12))add('p',String(line),output);
+        add('small','Actualizado: '+(panel.as_of||'fecha no informada'),output);loaded++;
+      }
+      status.textContent=loaded?'ISLAFIX · '+loaded+' fuentes consultadas. Otras especialidades siguen propuestas.':'Servidor sin datos disponibles';
+    }catch(error){status.textContent='Sin conexión verificable. No se muestran cifras inventadas.';}
+    finally{connect.disabled=false;}
+  };
   const cursor = document.createElement('div'); cursor.className = 'atlas-cursor'; cursor.hidden = true; cursor.setAttribute('aria-hidden','true'); root.appendChild(cursor);
   function add(tag, text, parent, cls) { const e = document.createElement(tag); e.textContent = text; if(cls)e.className=cls; parent.appendChild(e); return e; }
   function select(index) {
@@ -165,6 +199,10 @@
     dot(0,279,7,'#baffff');ellipse(0,280,42,8,'#6cddff88');
     ctx.fillStyle='#d7b675';ctx.fillRect(-9,-219,18,43);line([[-14,-219],[0,-250],[14,-219]],'#e8c983',2);
     ctx.restore();
+    for(let i=0;i<(quality==='rich'?6:3);i++){
+      const angle=phase*.09+i*2.1;
+      dragon(cx+Math.cos(angle)*345,290+Math.sin(angle)*185,.65+i*.08,ideas[i%5].color,Math.sin(angle)*.22);
+    }
     for(let i=0;i<5;i++){const y=490-i*83,col=ideas[i].color;line([[cx+205-i*37,y],[885,y]],col+'66');label(`${i*20+1}–${(i+1)*20}`,895,y,col);}
     label('CIUDADELA ÓRBITA / 100 PISOS RESERVADOS',30,40,'#c9f5ff');
     label(names[world]+(transit>0?' · VIAJE EN CURSO':' · ÓRBITA ESTABLE'),30,61,'#e0c28c');
