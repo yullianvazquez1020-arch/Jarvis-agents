@@ -11,6 +11,21 @@
     {name:'Afiliados', color:'#65eeff', cost:'$0–20', task:'Preparar una comparación honesta de herramientas que el dueño conozca y revisar requisitos del programa.', goal:'Evaluar un programa y una pieza aprobada en 30 días, sin tráfico artificial.', metric:'Clics y comisiones confirmadas por el programa, separados de estimaciones.', approval:'Programa, divulgación de afiliación, enlaces y publicación.'}
   ];
   const canvas = document.getElementById('atlas'), ctx = canvas.getContext('2d');
+
+  // Match CSS size and Retina density, bounded for the 8 GB Mac.
+  function resizeDisplay() {
+    if (typeof canvas.getBoundingClientRect !== 'function') return;
+    const width = canvas.getBoundingClientRect().width;
+    if (!(width > 0)) return;
+    const density = Math.min(2, window.devicePixelRatio || 1);
+    const scale = Math.min(2.5, width * density / 1100, Math.sqrt(3200000 / (1100 * 650)));
+    const bw = Math.round(1100 * scale), bh = Math.round(650 * scale);
+    if (canvas.width === bw && canvas.height === bh) return;
+    canvas.width = bw; canvas.height = bh;
+    ctx.setTransform(bw / 1100, 0, 0, bh / 650, 0, 0);
+  }
+  resizeDisplay();
+  if ('ResizeObserver' in window) new ResizeObserver(() => { resizeDisplay(); last = 0; }).observe(canvas);
   const list = document.getElementById('atlas-list'), detail = document.getElementById('atlas-detail');
   const tabs = [...root.querySelectorAll('[data-atlas]')];
   const handButton = document.getElementById('hand-navigation'), handStatus = document.getElementById('atlas-hand-status');

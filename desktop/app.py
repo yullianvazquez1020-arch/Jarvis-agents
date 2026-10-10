@@ -274,8 +274,10 @@ class Companion:
 
     # --- HUD for the second monitor (read-only) ---
     def hud(self):
-        if self.demo or not self.client.url or not self._token():
+        if self.demo:
             cards = [dict(c, as_of="", stale=c.get("stale", False), sensitive=False, demo=True) for c in DEMO_HUD]
+        elif not self.client.url or not self._token():
+            cards = []  # Missing connection is not permission to fabricate business data.
         else:
             raw = self.client.hud().get("cards") or []
             cards = []
@@ -462,9 +464,11 @@ class Companion:
     def panel(self, name):
         if name not in PANELS:
             raise ServerError(404, "panel desconocido")
-        if self.demo or not self.client.url or not self._token():
+        if self.demo:
             p = dict(DEMO_PANELS[name]); p.update(panel=name, demo=True)
             return p
+        if not self.client.url or not self._token():
+            raise ServerError(503, "Sin datos reales: configura y empareja el equipo")
         p = self.client.panel(name)
         lines = [str(x)[:500] for x in (p.get("lines") or [])][:80]
         return {"panel": name, "title": str(p.get("title", name))[:80], "lines": lines,
@@ -597,9 +601,11 @@ class Companion:
                                     panel_data=p)
             if kind == "empty":
                 return self._finish(tid, "done", "No te escuché.")
-            if self.demo or not self.client.url or not self._token():
+            if self.demo:
                 return self._finish(tid, "done", "DEMO: no estoy conectado a tu Jarvis, así que no consulto tus "
                                                  "datos. Prueba «abre la agenda» para ver un panel de ejemplo.")
+            if not self.client.url or not self._token():
+                return self._finish(tid, "error", "Sin conexión real con Jarvis. Configura y empareja este equipo; no se ejecutó ninguna acción.")
             r = self.client.turn(tid, text)
             state = r.get("state")
             if state == "uncertain":
