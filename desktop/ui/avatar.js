@@ -171,7 +171,7 @@ function particles() {
   x.strokeStyle='#153243';x.lineWidth=.35;
   for(let i=0;i<960;i+=24){x.beginPath();x.moveTo(i,0);x.lineTo(i,540);x.stroke();}
   for(let i=0;i<540;i+=24){x.beginPath();x.moveTo(0,i);x.lineTo(960,i);x.stroke();}
-  panel(14,14,234,214,'01 / OPTICAL · GESTURE ENGINE',h.seen?'21 PUNTOS · CÁMARA LOCAL':'SIN DETECCIÓN · ACTIVAR MANO');
+  panel(14,14,234,214,'01 / OPTICAL · GESTURE ENGINE',h.seen?(h.count===2?'2 MANOS · 42 PUNTOS':'1 MANO · 21 PUNTOS'):'SIN DETECCIÓN · ACTIVAR MANO');
   panel(14,242,234,194,'02 / NÚCLEO · ÓRBITA', 'IDENTIDAD VISUAL · NO SENSOR');
   panel(710,14,236,141,'03 / CONEXIONES','SOLO ESTADOS COMPROBADOS');
   panel(710,168,236,112,'04 / VOZ · ENVOLVENTE RMS','AMPLITUD DEL AUDIO · NO FONEMAS');
@@ -206,8 +206,9 @@ function particles() {
   for(let ring=0;ring<8;ring++){const pts=[];for(let j=0;j<=60;j++){const a=j*Math.PI/30;pts.push([130+Math.cos(a)*(22+ring*6),337+Math.sin(a)*(22+ring*6)]);}strokePath(pts,ring%2?'#ffe2a0':'#aaffff',.6,.5);}
   // Hand inset displays real landmarks only, never fabricated sensor values.
   if(h.landmarks && h.landmarks.length===21){
-    const p=h.landmarks.map(p=>[28+(1-p.x)*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],'#6bf5ad',1.3));
-    p.forEach(v=>{x.fillStyle='#ffd77b';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});
+    const detected=h.hands?.length?h.hands:[{landmarks:h.landmarks,active:true}];
+    detected.forEach(item=>{const p=item.landmarks.map(p=>[28+p.x*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],item.active?'#6bf5ad':'#54caff',1.3));
+    p.forEach(v=>{x.fillStyle=item.active?'#ffd77b':'#8edfff';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});});
   }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText(h.running?'SIN MANO DETECTADA':'CÁMARA APAGADA',42,114);x.font='9px monospace';x.fillText(h.running?'Muestra la palma a la cámara':'Activa la mano para ver',30,140);x.fillText('los puntos detectados.',47,155);}
   const rows=[['MANO',h.seen?'DETECTADA':'SIN SEÑAL'],['AUDIO',voice.active?'REPRODUCIENDO':'EN REPOSO'],['PULSO',talking?'PRUEBA SIN AUDIO':voice.active?'RMS REAL':'EN REPOSO'],['DATOS','VER ESTADO INFERIOR']];
   rows.forEach((r,i)=>{x.font='9px monospace';x.fillStyle='#678fa3';x.fillText(r[0],723,54+i*23);x.fillStyle='#91e6da';x.fillText(r[1],782,54+i*23);});
