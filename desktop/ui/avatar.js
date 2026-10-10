@@ -132,7 +132,13 @@ function orbitalHead(cx,cy,scale,level,phase) {
     x.fillStyle='#bcffff';x.beginPath();x.ellipse(cx+side*11*scale,cy-4*scale,6*scale,(1.1+1-blink)*scale,0,0,Math.PI*2);x.fill();
   }
   x.strokeStyle='#ffe8a0';x.lineWidth=scale;
-  x.beginPath();x.ellipse(cx,cy+20*scale,9*scale,(1+level*6+smile*2)*scale,0,0,Math.PI*2);x.stroke();
+  // Curved corners make the smile visible even when no audio is playing.
+  const my=cy+20*scale, mw=(9+smile*4)*scale, curve=smile*8*scale;
+  x.beginPath();
+  x.moveTo(cx-mw,my-curve*.35);
+  x.quadraticCurveTo(cx,my+curve+level*6*scale,cx+mw,my-curve*.35);
+  if(level>.02) x.quadraticCurveTo(cx,my+curve-level*6*scale,cx-mw,my-curve*.35);
+  x.stroke();
 }
 function brain(cx,cy,s,phase) {
   for(let h of [-1,1])for(let k=0;k<25;k++) {
@@ -154,7 +160,7 @@ function panel(px,py,w,h,title,subtitle) {
   x.strokeStyle='#76dce8';x.beginPath();x.moveTo(px,py+7);x.lineTo(px,py);x.lineTo(px+7,py);x.stroke();
 }
 function particles() {
-  const h=hand(),phase=paused?0:t*.016;
+  const h=hand(),phase=t*.016;
   x.clearRect(0,0,960,540);
   x.fillStyle='#020912';x.fillRect(0,0,960,540);
   const glow=x.createRadialGradient(478,250,10,478,250,300);glow.addColorStop(0,'#102239');glow.addColorStop(1,'#020912');x.fillStyle=glow;x.fillRect(260,0,440,540);
@@ -241,16 +247,15 @@ function loop(time) {
   const speaking = voice.active || (voice.clock && voice.clock.playing);
   // Con voz real se dibuja a la frecuencia de pantalla (no a 25 cuadros) para no sumar hasta 40 ms de retraso.
   // Con movimiento reducido, solo se mueve la boca mientras habla.
-  if (document.hidden || time - lastFrame < (speaking ? 0 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking)) return;
+  if (document.hidden || time - lastFrame < (speaking ? 0 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
   lastFrame = time;
-  t += 1;
-  blink = Math.max(0, blink - 0.07);
+  if (!paused) t += 1;
+  if (!paused) blink = Math.max(0, blink - 0.07);
   if (!paused && Math.random() < 0.006) blink = 1;
   const now = wallNow(), real = L && voice.follower ? voiceLevel(now, lastVoice ? now - lastVoice : 16) : null;
   lastVoice = now;
   if (real !== null) { talking = false; animationId++; talk = real; }
-  else talk = talking ? (shapes[viseme] || 0.2) : talk * 0.85;
-  smile *= 0.98;
+  else talk = talking ? (shapes[viseme] || 0.2) : (talk < 0.01 ? 0 : talk * 0.85);
   particles();
 }
 requestAnimationFrame(loop);
@@ -277,7 +282,16 @@ document.getElementById("speak").onclick = () => {
   };
   run();
 };
-document.getElementById("smile").onclick = () => { particleMode = false; lastFrame = 0; document.getElementById("style").textContent = "Ver cuerpo"; smile = 0.8; };
+function viewLabel() {
+  document.getElementById("style").textContent = particleMode ? "Ver rostro" : "Ver cuerpo";
+  document.getElementById("style").setAttribute("aria-pressed", String(!particleMode));
+}
+document.getElementById("smile").onclick = () => {
+  smile = smile ? 0 : 1;
+  particleMode = false; lastFrame = 0; viewLabel();
+  document.getElementById("smile").textContent = smile ? "Rostro neutro" : "Sonreír";
+  document.getElementById("smile").setAttribute("aria-pressed", String(Boolean(smile)));
+};
 async function pulso() {
   const status = document.getElementById("status");
   if (location.protocol === "file:") {
@@ -298,10 +312,15 @@ pulso();
 function motionLabel() {
   document.getElementById("motion").textContent = paused ? "Activar animación" : "Pausar animación";
   document.getElementById("motion").setAttribute("aria-pressed", String(paused));
+  document.getElementById("animation-status").textContent = paused
+    ? "Animación ambiente pausada. La boca y la detección de mano siguen activas."
+    : "Animación ambiente activa. Ver rostro muestra la cara del avatar.";
 }
 document.getElementById("style").onclick = () => {
   particleMode = !particleMode; lastFrame = 0;
-  document.getElementById("style").textContent = particleMode ? "Ver rostro" : "Ver cuerpo";
+  viewLabel();
 };
 document.getElementById("motion").onclick = () => { paused = !paused; lastFrame = 0; motionLabel(); };
 motionLabel();
+
+viewLabel();
