@@ -50,7 +50,7 @@ function voiceLevel(now, dt) {
   }
   return playing || value > 0.01 ? value : null;
 }
-window.JarvisAvatar = { syncLog: () => (measure ? syncLog.slice() : []) };
+window.JarvisAvatar = { syncLog: () => (measure ? syncLog.slice() : []), telemetry: () => ({audioActive:voice.active, amplitude:voice.active?talk:0}) };
 
 function hand() {
   const h = window.JarvisHands;

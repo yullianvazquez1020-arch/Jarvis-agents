@@ -59,3 +59,14 @@ button:hover{background:#133646;border-color:#7ce2e9}
 #hand-camera{background:#061725;color:#c9eee9;border:1px solid #31586c;padding:7px;margin:6px;max-width:95%}
 
 .hand-cursor-status { position:fixed; left:18px; top:18px; z-index:1000; pointer-events:none; background:#03121de8; color:#91e6da; border:1px solid #50c878; padding:5px 9px; border-radius:8px; font:12px monospace; }
+
+/* Observatory: specialties around a central animated city. */
+.avatar{width:min(3200px,98vw)}
+#portfolio{padding:18px;background:linear-gradient(140deg,#04111d,#030710 70%);border-color:#28505d}
+.portfolio-heading h1{font-size:clamp(26px,2.5vw,54px);letter-spacing:-.055em;margin:10px 0 16px}
+.atlas-layout{grid-template-columns:minmax(210px,.65fr) minmax(0,2.9fr) minmax(250px,.85fr);gap:14px;align-items:start}
+.science-rail,.operations-rail{min-width:0}.fui-module{border:1px solid #244653;background:#06131dcc;margin-bottom:12px;padding:13px;box-sizing:border-box}.fui-module small{color:#6accd0;font:10px monospace;letter-spacing:.12em}.fui-module h2{font-size:16px;font-weight:450;color:#d6e7ec;margin:10px 0}.fui-module p{font:11px/1.6 monospace;color:#9fc1cc;margin:8px 0}.fui-module .module-note{color:#698b9d;font-size:10px}.fui-module canvas{width:100%;display:block;border:0;border-radius:0;background:transparent}
+.observatory-controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font:11px monospace;color:#789eac;margin-bottom:8px}.observatory-controls span{margin-left:auto;font-size:10px;letter-spacing:.1em}select{background:#061725;color:#c9eee9;border:1px solid #31586c;padding:7px}
+.atlas-scene{border:1px solid #2b5261;box-shadow:0 0 50px #13265530}.atlas-scene canvas{border:0}#atlas-detail{padding:12px}#atlas-detail h3{margin-top:12px}#atlas-detail h2{font-size:20px}#atlas-detail p{font-size:11px}.stage{max-width:1600px}#atlas-list button{font-size:11px;padding:10px}
+@media(max-width:1200px){.atlas-layout{grid-template-columns:200px minmax(0,1fr)}.operations-rail{grid-column:1/-1}#atlas-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}.operations-rail #atlas-detail{max-width:850px}.fui-module h2{font-size:14px}}
+@media(max-width:750px){.atlas-layout{display:flex;flex-direction:column}.science-rail{display:none}.atlas-scene,.operations-rail{width:100%}#atlas-list{grid-template-columns:repeat(2,minmax(0,1fr))}.observatory-controls span{margin-left:0}}
