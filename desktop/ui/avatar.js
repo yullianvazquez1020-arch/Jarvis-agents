@@ -122,7 +122,7 @@ function drawHand(h) {
 }
 
 // Procedural orbital geometry. Decorative, never biometric readings.
-const orbitColors = ['#69e8ff','#b477ff','#ff62b8','#6bf5ad','#ffd77b'];
+const orbitColors = ['#69e8ff','#36a8ff','#ffad38','#6bf5ad','#ffd77b'];
 function strokePath(points,color,width=0.7,alpha=0.65) {
   x.shadowColor=color;x.shadowBlur=width>=.8?3:0;x.strokeStyle=color;x.lineWidth=width;x.globalAlpha=alpha;x.beginPath();
   points.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.stroke();x.globalAlpha=1;x.shadowBlur=0;
@@ -151,6 +151,23 @@ function particles() {
   x.clearRect(0,0,960,540);
   x.fillStyle='#020912';x.fillRect(0,0,960,540);
   const glow=x.createRadialGradient(478,250,10,478,250,300);glow.addColorStop(0,'#102239');glow.addColorStop(1,'#020912');x.fillStyle=glow;x.fillRect(260,0,440,540);
+  // Deterministic deep-space field; no extra animation loop or asset downloads.
+  for(let star=0;star<420;star++){
+    const sx=(star*197.31)%960,sy=(star*97.93)%540;
+    x.globalAlpha=.3+.55*(.5+.5*Math.sin(phase*.7+star));
+    x.fillStyle=star%13===0?'#ffcf79':star%5===0?'#54caff':'#e6f7ff';
+    const size=star%23===0?1.8:star%7===0?1:.65;x.fillRect(sx,sy,size,size);
+  }
+  x.globalAlpha=1;
+  for(let meteor=0;meteor<3;meteor++){
+    const travel=(phase*.16+meteor*.37)%1;
+    const mx=travel*(960+360)-180,my=meteor*180+travel*220-100;
+    const tail=x.createLinearGradient(mx-100,my-42,mx,my);
+    tail.addColorStop(0,'#39baff00');tail.addColorStop(.8,'#58ceff80');tail.addColorStop(1,'#fff4d9');
+    x.strokeStyle=tail;x.lineWidth=meteor===0?1.8:1;x.beginPath();
+    x.moveTo(mx-100,my-42);x.lineTo(mx,my);x.stroke();
+    x.fillStyle='#f3fbff';x.fillRect(mx-1,my-1,2,2);
+  }
   x.strokeStyle='#153243';x.lineWidth=.35;
   for(let i=0;i<960;i+=24){x.beginPath();x.moveTo(i,0);x.lineTo(i,540);x.stroke();}
   for(let i=0;i<540;i+=24){x.beginPath();x.moveTo(0,i);x.lineTo(960,i);x.stroke();}
@@ -163,10 +180,10 @@ function particles() {
   // Original orbital identity: projected luminous sphere, no humanoid anatomy.
   const cx=478,cy=250,radius=145+talk*12,turn=phase*.16;
   const halo=x.createRadialGradient(cx,cy,5,cx,cy,230);
-  halo.addColorStop(0,'#c6ffff38');halo.addColorStop(.4,'#65eeff28');halo.addColorStop(.72,'#bd8aff28');halo.addColorStop(1,'#040c1800');x.fillStyle=halo;x.fillRect(cx-230,cy-230,460,460);
+  halo.addColorStop(0,'#c6ffff38');halo.addColorStop(.4,'#65eeff28');halo.addColorStop(.72,'#36a8ff28');halo.addColorStop(1,'#040c1800');x.fillStyle=halo;x.fillRect(cx-230,cy-230,460,460);
   for(let ring=0;ring<7;ring++){
     x.beginPath();x.ellipse(cx,cy,radius+12+ring*12,radius+12+ring*12,0,0,Math.PI*2);
-    x.strokeStyle=['#65eeff','#ffd878','#bd8aff','#54ffbd','#ff69ce'][ring%5]+'b0';x.lineWidth=ring===0?1.5:.7;x.stroke();
+    x.strokeStyle=['#65eeff','#ffd878','#36a8ff','#54ffbd','#ffad38'][ring%5]+'b0';x.lineWidth=ring===0?1.5:.7;x.stroke();
   }
   const bands=particleMode?18:8;
   for(let k=0;k<bands;k++){
@@ -175,12 +192,12 @@ function particles() {
       const angle=j*Math.PI/45,xx=Math.cos(angle)*radius,yy=Math.sin(angle)*radius;
       pts.push([cx+xx*Math.cos(tilt)-yy*.28*Math.sin(tilt),cy+xx*Math.sin(tilt)+yy*.28*Math.cos(tilt)]);
     }
-    strokePath(pts,['#d6ffff','#65eeff','#ffd878','#bd8aff','#ff69ce'][k%5],.8,.55+talk*.25);
+    strokePath(pts,['#d6ffff','#65eeff','#ffd878','#36a8ff','#ffad38'][k%5],.8,.55+talk*.25);
   }
   for(let i=0;i<85;i++){
     const latitude=Math.asin(-1+2*(i+.5)/85),angle=i*2.399963+turn;
     const xx=cx+Math.cos(angle)*Math.cos(latitude)*radius,yy=cy+Math.sin(latitude)*radius;
-    x.fillStyle=['#edffff','#65eeff','#ffd878','#bd8aff','#54ffbd'][i%5];x.beginPath();x.arc(xx,yy,1.2+talk,0,7);x.fill();
+    x.fillStyle=['#edffff','#65eeff','#ffd878','#36a8ff','#54ffbd'][i%5];x.beginPath();x.arc(xx,yy,1.2+talk,0,7);x.fill();
   }
   const core=x.createRadialGradient(cx,cy,0,cx,cy,30+talk*30);
   core.addColorStop(0,smile?'#fff1bd':'#e8ffff');core.addColorStop(.15,'#bdffffaa');core.addColorStop(1,'#a2ffff00');x.fillStyle=core;x.fillRect(cx-65,cy-65,130,130);

@@ -72,23 +72,28 @@ button:hover{background:#133646;border-color:#7ce2e9}
 @media(max-width:750px){.atlas-layout{display:flex;flex-direction:column}.science-rail{display:none}.atlas-scene,.operations-rail{width:100%}#atlas-list{grid-template-columns:repeat(2,minmax(0,1fr))}.observatory-controls span{margin-left:0}}
 
 /* Astral palette: static gradients, no additional animation or camera workload. */
-body{background:radial-gradient(ellipse at 15% 5%,#23143d 0,transparent 45%),radial-gradient(ellipse at 90% 35%,#063138 0,transparent 48%),#040713;color:#d4e3f5}
-.avatar header{color:#a4f6ff;border-color:#7565a2}
-#portfolio{background:linear-gradient(135deg,#15152ee8,#071b29ed 55%,#17102ae8);border-color:#7565a2;box-shadow:0 0 32px #9565ed19}
-.portfolio-heading h1{color:#f4edff;text-shadow:0 0 22px #ba86ff40}.portfolio-heading small{color:#98f7eb}
-.fui-module{background:linear-gradient(145deg,#111e32e8,#15112ae8);border-color:#546994;box-shadow:inset 0 1px #9ddfff18}.fui-module small{color:#81f6ee}.fui-module h2{color:#f0eaff}.fui-module p{color:#c3d5e8}.fui-module .module-note{color:#a4b8d0}
-.atlas-scene{border-color:#9673c9;box-shadow:0 0 32px #9b6cff22,0 0 18px #65eeff14}.atlas-caption{color:#b0c7df}.atlas-caption strong{color:#9ef5ef}
-button,select{background:#141b32;color:#d0efff;border-color:#6886ad}button:hover{background:#283052;border-color:#a8f4ff}.atlas-tabs button[aria-pressed=true]{background:#33254d;border-color:#c39aff;color:#f2e9ff}
-#atlas-list button[aria-pressed=true]{background:linear-gradient(100deg,#293454,#332145);box-shadow:inset 0 0 18px #bd8aff18}#atlas-detail{color:#c3d5e8}#atlas-detail h3{color:#88f4d1}
+body{background:radial-gradient(ellipse at 15% 5%,#081f35 0,transparent 45%),radial-gradient(ellipse at 90% 35%,#063138 0,transparent 48%),#040713;color:#d4e3f5}
+.avatar header{color:#a4f6ff;border-color:#397d9b}
+#portfolio{background:linear-gradient(135deg,#091c2ee8,#071b29ed 55%,#061827e8);border-color:#397d9b;box-shadow:0 0 32px #38b7e619}
+.portfolio-heading h1{color:#f4edff;text-shadow:0 0 22px #5ddcff40}.portfolio-heading small{color:#98f7eb}
+.fui-module{background:linear-gradient(145deg,#111e32e8,#091b2ce8);border-color:#546994;box-shadow:inset 0 1px #9ddfff18}.fui-module small{color:#81f6ee}.fui-module h2{color:#f0eaff}.fui-module p{color:#c3d5e8}.fui-module .module-note{color:#a4b8d0}
+.atlas-scene{border-color:#3891b1;box-shadow:0 0 32px #42c9ff22,0 0 18px #65eeff14}.atlas-caption{color:#b0c7df}.atlas-caption strong{color:#9ef5ef}
+button,select{background:#141b32;color:#d0efff;border-color:#6886ad}button:hover{background:#283052;border-color:#a8f4ff}.atlas-tabs button[aria-pressed=true]{background:#10394d;border-color:#ffc15b;color:#e9f8ff}
+#atlas-list button[aria-pressed=true]{background:linear-gradient(100deg,#293454,#143443);box-shadow:inset 0 0 18px #36a8ff18}#atlas-detail{color:#c3d5e8}#atlas-detail h3{color:#88f4d1}
 #status,#hand-status,#voice-status,.atlas-policy,#atlas-hand-status,.observatory-controls{color:#b0c7df}.proposal-label,.atlas-estimate{color:#ffe0a1;border-color:#a58451}
 
 /* Edge-to-edge observatory: generous telemetry rails and a bounded scene height. */
-.avatar{width:100%;max-width:none;padding:10px;box-sizing:border-box}.avatar header{margin:0 0 10px;padding:12px 16px;background:linear-gradient(90deg,#231b43,#092f38);border:1px solid #7770b8}
-#portfolio{margin:0 0 12px;min-height:calc(100vh - 90px);border-color:#887bbf;background:linear-gradient(120deg,#211733,#0a2636 48%,#18253c)}
+.avatar{width:100%;max-width:none;padding:10px;box-sizing:border-box}.avatar header{margin:0 0 10px;padding:12px 16px;background:linear-gradient(90deg,#092237,#092f38);border:1px solid #3a91b5}
+#portfolio{margin:0 0 12px;min-height:calc(100vh - 90px);border-color:#3a91b5;background:linear-gradient(120deg,#061b2e,#0a2636 48%,#132637)}
 .atlas-layout{grid-template-columns:minmax(210px,.8fr) minmax(0,3fr) minmax(280px,1.1fr)}
-.science-rail .fui-module:nth-child(2){border-color:#bf8dd0}.science-rail .fui-module:nth-child(3){border-color:#6499d5}.operations-rail .fui-module:first-child{border-color:#65baaa}
-.atlas-scene{background:radial-gradient(ellipse at 30% 30%,#53276a44,transparent 65%),radial-gradient(ellipse at 80% 60%,#23af9850,transparent 70%),#050d1e;align-self:stretch;display:flex;flex-direction:column;justify-content:center}
-.atlas-scene canvas{height:min(67vh,900px);object-fit:contain}.atlas-caption{background:#09182cc9} .stage{max-width:none;width:100%}#c{max-height:76vh;object-fit:contain;background:linear-gradient(90deg,#15152d,#051624,#15152d)}
+.science-rail .fui-module:nth-child(2){border-color:#e6ae48}.science-rail .fui-module:nth-child(3){border-color:#6499d5}.operations-rail .fui-module:first-child{border-color:#65baaa}
+.atlas-scene{background:radial-gradient(ellipse at 30% 30%,#086caa44,transparent 65%),radial-gradient(ellipse at 80% 60%,#23af9850,transparent 70%),#050d1e;align-self:stretch;display:flex;flex-direction:column;justify-content:center}
+.atlas-scene canvas{height:min(67vh,900px);object-fit:contain}.atlas-caption{background:#09182cc9} .stage{max-width:none;width:100%}#c{max-height:76vh;object-fit:contain;background:linear-gradient(90deg,#081b2b,#051624,#081b2b)}
 #atlas-live{max-height:30vh;overflow:auto}.avatar header nav{display:flex;align-items:center;gap:14px}.avatar header button{margin:0}
 @media(max-width:1200px){.atlas-layout{grid-template-columns:200px minmax(0,1fr)}.atlas-scene canvas{height:auto}#portfolio{min-height:0}.avatar{padding:6px}}
 @media(max-width:750px){.atlas-layout{display:flex}.avatar header nav{flex-wrap:wrap}.atlas-scene canvas{height:auto}}
+
+/* Deep-space command surfaces: static star tiles avoid extra GPU animation. */
+body{background-color:#020811;background-image:radial-gradient(circle at 17px 31px,#bdeaff99 .7px,transparent 1.2px),radial-gradient(circle at 87px 61px,#ffffff77 .8px,transparent 1.3px),radial-gradient(circle at 130px 93px,#ffcc7777 .7px,transparent 1.2px),radial-gradient(ellipse at 50% 20%,#073c5966,transparent 70%);background-size:157px 131px,233px 191px,311px 257px,100% 100%;background-attachment:fixed;color:#e8f6ff}
+header{border-bottom:2px solid #39bce0;background:linear-gradient(110deg,#061321ee,#102f43ee)}
+button{border-color:#397995}button:hover,button:focus-visible{border-color:#ffc15b;box-shadow:0 0 0 1px #ffc15b55}
