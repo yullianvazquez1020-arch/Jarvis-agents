@@ -601,9 +601,11 @@ class Companion:
                                     panel_data=p)
             if kind == "empty":
                 return self._finish(tid, "done", "No te escuché.")
-            if self.demo or not self.client.url or not self._token():
+            if self.demo:
                 return self._finish(tid, "done", "DEMO: no estoy conectado a tu Jarvis, así que no consulto tus "
                                                  "datos. Prueba «abre la agenda» para ver un panel de ejemplo.")
+            if not self.client.url or not self._token():
+                return self._finish(tid, "error", "Sin conexión real con Jarvis. Configura y empareja este equipo; no se ejecutó ninguna acción.")
             r = self.client.turn(tid, text)
             state = r.get("state")
             if state == "uncertain":
