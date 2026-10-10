@@ -320,10 +320,16 @@ class HandMouse:
                             self.pointer.click()
                     return
                 tx, ty, _ = self.target
-                dx, dy = (tx - px) * 0.25, (ty - py) * 0.25
+                error = math.hypot(tx - px, ty - py)
+                # Reject tiny tremor, damp near a target, catch up on long reaches.
+                # Continuous gain avoids a speed jump at a threshold; no prediction.
+                if error <= 2:
+                    return
+                gain = 0.18 + 0.27 * min(1.0, error / 300.0)
+                dx, dy = (tx - px) * gain, (ty - py) * gain
                 distance = math.hypot(dx, dy)
-                if distance > 60:
-                    dx, dy = dx * 60 / distance, dy * 60 / distance
+                if distance > 90:
+                    dx, dy = dx * 90 / distance, dy * 90 / distance
                 if math.hypot(dx, dy) >= 1:
                     self.pointer.move(round(px + dx), round(py + dy))
             except Exception:

@@ -50,3 +50,6 @@ La precisión de pinza y el clic físico con Brio/Firefox siguen pendientes de p
 - **Indicador:** muestra Listo/Pinza/Arrastrando/Desplazar/Pausado junto al cursor **dentro de la página de Jarvis**, no es una superposición nativa sobre otras aplicaciones.
 
 Las pruebas automáticas usan puntero y navegador simulados. Desplazamiento y arrastre reales deben comprobarse en el Mac primero sobre una página de prueba y una ventana vacía. La validación previa del dueño cubre movimiento, clic, Escape y avatar, no estos modos nuevos.
+
+### Seguimiento adaptativo
+El cursor ignora temblor de hasta 2 píxeles, amortigua correcciones cortas y aumenta gradualmente la respuesta en recorridos largos. Tope de 90 píxeles por ciclo (antes 60); no predice posiciones. No cambia la cámara ni la detección de pinza. La comodidad y latencia física se comprueban en el Mac, no en las pruebas simuladas.
