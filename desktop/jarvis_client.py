@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-PANELS = ("estado", "agenda", "cobros", "practica")
+PANELS = ("estado", "agenda", "cobros", "practica", "brief", "caja")
 EVENT_TYPES = ("state", "transcript.final", "reply.text", "panel.open", "proposal.created", "turn.done", "turn.error")
 
 

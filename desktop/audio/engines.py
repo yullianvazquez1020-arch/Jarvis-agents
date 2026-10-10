@@ -38,6 +38,8 @@ def speakable(text, limit=600):
     t = re.sub(r"https?://\S+", " ", t)
     t = _EMOJI.sub(" ", t)
     t = re.sub(r"[*_`#>|•\[\]{}<>]+", " ", t)
+    # Keep sentence pauses when a displayed list is read by the local voice.
+    t = re.sub(r"(?<=[^\s.!?:;])\s*\n+", ". ", t)
     return re.sub(r"\s+", " ", t).strip()[:limit]
 
 
