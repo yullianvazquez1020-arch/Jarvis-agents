@@ -27,16 +27,16 @@ if (channel) {
     }
     lastFrame = 0;
   };
-  voiceStatus("Boca: sin audio sonando. Sigue la voz que suena en la ventana de conversación.");
+  voiceStatus("Núcleo: sin audio sonando. Sigue la voz que suena en la ventana de conversación.");
 } else {
-  voiceStatus("Boca: este navegador no comparte el audio entre ventanas; solo la frase de prueba aproximada.");
+  voiceStatus("Núcleo: este navegador no comparte el audio entre ventanas; solo la frase de prueba aproximada.");
 }
 
 /* Nivel de boca según el audio que suena ahora. null = no hay voz real activa. */
 function voiceLevel(now, dt) {
   const c = voice.clock, env = voice.env;
   if (!c || !env || c.id !== env.id) {
-    if (voice.active) { voice.active = false; voiceStatus("Boca: sin audio sonando." + (voice.why ? " (" + voice.why + ")" : "")); }
+    if (voice.active) { voice.active = false; voiceStatus("Núcleo: sin audio sonando." + (voice.why ? " (" + voice.why + ")" : "")); }
     return null;
   }
   const pos = voice.filter.position(now);
@@ -46,7 +46,7 @@ function voiceLevel(now, dt) {
   if (measure && syncLog.length < 20000) syncLog.push([now, pos, target, value, playing ? 1 : 0]);
   if (playing !== voice.active) {
     voice.active = playing;
-    voiceStatus(playing ? "Boca: sigue la amplitud del audio real (no fonemas)." : "Boca: audio en pausa o terminado.");
+    voiceStatus(playing ? "Núcleo: sigue la amplitud del audio real (no fonemas)." : "Núcleo: audio en pausa o terminado.");
   }
   return playing || value > 0.01 ? value : null;
 }
@@ -106,39 +106,11 @@ function drawHand(h) {
   }
 }
 
-// Procedural visual anatomy. Coordinates are decorative, never biometric readings.
+// Procedural orbital geometry. Decorative, never biometric readings.
 const orbitColors = ['#69e8ff','#b477ff','#ff62b8','#6bf5ad','#ffd77b'];
 function strokePath(points,color,width=0.7,alpha=0.65) {
   x.shadowColor=color;x.shadowBlur=width>=.8?3:0;x.strokeStyle=color;x.lineWidth=width;x.globalAlpha=alpha;x.beginPath();
   points.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.stroke();x.globalAlpha=1;x.shadowBlur=0;
-}
-function orbitalHead(cx,cy,scale,level,phase) {
-  for(let r=0;r<27;r++) {
-    const lat=-Math.PI/2+r*Math.PI/26, path=[];
-    for(let a=0;a<=48;a++) {
-      const angle=a*Math.PI/24;
-      const nose=Math.max(0,Math.cos(angle)) * Math.exp(-Math.pow(lat/.3,2))*5;
-      path.push([cx+Math.sin(angle)*Math.cos(lat)*31*scale,cy+Math.sin(lat)*44*scale+Math.cos(angle)*6*scale-nose*scale]);
-    }
-    strokePath(path,orbitColors[r%4],.45,.35);
-  }
-  for(let a=0;a<32;a++) {
-    const angle=a*Math.PI/16,pts=[];
-    for(let i=0;i<=32;i++){const lat=-Math.PI/2+i*Math.PI/32;pts.push([cx+Math.sin(angle)*Math.cos(lat)*31*scale,cy+Math.sin(lat)*44*scale+Math.cos(angle)*6*scale]);}
-    strokePath(pts,'#69e8ff',.45,.3);
-  }
-  strokePath([[cx,cy-8*scale],[cx-3*scale,cy+9*scale],[cx+3*scale,cy+9*scale]],'#8fffe3',.8,.7);
-  for(let side of [-1,1]) {
-    x.fillStyle='#bcffff';x.beginPath();x.ellipse(cx+side*11*scale,cy-4*scale,6*scale,(1.1+1-blink)*scale,0,0,Math.PI*2);x.fill();
-  }
-  x.strokeStyle='#ffe8a0';x.lineWidth=scale;
-  // Curved corners make the smile visible even when no audio is playing.
-  const my=cy+20*scale, mw=(9+smile*4)*scale, curve=smile*8*scale;
-  x.beginPath();
-  x.moveTo(cx-mw,my-curve*.35);
-  x.quadraticCurveTo(cx,my+curve+level*6*scale,cx+mw,my-curve*.35);
-  if(level>.02) x.quadraticCurveTo(cx,my+curve-level*6*scale,cx-mw,my-curve*.35);
-  x.stroke();
 }
 function brain(cx,cy,s,phase) {
   for(let h of [-1,1])for(let k=0;k<25;k++) {
@@ -159,12 +131,6 @@ function panel(px,py,w,h,title,subtitle) {
   x.fillStyle='#5f94a8';x.font='8px monospace';x.fillText(subtitle,px+9,py+h-9);
   x.strokeStyle='#76dce8';x.beginPath();x.moveTo(px,py+7);x.lineTo(px,py);x.lineTo(px+7,py);x.stroke();
 }
-function anatomicalRadius(index,u,start,end) {
-  const linear=start*(1-u)+end*u;
-  if(index===0) return linear*(.72+.25*Math.sin(Math.PI*u)-.13*u); // chest to waist
-  if(index===1) return linear*(.82+.18*Math.sin(Math.PI*u)); // pelvis
-  return linear*(.72+.28*Math.sin(Math.PI*u)); // muscle belly, narrow joints
-}
 function particles() {
   const h=hand(),phase=t*.016;
   x.clearRect(0,0,960,540);
@@ -174,92 +140,44 @@ function particles() {
   for(let i=0;i<960;i+=24){x.beginPath();x.moveTo(i,0);x.lineTo(i,540);x.stroke();}
   for(let i=0;i<540;i+=24){x.beginPath();x.moveTo(0,i);x.lineTo(960,i);x.stroke();}
   panel(14,14,234,214,'01 / OPTICAL · GESTURE ENGINE',h.seen?'21 PUNTOS · CÁMARA LOCAL':'SIN DETECCIÓN · ACTIVAR MANO');
-  panel(14,242,234,194,'02 / FACIAL · AVATAR', 'MALLA VISUAL · NO ESCÁNER BIOMÉTRICO');
+  panel(14,242,234,194,'02 / NÚCLEO · ÓRBITA', 'IDENTIDAD VISUAL · NO SENSOR');
   panel(710,14,236,141,'03 / CONEXIONES','SOLO ESTADOS COMPROBADOS');
   panel(710,168,236,112,'04 / VOZ · ENVOLVENTE RMS','AMPLITUD DEL AUDIO · NO FONEMAS');
   panel(710,294,236,142,'05 / CORE · NEURAL FIELD','GEOMETRÍA ARTÍSTICA · NO MÉTRICA DE IA');
   panel(14,450,932,76,'06 / ÓRBITA · ACTIVIDAD VISUAL','VOZ Y MANOS LOCALES · SIN DIAGNÓSTICO MÉDICO');
-  // Full body: projected rings around anatomical segments, with branching paths.
-  const yaw=h.seen?h.x*.23:Math.sin(phase*.4)*.075;
-  const cx=478,cy=53;
-  const project=(p)=>[cx+p[0]*Math.cos(yaw)+p[2]*Math.sin(yaw),cy+p[1]+p[2]*.13];
-  const segments=[[[0,72,0],[0,180,0],57,31],[[0,177,0],[0,233,0],33,44],
-    [[-49,90,0],[-79,162,0],17,12],[[79*-1,162,0],[-104,231,0],12,8],
-    [[49,90,0],[79,162,0],17,12],[[79,162,0],[104,231,0],12,8],
-    [[-25,223,0],[-29,306,0],23,13],[[-29,306,0],[-33,386,0],14,8],
-    [[25,223,0],[29,306,0],23,13],[[29,306,0],[33,386,0],14,8]];
-  if (particleMode) {
-  segments.forEach((seg,idx)=>{
-    const [a,b,ra,rb]=seg,dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy),nx=dy/len,ny=-dx/len;
-    for(let f=0;f<18;f++){
-      const angle=f*Math.PI/9,pts=[];
-      for(let j=0;j<=22;j++){
-        const u=j/22,r=anatomicalRadius(idx,u,ra,rb);
-        const p=[a[0]+dx*u+nx*Math.cos(angle)*r,a[1]+dy*u+ny*Math.cos(angle)*r,Math.sin(angle)*r*.48];
-        pts.push(project(p));
-      }
-      strokePath(pts,orbitColors[(idx+f)%5],.65,.4);
-    }
-    for(let j=0;j<14;j++){
-      const u=j/13,r=anatomicalRadius(idx,u,ra,rb),pts=[];
-      for(let f=0;f<=32;f++){const angle=f*Math.PI/16;pts.push(project([a[0]+dx*u+nx*Math.cos(angle)*r,a[1]+dy*u+ny*Math.cos(angle)*r,Math.sin(angle)*r*.48]));}
-      strokePath(pts,'#73d6ed',.4,.16);
-    }
-    // Independent branching nerves, deterministic to avoid noisy random flicker.
-    for(let k=0;k<7;k++){
-      const pts=[];for(let j=0;j<=35;j++){const u=j/35;pts.push(project([a[0]+dx*u+Math.sin(u*7+k)*((ra+rb)/5),a[1]+dy*u,Math.cos(u*8+k)*7]));}
-      strokePath(pts,orbitColors[k%5],k===0?1.4:.8,.8);
-      const u=(phase*.3+k*.17)%1,p=pts[Math.floor(u*35)];x.fillStyle=orbitColors[k%5];x.beginPath();x.arc(p[0],p[1],1.6,0,7);x.fill();
-    }
-  });
-  // Continuous luminous spine and paired branching vessels retain Órbita's identity.
-  for(let side of [-1,1])for(let branch=0;branch<9;branch++){
-    const y=cy+94+branch*14;
-    strokePath([[cx, y-9],[cx+side*10,y],[cx+side*(34-branch*1.4),y+8]],orbitColors[branch%5],1,.65);
+  // Original orbital identity: projected luminous sphere, no humanoid anatomy.
+  const cx=478,cy=250,radius=145+talk*12,turn=phase*.16;
+  const halo=x.createRadialGradient(cx,cy,5,cx,cy,230);
+  halo.addColorStop(0,'#baffff22');halo.addColorStop(.62,'#6ce4ff18');halo.addColorStop(1,'#040c1800');x.fillStyle=halo;x.fillRect(cx-230,cy-230,460,460);
+  for(let ring=0;ring<7;ring++){
+    x.beginPath();x.ellipse(cx,cy,radius+12+ring*12,radius+12+ring*12,0,0,Math.PI*2);
+    x.strokeStyle=ring%2?'#e5c38388':'#88eafa88';x.lineWidth=ring===0?1.5:.7;x.stroke();
   }
-  strokePath([[cx,cy+70],[cx,cy+176],[cx,cy+224]],'#ffd77b',1.6,.85);
-  for(let side of [-1,1])for(let finger=0;finger<5;finger++){
-    const start=[cx+side*104,cy+231], tip=[cx+side*(102+finger*6),cy+255-(finger===0?10:0)];
-    for(let joint=0;joint<4;joint++){
-      const u=joint/3; x.fillStyle=orbitColors[finger];x.beginPath();x.arc(start[0]+(tip[0]-start[0])*u,start[1]+(tip[1]-start[1])*u,1.4,0,7);x.fill();
+  const bands=particleMode?18:8;
+  for(let k=0;k<bands;k++){
+    const tilt=k*Math.PI/bands+turn,pts=[];
+    for(let j=0;j<=90;j++){
+      const angle=j*Math.PI/45,xx=Math.cos(angle)*radius,yy=Math.sin(angle)*radius;
+      pts.push([cx+xx*Math.cos(tilt)-yy*.28*Math.sin(tilt),cy+xx*Math.sin(tilt)+yy*.28*Math.cos(tilt)]);
     }
+    strokePath(pts,k%4===0?'#ffe2a0':'#c3ffff',.8,.4+talk*.25);
   }
-  // Shoulder girdle, sternum, pelvis and joints make the silhouette anatomical.
-  for(const side of [-1,1]){
-    strokePath([[cx,cy+82],[cx+side*19,cy+83],[cx+side*41,cy+89],[cx+side*49,cy+99]],'#90e6e4',1.2,.75);
-    strokePath([[cx,cy+183],[cx+side*28,cy+192],[cx+side*32,cy+215],[cx+side*15,cy+229],[cx,cy+213]],'#b477ff',1.2,.7);
-    for(const joint of [[side*49,93,10],[side*79,162,7],[side*104,231,5],[side*29,306,8],[side*33,381,5]]){
-      x.beginPath();x.ellipse(cx+joint[0],cy+joint[1],joint[2],joint[2]*.7,0,0,Math.PI*2);x.strokeStyle='#7de5eaaa';x.lineWidth=.8;x.stroke();
-    }
-    for(let finger=0;finger<5;finger++){
-      const tipx=cx+side*(102+finger*6),tipy=cy+255-(finger===0?10:0);
-      strokePath([[cx+side*104,cy+231],[cx+side*(104+finger*2),cy+241],[tipx,tipy]],'#b8fff0',.8,.8);
-    }
+  for(let i=0;i<85;i++){
+    const latitude=Math.asin(-1+2*(i+.5)/85),angle=i*2.399963+turn;
+    const xx=cx+Math.cos(angle)*Math.cos(latitude)*radius,yy=cy+Math.sin(latitude)*radius;
+    x.fillStyle=i%9===0?'#ffe6a0':'#c7ffff';x.beginPath();x.arc(xx,yy,1.2+talk,0,7);x.fill();
   }
-  strokePath([[cx,cy+88],[cx,cy+148]],'#a8f4ff',1.1,.8);
-  orbitalHead(cx,cy+36, .87,talk,phase);
-  strokePath([[cx-9,cy+65],[cx-10,cy+81],[cx-48,cy+88]],'#b477ff',1);
-  strokePath([[cx+9,cy+65],[cx+10,cy+81],[cx+48,cy+88]],'#69e8ff',1);
-  for(let side of [-1,1]){
-    for(let r=0;r<10;r++){
-      const pts=[];for(let j=0;j<=30;j++){const u=j/30;pts.push([cx+side*Math.sin(u*Math.PI)* (43-r*1.3),cy+92+r*7+u*18]);}
-      strokePath(pts,orbitColors[(r+2)%5],.8,.55);
-    }
-    for(let finger=0;finger<5;finger++)strokePath([[cx+side*102,cy+226],[cx+side*(105+finger*3),cy+240],[cx+side*(102+finger*6),cy+255-(finger===0?10:0)]],orbitColors[finger],1,.8);
-    strokePath([[cx+side*33,cy+380],[cx+side*46,cy+391],[cx+side*26,cy+392]],'#69e8ff',1);
-  }
-  const heart=x.createRadialGradient(cx+9,cy+117,1,cx+9,cy+117,26+talk*5);heart.addColorStop(0,'#ffe6cacc');heart.addColorStop(.23,'#ff62b888');heart.addColorStop(1,'#ff007f00');x.fillStyle=heart;x.fillRect(cx-22,cy+84,64,64);
-  brain(cx,cy+16,.25,phase);
-  } else { orbitalHead(cx,245,3.6,talk,phase); brain(cx,200,.9,phase); }
-  x.fillStyle='#d9f7ff';x.font='11px monospace';x.fillText('Ó R B I T A',432,29);x.fillStyle='#689bb0';x.font='8px monospace';x.fillText('ANATOMÍA GENERATIVA · VISUAL',391,44);
+  const core=x.createRadialGradient(cx,cy,0,cx,cy,30+talk*30);
+  core.addColorStop(0,smile?'#fff1bd':'#e8ffff');core.addColorStop(.15,'#bdffffaa');core.addColorStop(1,'#a2ffff00');x.fillStyle=core;x.fillRect(cx-65,cy-65,130,130);
+  x.fillStyle='#d9f7ff';x.font='11px monospace';x.fillText('Ó R B I T A',432,29);x.fillStyle='#689bb0';x.font='8px monospace';x.fillText('NÚCLEO ORBITAL · VISUAL',391,44);
   // Facial detail; mouth uses the exact existing voice follower.
-  orbitalHead(130,337,1.7,talk,phase);
+  for(let ring=0;ring<8;ring++){const pts=[];for(let j=0;j<=60;j++){const a=j*Math.PI/30;pts.push([130+Math.cos(a)*(22+ring*6),337+Math.sin(a)*(22+ring*6)]);}strokePath(pts,ring%2?'#ffe2a0':'#aaffff',.6,.5);}
   // Hand inset displays real landmarks only, never fabricated sensor values.
   if(h.landmarks && h.landmarks.length===21){
     const p=h.landmarks.map(p=>[28+(1-p.x)*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],'#6bf5ad',1.3));
     p.forEach(v=>{x.fillStyle='#ffd77b';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});
   }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText(h.running?'SIN MANO DETECTADA':'CÁMARA APAGADA',42,114);x.font='9px monospace';x.fillText(h.running?'Muestra la palma a la cámara':'Activa la mano para ver',30,140);x.fillText('los puntos detectados.',47,155);}
-  const rows=[['MANO',h.seen?'DETECTADA':'SIN SEÑAL'],['AUDIO',voice.active?'REPRODUCIENDO':'EN REPOSO'],['BOCA',talking?'PRUEBA SIN AUDIO':voice.active?'RMS REAL':'EN REPOSO'],['DATOS','VER ESTADO INFERIOR']];
+  const rows=[['MANO',h.seen?'DETECTADA':'SIN SEÑAL'],['AUDIO',voice.active?'REPRODUCIENDO':'EN REPOSO'],['PULSO',talking?'PRUEBA SIN AUDIO':voice.active?'RMS REAL':'EN REPOSO'],['DATOS','VER ESTADO INFERIOR']];
   rows.forEach((r,i)=>{x.font='9px monospace';x.fillStyle='#678fa3';x.fillText(r[0],723,54+i*23);x.fillStyle='#91e6da';x.fillText(r[1],782,54+i*23);});
   const env=voice.env,clock=voice.clock;
   x.strokeStyle='#205069';x.beginPath();x.moveTo(721,241);x.lineTo(934,241);x.stroke();
@@ -323,19 +241,19 @@ document.getElementById("speak").onclick = () => {
   run();
 };
 function viewLabel() {
-  document.getElementById("style").textContent = particleMode ? "Ver rostro" : "Ver cuerpo";
+  document.getElementById("style").textContent = particleMode ? "Ver anillos" : "Ver núcleo";
   document.getElementById("style").setAttribute("aria-pressed", String(!particleMode));
 }
 document.getElementById("smile").onclick = () => {
   smile = smile ? 0 : 1;
   particleMode = false; lastFrame = 0; viewLabel();
-  document.getElementById("smile").textContent = smile ? "Rostro neutro" : "Sonreír";
+  document.getElementById("smile").textContent = smile ? "Pulso neutro" : "Saludo luminoso";
   document.getElementById("smile").setAttribute("aria-pressed", String(Boolean(smile)));
 };
 async function pulso() {
   const status = document.getElementById("status");
   if (location.protocol === "file:") {
-    status.textContent = "Vista previa sin conexión. La boca es aproximada; este botón no genera audio.";
+    status.textContent = "Vista previa sin conexión. El pulso es aproximado; este botón no genera audio.";
     return;
   }
   try {
@@ -354,7 +272,7 @@ function motionLabel() {
   document.getElementById("motion").setAttribute("aria-pressed", String(paused));
   document.getElementById("animation-status").textContent = paused
     ? "Animación ambiente pausada. La boca y la detección de mano siguen activas."
-    : "Animación ambiente activa. Ver rostro muestra la cara del avatar.";
+    : "Animación ambiente activa. Ver anillos simplifica el núcleo.";
 }
 document.getElementById("style").onclick = () => {
   particleMode = !particleMode; lastFrame = 0;

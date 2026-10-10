@@ -176,10 +176,10 @@
     const tiers=quality==='rich'?18:12;
     for(let k=0;k<tiers;k++){
       const u=k/(tiers-1), y=205-u*385, rr=205-u*153, hh=385/tiers;
-      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#49392c');shade.addColorStop(.45,'#947044');shade.addColorStop(1,'#302a29');
+      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#10252e');shade.addColorStop(.45,'#41646b');shade.addColorStop(1,'#091820');
       ctx.fillStyle=shade;ctx.fillRect(-rr,y-hh,rr*2,hh);
-      ctx.fillStyle='#574632';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
-      ellipse(0,y-hh,rr,rr*.13,'#d3aa66',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
+      ctx.fillStyle='#213e46';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
+      ellipse(0,y-hh,rr,rr*.13,'#dcdfb1',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
       const count=quality==='rich'?28:18;
       for(let j=0;j<count;j++){
         const xx=-rr+(j+.5)*rr*2/count;
@@ -187,7 +187,7 @@
         if(j%4===0){ctx.strokeStyle='#201d1c88';ctx.strokeRect(xx-3,y-hh+3,7,hh-4);}
       }
       if(k%3===0)for(let side of [-1,1]){
-        const xx=side*rr*.84;ctx.fillStyle='#8c7047';ctx.fillRect(xx-7,y-hh-23,14,27);
+        const xx=side*rr*.84;ctx.fillStyle='#547c80';ctx.fillRect(xx-7,y-hh-23,14,27);
         ctx.beginPath();ctx.moveTo(xx-11,y-hh-23);ctx.lineTo(xx,y-hh-43);ctx.lineTo(xx+11,y-hh-23);ctx.fillStyle='#3a6269';ctx.fill();dot(xx,y-hh-32,1.5,'#c7faff');
       }
     }
@@ -199,9 +199,10 @@
     dot(0,279,7,'#baffff');ellipse(0,280,42,8,'#6cddff88');
     ctx.fillStyle='#d7b675';ctx.fillRect(-9,-219,18,43);line([[-14,-219],[0,-250],[14,-219]],'#e8c983',2);
     ctx.restore();
-    for(let i=0;i<(quality==='rich'?6:3);i++){
-      const angle=phase*.09+i*2.1;
-      dragon(cx+Math.cos(angle)*345,290+Math.sin(angle)*185,.65+i*.08,ideas[i%5].color,Math.sin(angle)*.22);
+    for(let i=0;i<3;i++){
+      const angle=phase*.12+i*Math.PI*2/3,xx=cx+Math.cos(angle)*325,yy=290+Math.sin(angle)*190;
+      ellipse(xx,yy,11,11,'#d5faff88');dot(xx,yy,3,'#ffe6a0');
+      line([[xx-18,yy],[xx+18,yy]],'#78dfff55');
     }
     for(let i=0;i<5;i++){const y=490-i*83,col=ideas[i].color;line([[cx+205-i*37,y],[885,y]],col+'66');label(`${i*20+1}–${(i+1)*20}`,895,y,col);}
     label('CIUDADELA ÓRBITA / 100 PISOS RESERVADOS',30,40,'#c9f5ff');

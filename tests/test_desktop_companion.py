@@ -581,7 +581,7 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
-        self.assertIn('Probar boca (sin audio)'.encode(), body)       # la frase de prueba se rotula como aproximada
+        self.assertIn('Probar pulso (sin audio)'.encode(), body)       # la frase de prueba se rotula como aproximada
         self.assertIn(b'id="voice-status"', body)
         self.assertNotIn(b'<script>', body)
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))

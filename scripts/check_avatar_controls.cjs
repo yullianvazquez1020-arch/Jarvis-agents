@@ -13,7 +13,7 @@ read('loop(100)');
 els.motion.onclick();
 read('loop(200)');const frozen=read('t');
 read('loop(300)');assert.equal(read('t'),frozen,'pause freezes phase even when a hand is detected');
-els.style.onclick();assert.equal(els.style.textContent,'Ver cuerpo');
+els.style.onclick();assert.equal(els.style.textContent,'Ver núcleo');
 els.smile.onclick();assert.equal(read('smile'),1);
 read('loop(400)');assert.equal(read('smile'),1,'smile persists during pause');
 els.smile.onclick();assert.equal(read('smile'),0);
@@ -21,7 +21,7 @@ els.speak.onclick();read('viseme="a";loop(500)');assert.equal(read('talk'),1,'mo
 read('talking=false;window.JarvisHands.seen=false;for(let n=600;n<4000;n+=50)loop(n)');assert.equal(read('talk'),0,'paused mouth returns to rest after the test');
 els.motion.onclick();read('loop(4100)');assert.ok(read('t')>frozen,'resume continues phase');
 assert.match(els['animation-status'].textContent,/activa/);
-console.log('PASS: pause with hand, face toggle, persistent smile toggle, mouth during pause, resume');
+console.log('PASS: pause with hand, core/rings toggle, luminous greeting, audio pulse during pause, resume');
 
 const beforeHidden=read('t');read('avatarVisible=false;loop(4200)');assert.equal(read('t'),beforeHidden,'off-screen body skips rendering');read('avatarVisible=true;lastFrame=0;loop(4300)');assert.ok(read('t')>beforeHidden,'body resumes on return');console.log('PASS: off-screen rendering suspension and resume');
 
