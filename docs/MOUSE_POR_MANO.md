@@ -40,3 +40,13 @@ Primero se observa una apertura (ratio ≥ 0.6). Al acercar los dedos se congela
 Solo el ciclo nativo ejecuta el clic, después de comprobar Escape, borde, caducidad y captura reciente. No hay cola de clics. La navegación por permanencia de Atlas permanece suspendida mientras el puente está activo. La confirmación de macOS no convierte a ninguna IA en operador remoto.
 
 La precisión de pinza y el clic físico con Brio/Firefox siguen pendientes de prueba en la Mac. La medida es una heurística de distancia, no certifica intención ni identifica al dueño de la mano. La primera prueba debe hacerse únicamente sobre «Probar clic · 0»: incrementa un contador local sin llamadas, mensajes ni escrituras. Apuntar allí con los dedos abiertos, cerrar la pinza medio segundo y volver a abrir. Nunca probar sobre enviar, pagar o borrar. Este código se prepara para revisión; no implica autorización de fusión o despliegue.
+
+## Modos adicionales (prueba local de 60 segundos)
+
+- **Desplazar con dos dedos:** activa ese modo, deja la flecha sobre el contenido, extiende índice y medio y recoge anular/meñique. Mueve verticalmente para desplazar. No mueve el cursor ni hace clics. Si los dedos no se detectan, se detiene el desplazamiento.
+- **Arrastrar con pinza:** modo separado del clic. Abre, apunta al objeto, cierra pulgar e índice medio segundo, mueve y abre para soltar. Emite eventos nativos de arrastre. Escape, borde, cámara sin mano, datos vencidos, pestaña oculta y fin de 60 s sueltan el botón. Si el sistema rechaza la liberación, el control se apaga y muestra aviso; usa el mouse físico.
+- **Calibrar centro:** con el mouse parado y el índice visible en una posición cómoda, pulsa el botón usando el mouse físico. Selecciona recorrido corto/medio/normal/amplio; corto requiere menos movimiento del brazo. Cambiar calibración detiene cualquier modo activo.
+- **Perfil:** centro y recorrido se guardan en almacenamiento local de este navegador. La cámara seleccionada se recuerda también; Brio automática sigue siendo el valor inicial. Si se borra el almacenamiento o cambia el navegador, se pierde el perfil. No activa cámara ni control automáticamente.
+- **Indicador:** muestra Listo/Pinza/Arrastrando/Desplazar/Pausado junto al cursor **dentro de la página de Jarvis**, no es una superposición nativa sobre otras aplicaciones.
+
+Las pruebas automáticas usan puntero y navegador simulados. Desplazamiento y arrastre reales deben comprobarse en el Mac primero sobre una página de prueba y una ventana vacía. La validación previa del dueño cubre movimiento, clic, Escape y avatar, no estos modos nuevos.

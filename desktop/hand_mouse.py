@@ -24,6 +24,7 @@ class MacPointer:
             raise RuntimeError("Falta el permiso de Accesibilidad de Terminal en macOS.")
         self.gui, self.quartz = pyautogui, Quartz
         self.gui.FAILSAFE = True
+        self.button_held = False
 
     def size(self):
         return tuple(self.gui.size())
@@ -35,7 +36,28 @@ class MacPointer:
         return bool(self.quartz.CGEventSourceKeyState(self.quartz.kCGEventSourceStateCombinedSessionState, 53))
 
     def move(self, x, y):
-        self.gui.moveTo(x, y, duration=0, _pause=False)
+        if getattr(self, "button_held", False):
+            self.gui.failSafeCheck()
+            event = self.quartz.CGEventCreateMouseEvent(None, self.quartz.kCGEventLeftMouseDragged,
+                                                       (x, y), self.quartz.kCGMouseButtonLeft)
+            self.quartz.CGEventPost(self.quartz.kCGHIDEventTap, event)
+        else:
+            self.gui.moveTo(x, y, duration=0, _pause=False)
+
+    def scroll(self, amount):
+        self.gui.scroll(amount, _pause=False)
+
+    def down(self):
+        self.button_held = True
+        self.gui.mouseDown(button="left", _pause=False)
+
+    def up(self):
+        # Release must still work at a FAILSAFE corner. Post only a left-button-up.
+        point = self.quartz.CGEventGetLocation(self.quartz.CGEventCreate(None))
+        event = self.quartz.CGEventCreateMouseEvent(None, self.quartz.kCGEventLeftMouseUp,
+                                                   point, self.quartz.kCGMouseButtonLeft)
+        self.quartz.CGEventPost(self.quartz.kCGHIDEventTap, event)
+        self.button_held = False
 
     def click(self):
         self.gui.click(button="left", clicks=1)
@@ -59,6 +81,11 @@ class HandMouse:
         self.deadline = 0
         self.target = None
         self.last_seq = -1
+        self.mode = "move"
+        self.dragging = False
+        self.scroll_anchor = None
+        self.scroll_pending = 0
+        self.scroll_at = -math.inf
         self.click_enabled = False
         self.last_click = -math.inf
         self._reset_gesture()
@@ -72,11 +99,22 @@ class HandMouse:
         self.frozen = False
         self.gesture = "Abre pulgar e índice"
 
+    def _release_drag(self):
+        if self.dragging:
+            self.pointer.up()
+            self.dragging = False
+
     def _stop(self, reason):
         self.lease = self.owner = ""
         self.target = None
+        self.scroll_anchor = None
+        self.scroll_pending = 0
         self._reset_gesture()
         self.reason = reason
+        try:
+            self._release_drag()
+        except Exception:
+            self.reason = "Control apagado; no se pudo confirmar que el botón se soltó. Usa el mouse físico."
 
     def _expire(self):
         if self.lease and self.clock() >= self.deadline:
@@ -85,11 +123,11 @@ class HandMouse:
     def status(self):
         with self.lock:
             self._expire()
-            return {"click_enabled": self.click_enabled, "gesture": self.gesture, "enabled": self.enabled, "active": bool(self.lease), "reason": self.reason,
+            return {"mode": self.mode, "dragging": self.dragging, "click_enabled": self.click_enabled, "gesture": self.gesture, "enabled": self.enabled, "active": bool(self.lease), "reason": self.reason,
                     "remaining": max(0, round(self.deadline - self.clock())) if self.lease else 0}
 
     def arm(self, owner, data):
-        if data not in ({"confirm": "SOLO_MOVER_60S"}, {"confirm": "MOVER_Y_CLIC_60S"}):
+        if data not in tuple({"confirm": c} for c in ("SOLO_MOVER_60S", "MOVER_Y_CLIC_60S", "DESPLAZAR_60S", "ARRASTRAR_60S")):
             raise ValueError("Confirma la prueba de solo movimiento.")
         with self.lock:
             if not self.enabled or self.closed.is_set():
@@ -97,6 +135,8 @@ class HandMouse:
             self._expire()
             if self.lease:
                 raise RuntimeError("Ya hay una prueba activa. Detén esa prueba primero.")
+            if self.dragging:
+                self._release_drag()
             if not owner:
                 raise ValueError("Falta sesión local.")
             if self.pointer is None:
@@ -111,7 +151,12 @@ class HandMouse:
             self.deadline = self.clock() + self.TTL
             self.last_seq = -1
             self.target = None
-            self.click_enabled = data["confirm"] == "MOVER_Y_CLIC_60S"
+            self.mode = {"SOLO_MOVER_60S":"move", "MOVER_Y_CLIC_60S":"click",
+                         "DESPLAZAR_60S":"scroll", "ARRASTRAR_60S":"drag"}[data["confirm"]]
+            self.click_enabled = self.mode in ("click", "drag")
+            self.scroll_anchor = None
+            self.scroll_pending = 0
+            self.scroll_at = -math.inf
             self.last_click = -math.inf
             self._reset_gesture()
             self.reason = ("Movimiento y clic izquierdo por pinza. Escape detiene." if self.click_enabled
@@ -134,6 +179,8 @@ class HandMouse:
                 keys = {"lease", "seq", "x", "y", "captured_ms"}
                 if self.click_enabled:
                     keys.add("pinch_ratio")
+                if self.mode == "scroll":
+                    keys.add("two_fingers")
                 if set(data) != keys:
                     raise ValueError("Cuadro no permitido para este modo.")
                 seq = data["seq"]
@@ -154,18 +201,45 @@ class HandMouse:
                     if type(ratio) not in (int, float) or not math.isfinite(ratio) or ratio < 0:
                         raise ValueError("Pinza inválida.")
                 self.last_seq = seq
+                if self.mode == "scroll":
+                    two = data["two_fingers"]
+                    if type(two) is not bool:
+                        raise ValueError("Gesto inválido.")
+                    self.scroll_pending = 0
+                    if not two:
+                        self.scroll_anchor = None
+                        self.gesture = "Extiende índice y medio; recoge anular y meñique"
+                    else:
+                        if self.scroll_anchor is not None:
+                            ay, at = self.scroll_anchor
+                            if captured <= at:
+                                raise ValueError("Captura repetida.")
+                            delta = data["y"] - ay
+                            if captured-at > self.FRESH:
+                                self.scroll_anchor = (data["y"], captured)
+                            elif abs(delta) >= .025:
+                                self.scroll_pending = -1 if delta > 0 else 1
+                                self.scroll_anchor = (data["y"], captured)
+                        else:
+                            self.scroll_anchor = (data["y"], captured)
+                        self.gesture = "Dos dedos: mueve arriba o abajo"
+                    self.target = (0, 0, captured)
+                    return self.status()
                 if self.click_enabled:
                     if ratio is None:
+                        self._release_drag()
                         self.target = None
                         self._reset_gesture()
                         return self.status()
                     if self.pinch_last is not None and captured - self.pinch_last > self.FRESH:
+                        self._release_drag()
                         self._reset_gesture()
                     if self.pinch_last is not None and captured <= self.pinch_last:
                         raise ValueError("Captura repetida o fuera de orden.")
                     self.pinch_last = captured
                     self.frozen = ratio < 0.6
                     if ratio >= 0.6:
+                        self._release_drag()
                         self.ready = now - self.last_click >= self.COOLDOWN
                         self.pinch_start = None
                         self.pinch_frames = 0
@@ -184,6 +258,9 @@ class HandMouse:
                                12 + data["y"] * (self.height - 25), captured)
                 return self.status()
             except (ValueError, TypeError):
+                self._release_drag()
+                self.scroll_anchor = None
+                self.scroll_pending = 0
                 self.target = None
                 self._reset_gesture()
                 raise
@@ -198,6 +275,11 @@ class HandMouse:
         with self.lock:
             self._expire()
             if not self.lease:
+                if self.dragging:
+                    try:
+                        self._release_drag()
+                    except Exception:
+                        pass
                 return
             try:
                 if self.pointer.escape():
@@ -208,10 +290,19 @@ class HandMouse:
                     self._stop("Detenido al llevar el puntero al borde o a otra pantalla.")
                     return
                 if not self.target or self.clock() - self.target[2] > self.FRESH:
+                    self._release_drag()
+                    self.scroll_anchor = None
+                    self.scroll_pending = 0
                     self.target = None
                     self._reset_gesture()
                     return
-                if self.click_enabled and self.frozen:
+                if self.mode == "scroll":
+                    amount, self.scroll_pending = self.scroll_pending, 0
+                    if amount and self.clock() - self.scroll_at >= .12:
+                        self.scroll_at = self.clock()
+                        self.pointer.scroll(amount)
+                    return
+                if self.click_enabled and self.frozen and not self.dragging:
                     if (self.ready and self.pinch_start is not None and self.pinch_frames >= 3
                             and self.pinch_last - self.pinch_start >= self.HOLD
                             and self.clock() - self.last_click >= self.COOLDOWN):
@@ -221,7 +312,12 @@ class HandMouse:
                         self.pinch_frames = 0
                         self.last_click = self.clock()
                         self.gesture = "Clic realizado. Abre los dedos para rearmar"
-                        self.pointer.click()
+                        if self.mode == "drag":
+                            self.dragging = True
+                            self.pointer.down()
+                            self.gesture = "Arrastrando: abre los dedos para soltar"
+                        else:
+                            self.pointer.click()
                     return
                 tx, ty, _ = self.target
                 dx, dy = (tx - px) * 0.25, (ty - py) * 0.25

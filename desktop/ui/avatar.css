@@ -57,3 +57,5 @@ button:hover{background:#133646;border-color:#7ce2e9}
 /* Keep the camera visible while tracking, including Safari playback. */
 #hand-video.preview-active{display:block;position:static;width:240px;height:180px;margin:12px auto;opacity:1;transform:scaleX(-1)}
 #hand-camera{background:#061725;color:#c9eee9;border:1px solid #31586c;padding:7px;margin:6px;max-width:95%}
+
+.hand-cursor-status { position:fixed; left:18px; top:18px; z-index:1000; pointer-events:none; background:#03121de8; color:#91e6da; border:1px solid #50c878; padding:5px 9px; border-radius:8px; font:12px monospace; }
