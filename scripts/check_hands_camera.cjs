@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(__dirname, '../desktop/ui/hands.js'), '
   ;
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 function setup({ devices, failDetect = false, pending = false, workerHang = false, frameHang = false, detection = () => ({landmarks:[]}) } = {}) {
-  const calls = [], streams = [], frames = [], events = {}, elements = {}, workers = [], timers = new Map();
+  const calls = [], streams = [], frames = [], events = {}, elements = {}, workers = [], channels = [], timers = new Map();
   let timerId = 0, now = 1000;
   const container = { appendChild() {}, insertBefore() {} };
   function element() {
@@ -46,14 +46,14 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
     vision: { FilesetResolver: { forVisionTasks: async () => ({}) }, HandLandmarker: { createFromOptions: async () => ({
       detectForVideo: () => { if (failDetect) throw new Error('detector failed'); return { landmarks: [] }; }
     }) } },
-    window: {}, Worker: FakeWorker, createImageBitmap: async () => ({ close() {} }),
+    window: {}, BroadcastChannel: class { constructor(){channels.push(this);} postMessage(message){this.last=message;} }, Worker: FakeWorker, createImageBitmap: async () => ({ close() {} }),
     setTimeout: (f, ms) => { const id = ++timerId; timers.set(id, { f, ms }); return id; },
     clearTimeout: id => timers.delete(id),
     performance: { now: () => now }, requestAnimationFrame: f => frames.push(f),
     addEventListener: (type, f) => { events[type] = f; }
   };
   vm.runInNewContext(source, context);
-  return { context, calls, streams, frames, elements, chooser, events, workers, timers, advance: () => { now += 250; video.currentTime += 1; }, resolve: () => resolveStream() };
+  return { context, calls, streams, frames, elements, chooser, events, workers, channels, timers, advance: () => { now += 250; video.currentTime += 1; }, resolve: () => resolveStream() };
 }
 (async () => {
   let t = setup(); t.elements.hands.onclick(); await flush();
@@ -87,6 +87,12 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   assert.equal(pair.context.window.JarvisHands.seen,false,'second hand cannot inherit active pointer after primary loss');
   pair.events.keydown({key:'Escape'});
   console.log('PASS: two real landmark sets, stable primary through output reordering, no pointer handover on loss.');
+
+  const shared=setup();shared.elements.hands.onclick();await flush();
+  assert.equal(shared.context.window.JarvisHands.running,true);
+  shared.channels[0].onmessage({data:{type:'active',id:'another-avatar'}});
+  assert.equal(shared.context.window.JarvisHands.running,false,'another avatar releases this camera rather than running duplicate inference');
+  assert.equal(shared.streams[0].getTracks()[0].stopped,true);
 
   let enumerations = 0;
   t = setup({ devices: () => ++enumerations === 1 ? [{kind:'videoinput', deviceId:'', label:''}] : [{kind:'videoinput', deviceId:'brio', label:'Logitech BRIO'}] });

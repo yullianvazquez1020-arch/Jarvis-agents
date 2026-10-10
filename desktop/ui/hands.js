@@ -11,6 +11,13 @@
   var watchdog = null;
   var busy = false;
   var frameId = 0;
+  var cameraChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel("jarvis-camera-owner") : null;
+  var cameraId = String(Math.random());
+  if(cameraChannel) cameraChannel.onmessage = function(event) {
+    if(event.data && event.data.type==="active" && event.data.id!==cameraId && (running||loading)) {
+      stop(); say("La cámara está activa en otra ventana de Avatar. Esta ventana la dejó libre.");
+    }
+  };
   var capture = document.createElement("canvas");
   capture.width = 320;
   capture.height = 240;
@@ -20,7 +27,7 @@
   var generation = 0;
   var lastDetection = 0;
   var lastVideoTime = -1;
-  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "", hands: [], count: 0 };
+  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "", hands: [], count: 0, inferenceMs: 0 };
   var primaryWrist = null, primaryLabel = "", inferenceMs = 50;
   var selector = document.createElement("select");
   selector.id = "hand-camera";
@@ -91,7 +98,7 @@
     state.y = Math.max(-1, Math.min(1, (wrist.y - 0.5) * 2));
     state.open = Math.max(0, Math.min(1, (Math.hypot(tip.x - wrist.x, tip.y - wrist.y) - 0.12) / 0.28));
     state.seen = true;
-    state.updatedAt = performance.now();
+    state.updatedAt = lastDetection;
     state.landmarks = landmarks.map(function (p) { return { x: 1 - p.x, y: p.y }; });
   }
 
@@ -114,6 +121,7 @@
     apply(selected.points);
     state.hands = candidates.map(function(item) { return {label:item.label, active:item===selected, landmarks:item.points.map(function(p) { return {x:1-p.x,y:p.y}; })}; });
     state.count = state.hands.length;
+    say("Cámara: " + state.camera + " · " + state.count + " mano(s) · análisis " + state.inferenceMs + " ms · control de una mano, sin cambio automático.");
   }
 
   function fail(message) { stop(); say(message); }
@@ -136,6 +144,7 @@
           clearTimeout(watchdog);
           watchdog = null;
           busy = false;
+          state.inferenceMs = Math.round(Math.max(1,performance.now()-lastDetection));
           inferenceMs = inferenceMs*.7 + Math.max(1,performance.now()-lastDetection)*.3;
           if (document.hidden || performance.now() - lastDetection > 350) decay();
           else applyResult(message);
@@ -240,12 +249,13 @@
       loading = false;
       running = true;
       state.running = true;
+      if(cameraChannel)cameraChannel.postMessage({type:"active",id:cameraId});
       stream.getVideoTracks()[0].onended = function () { stop(); say("La cámara se desconectó. Pulsa Activar mano para reconectar."); };
       if (button) {
         button.textContent = "Apagar mano";
         button.setAttribute("aria-pressed", "true");
       }
-      say("Cámara: " + state.camera + ". Detector aislado, máximo 5 análisis/s; muestra una mano. Vista previa local, sin envío.");
+      say("Cámara: " + state.camera + ". Detector aislado adaptativo; muestra una o dos manos. Vista previa local, sin envío.");
       requestAnimationFrame(function () { loop(ticket); });
     }).catch(function (err) {
       if (ticket !== generation) return;
@@ -254,6 +264,7 @@
     });
   }
 
+  state.start = start; state.stop = stop;
   window.JarvisHands = state;
   addEventListener("pagehide", stop);
   addEventListener("keydown", function (e) { if (e.key === "Escape") stop(); });

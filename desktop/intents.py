@@ -5,7 +5,7 @@ an approval, a code or a command is refused here too, so it never reaches Jarvis
 import re
 import unicodedata
 
-PANELS = ("estado", "agenda", "cobros", "practica")
+PANELS = ("estado", "agenda", "cobros", "practica", "brief", "caja")
 
 
 def norm(text):

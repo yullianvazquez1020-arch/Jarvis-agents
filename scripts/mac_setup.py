@@ -71,7 +71,7 @@ def main(argv=None):
         if locale != "es_PR":
             print("No se encontró voz es_PR: el acento puertorriqueño aún requiere una voz compatible.")
         if args.launch:
-            env = dict(os.environ, VOICE_DEMO="false", VOICE_TTS_BACKEND="macos_say", VOICE_TTS_VOICE=voice or "auto-latino")
+            env = dict(os.environ, VOICE_DEMO="false", VOICE_TTS_BACKEND="macos_say", VOICE_TTS_VOICE=voice or "auto-latino", VOICE_AUTO_CAMERA="true", VOICE_STARTUP_AUDIO="true")
             if Path("/Applications/Firefox.app").exists():
                 env["BROWSER"] = "open -a Firefox %s"
             return subprocess.call(launch_command(python), env=env)

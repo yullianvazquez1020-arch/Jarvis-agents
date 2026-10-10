@@ -7,7 +7,7 @@
   var windowId = rid();
   var isOwner = false, seq = 0, current = null, rec = null, audioEl = null, state = { prefs: {} };
   var revealed = false, lastReply = "", lastPanel = null;
-  var PANEL_NAMES = { agenda: 1, cobros: 1, practica: 1, estado: 1 };
+  var PANEL_NAMES = { agenda: 1, cobros: 1, practica: 1, estado: 1, brief: 1, caja: 1 };
   var HUD_NAMES = { cobros: 1, vencidos: 1, agenda: 1, balances: 1, stock: 1, mensajes: 1, practica: 1 };
   var clockFmt = new Intl.DateTimeFormat("es-PR", { timeZone: "America/Puerto_Rico", hour: "2-digit", minute: "2-digit",
                                                    weekday: "short", day: "numeric", month: "short" });
@@ -50,6 +50,8 @@
   function setState(s, detail) { $("state").textContent = s + (detail ? " — " + detail : ""); }
   function setOwner(own) {
     isOwner = own;
+    window.JarvisAudioOwner=own;
+    window.dispatchEvent(new CustomEvent("jarvis-audio-owner",{detail:own}));
     $("chip-role").textContent = own ? "Esta ventana: voz y audio" : "Esta ventana: solo muestra";
     $("owner-note").hidden = own; $("talk").disabled = !own;
   }
@@ -151,9 +153,15 @@
     audioEl.onended = function () { setState("listo"); };
     setState("hablando");
     voice.attach(audioEl, id);
+    audioEl.addEventListener("playing",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(true);});
+    audioEl.addEventListener("ended",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(false);});
     audioEl.play().catch(function () { setState("listo", "toca la página una vez para permitir el audio"); });
   }
+  addEventListener("pointerdown", function () {
+    if (audioEl && audioEl.paused && audioEl.currentTime===0) audioEl.play().catch(function(){});
+  });
   function stopAudio() {
+    if(window.JarvisAmbience)window.JarvisAmbience.duck(false);
     if (audioEl) { voice.detach(audioEl); audioEl.pause(); audioEl.src = ""; audioEl = null; }
   }
 
@@ -321,5 +329,9 @@
       var last = null; try { last = sessionStorage.getItem("jarvis-panel"); } catch (err) { /* ignore */ }
       if (last && PANEL_NAMES[last]) openPanel(last);
       setState("listo"); poll();
+      if (isOwner && state.startup && state.startup.audio && !state.tts.problem) {
+        api("POST", "/conversation/turns", {request_id:rid(),text:"estado del sistema",source:"text"})
+          .catch(function(e){setState("listo",e.message);});
+      }
     }).catch(function (e) { setState("error", e.message); });
 })();
