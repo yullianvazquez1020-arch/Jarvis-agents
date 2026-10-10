@@ -256,6 +256,38 @@ if not AI_READY:
     async def _ai_missing(*args, **kwargs):
         raise AINotConfigured("IA no configurada: falta ANTHROPIC_API_KEY válida; no se hizo ninguna llamada")
     client.messages.create = _ai_missing   # every caller (core, extensions, growth) goes through here
+
+# Model router (opt-in). The single gate for TEXT-ONLY LLM calls (no tools, no images, no web search).
+# JARVIS_ROUTER_ENABLED=0 (default) keeps exactly the previous Anthropic call. With 1, jarvis_router decides:
+# sensitive data -> local Ollama only (error if it does not respond); everything else -> Ollama or cheap APIs.
+# The router returns text only; every action still goes through Jarvis's own controls (/confirmar, approvals, caps).
+try:
+    import jarvis_router
+    ROUTER_STATUS = "cargado"
+except Exception as _router_exc:   # pragma: no cover - only if the file is missing
+    jarvis_router = None
+    ROUTER_STATUS = f"no cargado ({type(_router_exc).__name__})"
+
+class LLMText:
+    __slots__ = ("text", "backend", "model", "tokens", "truncated")
+    def __init__(self, text, backend, model, tokens=0, truncated=False):
+        self.text, self.backend, self.model, self.tokens, self.truncated = text, backend, model, tokens, truncated
+
+def router_enabled() -> bool:
+    return bool(jarvis_router) and jarvis_router.enabled()
+
+async def llm_text(system: str, prompt: str, max_tokens: int = 1200, model: str | None = None) -> LLMText:
+    """Text in, text out. Does not run tools or actions. The router path is used only when the owner turns it on."""
+    if router_enabled():
+        r = await asyncio.to_thread(jarvis_router.route, prompt, system, None, max_tokens)
+        return LLMText(r["text"], "router", r["backend"], int(r.get("tokens") or 0), False)
+    model = model or MODEL
+    r = await client.messages.create(model=model, max_tokens=max_tokens, system=system,
+                                     messages=[{"role": "user", "content": prompt}])
+    u = getattr(r, "usage", None)
+    tokens = int(getattr(u, "input_tokens", 0) or 0) + int(getattr(u, "output_tokens", 0) or 0)
+    text = "".join(b.text for b in r.content if b.type == "text").strip()
+    return LLMText(text, "anthropic", model, tokens, getattr(r, "stop_reason", None) == "max_tokens")
 API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 OWNER = os.getenv("OWNER_NAME", "the boss")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -2812,9 +2844,7 @@ async def _claude_research(prompt: str, max_tokens: int = 1200, need_live: bool 
     if need_live:
         return None, False
     try:
-        r = await client.messages.create(model=MODEL, max_tokens=max_tokens, system=_RESEARCH_SYSTEM,
-                                         messages=[{"role": "user", "content": prompt}])
-        text = "".join(b.text for b in r.content if b.type == "text").strip() or "(sin respuesta)"
+        text = (await llm_text(_RESEARCH_SYSTEM, prompt, max_tokens)).text or "(sin respuesta)"
         return ("⚠️ Sin búsqueda en internet: esto es conocimiento general y puede estar desactualizado.\n\n"
                 + text), False
     except Exception as e:
