@@ -10,6 +10,7 @@ const tabs=['tower','galaxy','cell'].map(mode=>{const e=el();e.dataset.atlas=mod
 const box={document:{hidden:false,getElementById:id=>nodes[id],createElement:()=>el()},window:{},matchMedia:()=>({matches:false}),requestAnimationFrame:cb=>frames.push(cb),addEventListener(){},innerWidth:1600,innerHeight:900,Math};
 vm.runInNewContext(fs.readFileSync('desktop/ui/atlas.js','utf8'),box);
 function frame(now){const f=frames.shift();assert.ok(f);f(now)}
+if(process.env.ATLAS_VIEW==='galaxy')tabs[1].onclick();
 frame(1000);assert.equal(nodes['atlas-list'].children.length,5);assert.match(nodes['observatory-hand'].textContent,/apagada/);
 if(native)fs.writeFileSync('/tmp/observatory-scene.png',nodes.atlas.canvas.toBuffer('image/png'));
 nodes['atlas-motion'].onclick();assert.equal(nodes['atlas-motion'].attrs['aria-pressed'],'true');

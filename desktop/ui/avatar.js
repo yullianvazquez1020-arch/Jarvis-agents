@@ -159,6 +159,12 @@ function panel(px,py,w,h,title,subtitle) {
   x.fillStyle='#5f94a8';x.font='8px monospace';x.fillText(subtitle,px+9,py+h-9);
   x.strokeStyle='#76dce8';x.beginPath();x.moveTo(px,py+7);x.lineTo(px,py);x.lineTo(px+7,py);x.stroke();
 }
+function anatomicalRadius(index,u,start,end) {
+  const linear=start*(1-u)+end*u;
+  if(index===0) return linear*(.72+.25*Math.sin(Math.PI*u)-.13*u); // chest to waist
+  if(index===1) return linear*(.82+.18*Math.sin(Math.PI*u)); // pelvis
+  return linear*(.72+.28*Math.sin(Math.PI*u)); // muscle belly, narrow joints
+}
 function particles() {
   const h=hand(),phase=t*.016;
   x.clearRect(0,0,960,540);
@@ -188,14 +194,14 @@ function particles() {
     for(let f=0;f<18;f++){
       const angle=f*Math.PI/9,pts=[];
       for(let j=0;j<=22;j++){
-        const u=j/22,r=ra*(1-u)+rb*u;
+        const u=j/22,r=anatomicalRadius(idx,u,ra,rb);
         const p=[a[0]+dx*u+nx*Math.cos(angle)*r,a[1]+dy*u+ny*Math.cos(angle)*r,Math.sin(angle)*r*.48];
         pts.push(project(p));
       }
       strokePath(pts,orbitColors[(idx+f)%5],.65,.4);
     }
     for(let j=0;j<14;j++){
-      const u=j/13,r=ra*(1-u)+rb*u,pts=[];
+      const u=j/13,r=anatomicalRadius(idx,u,ra,rb),pts=[];
       for(let f=0;f<=32;f++){const angle=f*Math.PI/16;pts.push(project([a[0]+dx*u+nx*Math.cos(angle)*r,a[1]+dy*u+ny*Math.cos(angle)*r,Math.sin(angle)*r*.48]));}
       strokePath(pts,'#73d6ed',.4,.16);
     }
@@ -218,6 +224,19 @@ function particles() {
       const u=joint/3; x.fillStyle=orbitColors[finger];x.beginPath();x.arc(start[0]+(tip[0]-start[0])*u,start[1]+(tip[1]-start[1])*u,1.4,0,7);x.fill();
     }
   }
+  // Shoulder girdle, sternum, pelvis and joints make the silhouette anatomical.
+  for(const side of [-1,1]){
+    strokePath([[cx,cy+82],[cx+side*19,cy+83],[cx+side*41,cy+89],[cx+side*49,cy+99]],'#90e6e4',1.2,.75);
+    strokePath([[cx,cy+183],[cx+side*28,cy+192],[cx+side*32,cy+215],[cx+side*15,cy+229],[cx,cy+213]],'#b477ff',1.2,.7);
+    for(const joint of [[side*49,93,10],[side*79,162,7],[side*104,231,5],[side*29,306,8],[side*33,381,5]]){
+      x.beginPath();x.ellipse(cx+joint[0],cy+joint[1],joint[2],joint[2]*.7,0,0,Math.PI*2);x.strokeStyle='#7de5eaaa';x.lineWidth=.8;x.stroke();
+    }
+    for(let finger=0;finger<5;finger++){
+      const tipx=cx+side*(102+finger*6),tipy=cy+255-(finger===0?10:0);
+      strokePath([[cx+side*104,cy+231],[cx+side*(104+finger*2),cy+241],[tipx,tipy]],'#b8fff0',.8,.8);
+    }
+  }
+  strokePath([[cx,cy+88],[cx,cy+148]],'#a8f4ff',1.1,.8);
   orbitalHead(cx,cy+36, .87,talk,phase);
   strokePath([[cx-9,cy+65],[cx-10,cy+81],[cx-48,cy+88]],'#b477ff',1);
   strokePath([[cx+9,cy+65],[cx+10,cy+81],[cx+48,cy+88]],'#69e8ff',1);

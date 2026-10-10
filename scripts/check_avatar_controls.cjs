@@ -2,7 +2,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const els = {};
-const ctx = new Proxy({}, {get: (o,k) => k==='createRadialGradient' ? ()=>({addColorStop(){}}) : ()=>{},set:()=>true});
+const nativeCanvas=process.env.AVATAR_NATIVE_CANVAS?require(process.env.AVATAR_NATIVE_CANVAS).createCanvas(960,540):null;
+const ctx = nativeCanvas?nativeCanvas.getContext('2d'):new Proxy({}, {get: (o,k) => k==='createRadialGradient' ? ()=>({addColorStop(){}}) : ()=>{},set:()=>true});
 const document = {hidden:false,getElementById(id){return els[id] ||= {textContent:'',value:'Hola',setAttribute(k,v){this[k]=v;},getContext(){return ctx;}};}};
 const box = {document, window:{JarvisHands:{seen:true,x:0,y:0}},location:{search:'',protocol:'file:'},performance:{timeOrigin:0,now:()=>1000},Date,Math,matchMedia:()=>({matches:false}),requestAnimationFrame(){},setTimeout(){}};
 vm.createContext(box);
@@ -23,3 +24,5 @@ assert.match(els['animation-status'].textContent,/activa/);
 console.log('PASS: pause with hand, face toggle, persistent smile toggle, mouth during pause, resume');
 
 const beforeHidden=read('t');read('avatarVisible=false;loop(4200)');assert.equal(read('t'),beforeHidden,'off-screen body skips rendering');read('avatarVisible=true;lastFrame=0;loop(4300)');assert.ok(read('t')>beforeHidden,'body resumes on return');console.log('PASS: off-screen rendering suspension and resume');
+
+if(nativeCanvas){read('particleMode=true;paused=false;loop(5000)');fs.writeFileSync('/tmp/avatar-anatomy.png',nativeCanvas.toBuffer('image/png'));}

@@ -208,9 +208,30 @@
     label(names[world]+(transit>0?' · VIAJE EN CURSO':' · ÓRBITA ESTABLE'),30,61,'#e0c28c');
     label('CICLO VISUAL · 30 SEGUNDOS POR DESTINO',30,81);
   }
-  function galaxy(){const cx=515,cy=315;for(let i=0;i<1200;i++){const a=i*2.399963+phase*.025,r=15+Math.sqrt(i/1200)*360,arm=i%5;const twist=a*.025+r*.009+arm*Math.PI*.4;const xx=cx+Math.cos(twist)*r,yy=cy+Math.sin(twist)*r*.60;dot(xx,yy,i%19===0?1.9:.8,ideas[arm].color+(arm===selected?'bb':'45'));}
-    const g=ctx.createRadialGradient(cx,cy,1,cx,cy,70);g.addColorStop(0,'#fff4cbbb');g.addColorStop(.3,'#e1a55044');g.addColorStop(1,'#ffad0000');ctx.fillStyle=g;ctx.fillRect(cx-70,cy-70,140,140);
-    ideas.forEach((item,i)=>{const a=i*Math.PI*.4-.6,xx=cx+Math.cos(a)*310,yy=cy+Math.sin(a)*210;line([[cx,cy],[xx,yy]],item.color+'40');ellipse(xx,yy,i===selected?20:12,i===selected?20:12,item.color);dot(xx,yy,4,item.color);label(`0${i+1} ${item.name}`,xx-45,yy+36,item.color);});label('RELACIONES CONCEPTUALES / NO TRÁFICO REAL',60,70);
+  function galaxy(){
+    nebula();const cx=535,cy=320,rotation=phase*.018,count=quality==='rich'?1800:1000;
+    // Deterministic scatter: three curved arms rather than random visual flicker.
+    for(let i=0;i<count;i++){
+      const u=(i+.5)/count,r=30+Math.sqrt(u)*390,arm=i%3;
+      const noise=Math.sin(i*127.1)*Math.cos(i*31.7);
+      const angle=arm*Math.PI*2/3+r*.0105+rotation+noise*(.10+.25*u);
+      const spread=r+Math.sin(i*93.7)*24*Math.sqrt(u);
+      const xx=cx+Math.cos(angle)*spread,yy=cy+Math.sin(angle)*spread*.52;
+      const hue=i%9===0?'#ffe4b0':i%4===0?'#a58dff':'#a9e8ff';
+      dot(xx,yy,i%37===0?2.1:i%7===0?1.1:.65,hue+(i%7===0?'d0':'75'));
+      if(i%38===0){const glow=ctx.createRadialGradient(xx,yy,0,xx,yy,14);glow.addColorStop(0,'#768dff24');glow.addColorStop(1,'#768dff00');ctx.fillStyle=glow;ctx.fillRect(xx-14,yy-14,28,28);}
+    }
+    for(let i=0;i<200;i++){
+      const a=i*2.399963+rotation,r=82*Math.pow((i+.5)/200,1.7);
+      dot(cx+Math.cos(a)*r,cy+Math.sin(a)*r*.55,.7,i%4===0?'#ffe2aacc':'#e8e1ff88');
+    }
+    // Dark dust lanes separate the bright arms; central elliptical bulge.
+    for(let arm=0;arm<3;arm++){
+      const pts=[];for(let j=0;j<100;j++){const r=65+j*3.2,a=arm*Math.PI*2/3+r*.0105+rotation+.12;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r*.52]);}line(pts,'#03091866',5);
+    }
+    const g=ctx.createRadialGradient(cx,cy,1,cx,cy,82);g.addColorStop(0,'#fff8e8ee');g.addColorStop(.18,'#ffe3a999');g.addColorStop(.5,'#c29cef36');g.addColorStop(1,'#c29cef00');ctx.save();ctx.translate(cx,cy);ctx.scale(1,.64);ctx.fillStyle=g;ctx.translate(-cx,-cy);ctx.fillRect(cx-82,cy-82,164,164);ctx.restore();
+    ideas.forEach((item,i)=>{const a=i*Math.PI*.4-.6,xx=cx+Math.cos(a)*370,yy=cy+Math.sin(a)*240;line([[cx,cy],[xx,yy]],item.color+'35');ellipse(xx,yy,i===selected?16:9,i===selected?16:9,item.color);dot(xx,yy,3,item.color);label(`0${i+1} ${item.name}`,xx-60,yy+30,item.color);});
+    label('GALAXIA ÓRBITA / BRAZOS ESPIRALES',30,40,'#c8efff');label('ESCENA ARTÍSTICA · SECTORES PROPUESTOS',30,61);
   }
   function cell(){const cx=535,cy=320;for(let ring=0;ring<3;ring++){const pts=[];for(let i=0;i<=180;i++){const a=i*Math.PI/90,r=220+ring*8+Math.sin(a*7+phase*.3)*8;pts.push([cx+Math.cos(a)*r*1.5,cy+Math.sin(a)*r]);}line(pts,ring===1?'#65d9cbaa':'#42859755');}
     for(let i=0;i<5;i++){const a=i*Math.PI*.4-1.4,xx=cx+Math.cos(a)*215,yy=cy+Math.sin(a)*135,col=ideas[i].color;line([[cx,cy],[xx,yy]],col+'55');ellipse(xx,yy,i===selected?70:55,40,col,2);for(let j=0;j<12;j++)dot(xx+Math.cos(j*2.4+phase*.1)*34,yy+Math.sin(j*2.4)*21,1.5,col);label(`0${i+1} / ${ideas[i].name}`,xx-55,yy+60,col);}
