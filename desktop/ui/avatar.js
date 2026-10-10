@@ -128,10 +128,11 @@ function strokePath(points,color,width=0.7,alpha=0.65) {
   points.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.stroke();x.globalAlpha=1;x.shadowBlur=0;
 }
 function brain(cx,cy,s,phase) {
-  for(let h of [-1,1])for(let k=0;k<25;k++) {
-    const pts=[],band=k/24;
-    for(let i=0;i<=100;i++) {
-      const a=i/100*Math.PI*2;
+  const bands=hand().running?8:25, steps=hand().running?40:100;
+  for(let h of [-1,1])for(let k=0;k<bands;k++) {
+    const pts=[],band=k/(bands-1);
+    for(let i=0;i<=steps;i++) {
+      const a=i/steps*Math.PI*2;
       const wrinkle=1+.06*Math.sin(a*13+k*.6)+.03*Math.sin(a*23-k);
       pts.push([cx+h*(3+(22+19*Math.cos(a))*Math.sqrt(1-band*.75)*wrinkle)*s,
         cy+(Math.sin(a)*(31-band*13)+Math.sin(a*8+k*.8)*2)*s]);
@@ -146,6 +147,24 @@ function panel(px,py,w,h,title,subtitle) {
   x.fillStyle='#9dbad7';x.font='8px monospace';x.fillText(subtitle,px+9,py+h-9);
   x.strokeStyle='#76dce8';x.beginPath();x.moveTo(px,py+7);x.lineTo(px,py);x.lineTo(px+7,py);x.stroke();
 }
+// Lightweight hand layer: redraw current observations without waiting for the scene.
+// No prediction or synthetic points reach gestures or the native mouse.
+let lastHandStamp = null, lastHandSeen = null;
+function drawHandInset(h) {
+  x.save();
+  x.beginPath(); x.rect(28,45,204,153); x.clip();
+  x.fillStyle='#03121d'; x.fillRect(28,45,204,153);
+  // Hand inset displays real landmarks only, never fabricated sensor values.
+  if(h.landmarks && h.landmarks.length===21){
+    const detected=h.hands?.length?h.hands:[{landmarks:h.landmarks,active:true}];
+    detected.forEach(item=>{const p=item.landmarks.map(p=>[28+p.x*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],item.active?'#6bf5ad':'#54caff',1.3));
+    p.forEach(v=>{x.fillStyle=item.active?'#ffd77b':'#8edfff';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});});
+  }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText(h.running?'SIN MANO DETECTADA':'CÁMARA APAGADA',42,114);x.font='9px monospace';x.fillText(h.running?'Muestra la palma a la cámara':'Activa la mano para ver',30,140);x.fillText('los puntos detectados.',47,155);}
+  x.restore();
+  lastHandStamp = h.updatedAt;
+  lastHandSeen = Boolean(h.seen);
+}
+
 function particles() {
   const h=hand(),phase=t*.016;
   x.clearRect(0,0,960,540);
@@ -204,12 +223,7 @@ function particles() {
   x.fillStyle='#d9f7ff';x.font='11px monospace';x.fillText('Ó R B I T A',432,29);x.fillStyle='#9dbad7';x.font='8px monospace';x.fillText('NÚCLEO ORBITAL · VISUAL',391,44);
   // Facial detail; mouth uses the exact existing voice follower.
   for(let ring=0;ring<8;ring++){const pts=[];for(let j=0;j<=60;j++){const a=j*Math.PI/30;pts.push([130+Math.cos(a)*(22+ring*6),337+Math.sin(a)*(22+ring*6)]);}strokePath(pts,ring%2?'#ffe2a0':'#aaffff',.6,.5);}
-  // Hand inset displays real landmarks only, never fabricated sensor values.
-  if(h.landmarks && h.landmarks.length===21){
-    const detected=h.hands?.length?h.hands:[{landmarks:h.landmarks,active:true}];
-    detected.forEach(item=>{const p=item.landmarks.map(p=>[28+p.x*204,45+p.y*153]);HAND_LINKS.forEach(([a,b])=>strokePath([p[a],p[b]],item.active?'#6bf5ad':'#54caff',1.3));
-    p.forEach(v=>{x.fillStyle=item.active?'#ffd77b':'#8edfff';x.beginPath();x.arc(v[0],v[1],2.6,0,7);x.fill();});});
-  }else{x.fillStyle='#426779';x.font='12px monospace';x.fillText(h.running?'SIN MANO DETECTADA':'CÁMARA APAGADA',42,114);x.font='9px monospace';x.fillText(h.running?'Muestra la palma a la cámara':'Activa la mano para ver',30,140);x.fillText('los puntos detectados.',47,155);}
+  drawHandInset(h);
   const rows=[['MANO',h.seen?'DETECTADA':'SIN SEÑAL'],['AUDIO',voice.active?'REPRODUCIENDO':'EN REPOSO'],['PULSO',talking?'PRUEBA SIN AUDIO':voice.active?'RMS REAL':'EN REPOSO'],['DATOS','VER ESTADO INFERIOR']];
   rows.forEach((r,i)=>{x.font='9px monospace';x.fillStyle='#678fa3';x.fillText(r[0],723,54+i*23);x.fillStyle='#91e6da';x.fillText(r[1],782,54+i*23);});
   const env=voice.env,clock=voice.clock;
@@ -238,7 +252,12 @@ function loop(time) {
   const speaking = voice.active || (voice.clock && voice.clock.playing);
   // Con voz real se dibuja a la frecuencia de pantalla (no a 25 cuadros) para no sumar hasta 40 ms de retraso.
   // Con movimiento reducido, solo se mueve la boca mientras habla.
-  if (document.hidden || !avatarVisible || time - lastFrame < (speaking ? 0 : hand().running ? 67 : 40) || (paused && lastFrame && !hand().seen && !speaking && !talking && talk === 0)) return;
+  if (document.hidden || !avatarVisible) return;
+  const currentHand = hand();
+  if (time - lastFrame < (speaking ? 0 : currentHand.running ? 67 : 40) || (paused && lastFrame && !currentHand.seen && !speaking && !talking && talk === 0)) {
+    if (lastHandStamp !== currentHand.updatedAt || lastHandSeen !== Boolean(currentHand.seen)) drawHandInset(currentHand);
+    return;
+  }
   lastFrame = time;
   if (!paused) t += 1;
   if (!paused) blink = Math.max(0, blink - 0.07);

@@ -28,7 +28,7 @@
   var lastDetection = 0;
   var lastVideoTime = -1;
   var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "", hands: [], count: 0, inferenceMs: 0 };
-  var primaryWrist = null, primaryLabel = "", inferenceMs = 50;
+  var primaryWrist = null, primaryLabel = "";
   var selector = document.createElement("select");
   selector.id = "hand-camera";
   selector.setAttribute("aria-label", "Cámara para la mano");
@@ -71,7 +71,7 @@
     var chosen = cameras.find(function (d) { return selected ? d.deviceId === selected : /brio/i.test(d.label); });
     if (!chosen) throw new Error("No aparece la Brio o la cámara elegida. Revisa el USB o elige otra cámara.");
     var s = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: chosen.deviceId }, width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 24, max: 30 } },
+      video: { deviceId: { exact: chosen.deviceId }, width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 30, max: 30 } },
       audio: false
     });
     if (ticket !== generation) { release(s); throw new Error("Inicio cancelado"); }
@@ -145,7 +145,6 @@
           watchdog = null;
           busy = false;
           state.inferenceMs = Math.round(Math.max(1,performance.now()-lastDetection));
-          inferenceMs = inferenceMs*.7 + Math.max(1,performance.now()-lastDetection)*.3;
           if (document.hidden || performance.now() - lastDetection > 350) decay();
           else applyResult(message);
           // Notify the pointer bridge immediately; the capture timestamp stays unchanged.
@@ -169,8 +168,9 @@
     requestAnimationFrame(function () { loop(ticket); });
     if (document.hidden) { decay(); return; }
     if (state.seen && performance.now() - state.updatedAt > 350) decay();
-    // Faster sampling only during the explicit mouse trial; still one frame in flight.
-    const detectionInterval = Math.max(window.JarvisHandMouseActive ? 45 : 100, Math.min(200,inferenceMs*1.1));
+    // Aim for camera cadence in both visual and mouse modes. Busy drops frames
+    // instead of adding an extra delay proportional to slow inference.
+    const detectionInterval = 1000 / 30;
     if (busy || performance.now() - lastDetection < detectionInterval) return;
     if (!worker || !video || video.readyState < 2) return;
     if (video.currentTime === lastVideoTime) return;
@@ -199,7 +199,7 @@
 
   function stop() {
     generation++;
-    primaryWrist = null; primaryLabel = ""; inferenceMs = 50;
+    primaryWrist = null; primaryLabel = "";
     clearTimeout(watchdog);
     watchdog = null;
     if (worker) { worker.terminate(); worker = null; }

@@ -185,6 +185,48 @@ def session_open() -> bool:
     return (moment - started).total_seconds() <= SESSION_SECONDS
 
 
+def session_status() -> str:
+    """Consulta sin crear ni renovar una sesión."""
+    path = control_dir() / "session.json"
+    if not path.exists():
+        return "sin sesión"
+    try:
+        elapsed = (now() - parse_stamp(json.loads(path.read_text(encoding="utf-8"))["started"])).total_seconds()
+    except (OSError, ValueError, KeyError, TypeError):
+        return "sesión inválida"
+    if elapsed < 0 or elapsed > SESSION_SECONDS:
+        return "sesión vencida"
+    return f"sesión activa: {int(SESSION_SECONDS - elapsed)} s restantes"
+
+
+def start_session(*, ask=None, tty=None) -> int:
+    """Renovación explícita del dueño; nunca concede permisos para acciones."""
+    if tty is None:
+        tty = sys.stdin.isatty()
+    if not tty:
+        print("RECHAZADO --start-session requiere tu Terminal.")
+        return 2
+    code = secrets.token_hex(3)
+    try:
+        answer = (ask or input)(f"Para abrir una sesión de 10 minutos escribe {code}: ")
+    except EOFError:
+        answer = ""
+    if not secrets.compare_digest(str(answer).strip(), code):
+        print("CANCELADO. Sesión sin cambios.")
+        return 3
+    try:
+        with _owner_flock("ejecutor.lock", wait=False):
+            if stopped() or read_lock() is not None:
+                print("BLOQUEADO STOP activo o turno existente. Sesión sin cambios.")
+                return 3
+            _write_json("session.json", {"started": stamp(now())})
+    except BlockingIOError:
+        print("OCUPADO otro ejecutor. Sesión sin cambios.")
+        return 2
+    print("Sesión renovada por 10 minutos. Los permisos de las órdenes se conservan sin ampliar.")
+    return 0
+
+
 def hotkey_set(keys) -> frozenset[str]:
     if not isinstance(keys, list) or not keys:
         return frozenset()
@@ -740,8 +782,10 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
             continue
         acquired = False
         if automatic and not dry:
-            if stopped() or not session_open() or denial(action):
-                print(f"{line_no} BLOQUEADO automatico")
+            blocked = "STOP activo" if stopped() else ("sesión vencida o inválida; usa --start-session" if not session_open() else denial(action))
+            if blocked:
+                print(f"{line_no} BLOQUEADO automatico: {blocked}")
+                audit(action, "BLOQUEADO", blocked, dry=False)
                 worst = max(worst, 3)
                 continue
             with _owner_flock("permisos.lock"):
@@ -749,10 +793,12 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
                 approved = secret is not None and any(_grant_valid(g, action_key(action), secret, _spent()) for g in _grants())
             if not approved:
                 print(f"{line_no} ESPERA confirmacion")
+                audit(action, "ESPERA", "permiso ausente, vencido o consumido", dry=False)
                 worst = max(worst, 3)
                 continue
             if read_lock() is not None:
                 print(f"{line_no} OCUPADO turno existente")
+                audit(action, "OCUPADO", "turno existente", dry=False)
                 worst = max(worst, 2)
                 continue
             if take_lock(action.get("agent"), 5) != 0:
@@ -1138,6 +1184,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--minutes", type=int, default=10)
     parser.add_argument("--release-lock", metavar="NOMBRE")
     parser.add_argument("--lock-status", action="store_true")
+    parser.add_argument("--status", action="store_true", help="Consulta STOP, sesión y turno sin mover el mouse.")
+    parser.add_argument("--start-session", action="store_true", help="Abre 10 minutos de sesión con confirmación local; no concede permisos.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--libre", action="store_true", help="Solo agentes que no sean Jarvis, y solo la lista permitida.")
     parser.add_argument("--file", type=Path)
@@ -1147,6 +1195,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--automatic", action="store_true", help="Ejecuta una vez las órdenes ya aprobadas, coordinando turnos; nunca pide ni concede permisos.")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
+    if args.status:
+        print("STOP activo" if stopped() else "STOP desactivado")
+        print(session_status())
+        return lock_status()
+    if args.start_session:
+        return start_session()
     if args.self_test:
         return self_test()
     if args.take_lock:

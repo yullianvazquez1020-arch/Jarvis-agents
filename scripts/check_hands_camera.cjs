@@ -54,7 +54,7 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
     addEventListener: (type, f) => { events[type] = f; }
   };
   vm.runInNewContext(source, context);
-  return { context, calls, streams, frames, elements, chooser, events, workers, channels, timers, advance: () => { now += 250; video.currentTime += 1; }, resolve: () => resolveStream() };
+  return { context, calls, streams, frames, elements, chooser, events, workers, channels, timers, advance: (ms = 250) => { now += ms; video.currentTime += ms / 1000; }, resolve: () => resolveStream() };
 }
 (async () => {
   let t = setup(); t.elements.hands.onclick(); await flush();
@@ -70,6 +70,14 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   t.events.keydown({key:'Escape'});
   assert.equal(t.context.window.JarvisHands.running, false);
   assert.equal(t.streams[1].getTracks()[0].stopped, true);
+
+  // Visual tracking must not wait for the former 100 ms throttle.
+  const fast = setup(); fast.elements.hands.onclick(); await flush();
+  fast.frames.shift()(); await flush();
+  fast.advance(34); fast.frames.shift()(); await flush();
+  assert.equal(fast.workers[0].messages.filter(m => m.type === 'frame').length, 2);
+  assert.equal(fast.calls[0].video.frameRate.ideal, 30);
+  fast.events.keydown({key:'Escape'});
 
   // Detector output order may change; only the original hand drives an active mouse.
   const points = x => Array.from({length:21},(_,i)=>({x:x+i*.001,y:.4+i*.001}));
