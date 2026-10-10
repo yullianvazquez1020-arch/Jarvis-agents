@@ -31,6 +31,8 @@
   const handButton = document.getElementById('hand-navigation'), handStatus = document.getElementById('atlas-hand-status');
   let selected = 0, mode = 'tower', navigation = false, hovered = null, since = 0, latched = null;
   let last = 0, phase = 0, visible = true, position = null, paused = false, quality = 'eco';
+  let zoom=1, zoomBase=null, command=null, commandSince=0, commandLatched=false, gestureAt=0;
+  document.getElementById('atlas-reset-zoom').onclick=()=>{zoom=1;zoomBase=null;last=0;};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   paused = reduced.matches;
   const motionButton=document.getElementById('atlas-motion');
@@ -110,15 +112,37 @@
   }
   ideas.forEach((item,i)=> {const b=add('button',`${i*20+1}–${(i+1)*20} / ${item.name}`,list);b.type='button'; b.dataset.floor=String(i);b.style.setProperty('--floor-color',item.color);b.onclick=()=>select(i);});
   tabs.forEach(button => button.onclick = () => {mode=button.dataset.atlas;tabs.forEach(b=>b.setAttribute('aria-pressed',String(b===button)));document.getElementById('atlas-view-name').textContent={tower:'CIUDAD ORBITAL / 100 PISOS RESERVADOS',galaxy:'GALAXIA / MERCADOS POR EXPLORAR',cell:'MEMBRANA / ÁREAS DEL PORTAFOLIO'}[mode];});
-  handButton.onclick = () => {navigation=!navigation;handButton.setAttribute('aria-pressed',String(navigation));if(!navigation){cursor.hidden=true;hovered=null;latched=null;position=null;}handStatus.textContent=navigation?'Activa la cámara con «Activar mano». Señala con el índice y mantén 1,2 segundos sobre una vista o piso. Escape detiene la navegación.':'Navegación por mano apagada. No controla el cursor del sistema.';};
+  handButton.onclick = () => {navigation=!navigation;handButton.setAttribute('aria-pressed',String(navigation));if(!navigation){zoomBase=null;command=null;commandLatched=false;gestureAt=0;cursor.hidden=true;hovered=null;latched=null;position=null;}handStatus.textContent=navigation?'Activa la cámara. Índice: señala y espera 1,2 s. Dos pinzas: separa o acerca las manos para zoom. V sostenida: siguiente vista. Puño: pausa. Palma abierta: reanuda. Escape detiene.':'Navegación por mano apagada. No controla el cursor del sistema.';};
   addEventListener('keydown',e=>{if(e.key==='Escape'&&navigation)handButton.click();});
   const safeTargets = [...tabs,...list.children];
   function gesture(now) {
     const h=window.JarvisHands;
-    if(window.JarvisHandMouseActive || !navigation || document.hidden || !h?.seen || !h.landmarks || now-(h.updatedAt||0)>350){cursor.hidden=true;hovered=null;latched=null;position=null;return;}
+    if(window.JarvisHandMouseActive || !navigation || document.hidden || !h?.seen || !h.landmarks || now-(h.updatedAt||0)>350){cursor.hidden=true;hovered=null;latched=null;position=null;zoomBase=null;command=null;commandLatched=false;gestureAt=0;return;}
+    const dt=gestureAt?Math.min(100,now-gestureAt):16;gestureAt=now;
+    const spread=window.JarvisGestures?.zoomDistance(h.hands);
+    if(spread!==null && spread!==undefined){
+      if(!zoomBase)zoomBase={distance:spread,zoom};
+      const target=Math.max(.65,Math.min(2.5,zoomBase.zoom*spread/zoomBase.distance));
+      zoom+=(target-zoom)*(1-Math.exp(-dt/100));
+      cursor.hidden=true;hovered=null;latched=null;command=null;commandLatched=false;
+      handStatus.textContent='Zoom local: '+Math.round(zoom*100)+' % · abre las pinzas para fijarlo.';return;
+    }
+    zoomBase=null;
+    const next=window.JarvisGestures?.pose(h.landmarks)?.command;
+    if(next!==command){command=next;commandSince=now;commandLatched=false;}
+    if(command){
+      cursor.hidden=true;hovered=null;latched=null;
+      if(!commandLatched && now-commandSince>=900){
+        commandLatched=true;
+        if(command==='next')tabs[(tabs.findIndex(b=>b.dataset.atlas===mode)+1)%tabs.length].click();
+        else {paused=command==='pause';motionLabel();}
+        handStatus.textContent={next:'Siguiente vista',pause:'Universo pausado',resume:'Universo reanudado'}[command]+' · solo esta página.';
+      }
+      return;
+    }
     const p=h.landmarks[8]; if(!p || !Number.isFinite(p.x)||!Number.isFinite(p.y)) return;
     const tx=Math.max(0,Math.min(1,(p.x-.1)/.8))*innerWidth,ty=Math.max(0,Math.min(1,(p.y-.1)/.8))*innerHeight;
-    position=position?{x:position.x+(tx-position.x)*.28,y:position.y+(ty-position.y)*.28}:{x:tx,y:ty};
+    position=position?{x:position.x+(tx-position.x)*(1-Math.exp(-dt/65)),y:position.y+(ty-position.y)*(1-Math.exp(-dt/65))}:{x:tx,y:ty};
     cursor.hidden=false;cursor.style.left=`${position.x}px`;cursor.style.top=`${position.y}px`;
     const target=safeTargets.find(el=>{const r=el.getBoundingClientRect();return position.x>=r.left&&position.x<=r.right&&position.y>=r.top&&position.y<=r.bottom;});
     if(target!==hovered){hovered=target;since=now;latched=null;}
@@ -279,7 +303,7 @@
     ctx.fillStyle='#f3fbff';ctx.fillRect(mx-1,my-1,2,2);
   }
     ctx.strokeStyle='#27516b20';ctx.lineWidth=1;for(let xx=0;xx<1100;xx+=55)line([[xx,0],[xx,650]],'#27516b15');for(let yy=0;yy<650;yy+=50)line([[0,yy],[1100,yy]],'#27516b15');
-    ({tower,galaxy,cell})[mode]();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':window.JarvisHandMouseActive?'GESTOS PRIORITARIOS / 10 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
+    ctx.save();ctx.translate(550,325);ctx.scale(zoom,zoom);ctx.translate(-550,-325);({tower,galaxy,cell})[mode]();ctx.restore();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':window.JarvisHandMouseActive?'GESTOS PRIORITARIOS / 10 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
   }
   if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;}).observe(canvas);
   select(0);requestAnimationFrame(frame);

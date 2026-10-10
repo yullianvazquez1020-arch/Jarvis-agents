@@ -47,7 +47,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
             "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
