@@ -40,13 +40,14 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import intents                                    # noqa: E402
+from hand_mouse import HandMouse                  # noqa: E402
 from audio import engines                         # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
 from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe_events, PANELS  # noqa: E402
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8"}
 LAUNCH_TTL = 120
@@ -127,6 +128,9 @@ class Companion:
 
     def __init__(self, cfg):
         self.cfg = cfg
+        self.hand_mouse = HandMouse(enabled=(cfg.get("_HAND_MOUSE_ENABLED") is True
+            and cfg["VOICE_BIND_HOST"] in ("127.0.0.1", "localhost", "::1")
+            and not truthy(cfg["VOICE_DEMO"])))
         self.lock = threading.RLock(); self.cond = threading.Condition(self.lock)
         self.home = Path(cfg["VOICE_HOME"])
         self.tokens = TokenStore(self.home)
@@ -702,6 +706,8 @@ def make_handler(app, host, port):
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
                 return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+            if u.path == "/api/hand-mouse/status":
+                return self._send(200, app.hand_mouse.status())
             if u.path == "/api/state":
                 return self._send(200, app.state())
             if u.path == "/api/hud":
@@ -747,6 +753,21 @@ def make_handler(app, host, port):
                     app.emit({"type": "state", "state": "listo"})
                     return self._send(200, out)
                 data = self._json()
+                if u.path.startswith("/api/hand-mouse/"):
+                    if host not in ("127.0.0.1", "localhost", "::1") or self.headers.get("Origin") not in origins:
+                        return self._send(403, {"error": "el puntero requiere origen local explícito"})
+                    try:
+                        if u.path == "/api/hand-mouse/arm":
+                            out = app.hand_mouse.arm(self._cookie(), data)
+                        elif u.path == "/api/hand-mouse/frame":
+                            out = app.hand_mouse.frame(self._cookie(), data)
+                        elif u.path == "/api/hand-mouse/stop":
+                            out = app.hand_mouse.stop(self._cookie(), data.get("lease"))
+                        else:
+                            return self._send(404, {"error": "acción no disponible"})
+                        return self._send(200, out)
+                    except RuntimeError as exc:
+                        return self._send(503, {"error": str(exc)})
                 if u.path == "/voice/synthesize":
                     audio, ctype = app.tts.synthesize(str(data.get("text", ""))[:1500], rate=app.prefs["rate"])
                     return self._send(200, audio, ctype)
@@ -861,6 +882,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Jarvis desktop companion")
     ap.add_argument("--config"); ap.add_argument("--check", action="store_true")
     ap.add_argument("--bench"); ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--hand-mouse", action="store_true", help="habilita pruebas locales del puntero, sin clics")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if a.check:
@@ -868,6 +890,10 @@ def main(argv=None):
     if a.bench:
         return bench(a.bench)
     cfg = load_config(a.config)
+    if a.hand_mouse:
+        if sys.platform != "darwin" or cfg["VOICE_BIND_HOST"] not in ("127.0.0.1", "localhost", "::1") or truthy(cfg["VOICE_DEMO"]):
+            raise SystemExit("--hand-mouse solo se permite localmente en macOS, fuera de DEMO.")
+        cfg["_HAND_MOUSE_ENABLED"] = True
     if truthy(cfg["VOICE_WAKE_WORD_ENABLED"]):
         print("Aviso: la palabra de activación aún no está implementada (fase 2); se ignora.")
     app, httpd, port = serve(cfg)
@@ -885,6 +911,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
+        app.hand_mouse.close()
         httpd.server_close()
 
 

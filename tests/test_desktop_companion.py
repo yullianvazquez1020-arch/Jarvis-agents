@@ -464,6 +464,38 @@ class ActionPhrasesStayOnTheMac(CompanionBase):
 
 
 class Displays(CompanionBase):
+    def test_hand_mouse_grant_is_bound_to_authenticated_owner(self):
+        from hand_mouse import HandMouse
+        from unittest.mock import Mock
+        pointer = Mock()
+        pointer.size.return_value = (3840, 1080)
+        pointer.escape.return_value = False
+        self.app.hand_mouse = HandMouse(True, lambda: pointer, threaded=False)
+        self.addCleanup(self.app.hand_mouse.close)
+        st, grant, _, _ = self.req("POST", "/api/hand-mouse/arm", {"confirm":"SOLO_MOVER_60S"})
+        self.assertEqual(st, 200)
+        self.assertTrue(grant["active"])
+        owner_cookie = self.cookie
+        self.cookie = self.login()
+        payload = {"lease":grant["lease"], "seq":1, "x":.5,"y":.5,"captured_ms":time.time()*1000}
+        self.assertEqual(self.req("POST", "/api/hand-mouse/frame", payload)[0], 400)
+        self.cookie = owner_cookie
+        self.assertEqual(self.req("POST", "/api/hand-mouse/frame", payload)[0], 200)
+        self.assertEqual(self.req("POST", "/api/hand-mouse/stop", {"lease":grant["lease"]})[0], 200)
+        self.app.hand_mouse.tick()
+        pointer.move.assert_not_called()
+
+    def test_hand_mouse_stays_off_and_routes_require_local_session(self):
+        payload = {"confirm": "SOLO_MOVER_60S"}
+        self.assertEqual(self.req("POST", "/api/hand-mouse/arm", payload, cookie=False)[0], 401)
+        self.assertEqual(self.req("POST", "/api/hand-mouse/arm", payload,
+                                  headers={"Origin": "https://other.example"})[0], 403)
+        self.assertEqual(self.req("POST", "/api/hand-mouse/arm", payload)[0], 503)
+        self.assertFalse(self.req("GET", "/api/hand-mouse/status")[1]["active"])
+        self.assertEqual(self.req("POST", "/api/hand-mouse/click", {})[0], 404)
+        self.assertEqual(self.req("GET", "/ui/hand-mouse.js", cookie=False)[0], 401)
+        self.assertEqual(self.req("GET", "/ui/hand-mouse.js")[0], 200)
+
     """4.0.5 Part 3: top bar health, HUD, alerts once, local orders, DEMO."""
     def test_health_states_for_the_dot(self):
         self.pair(); self.app.pulse_once()

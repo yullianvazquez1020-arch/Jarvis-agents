@@ -35,7 +35,7 @@
   const safeTargets = [...tabs,...list.children];
   function gesture(now) {
     const h=window.JarvisHands;
-    if(!navigation || document.hidden || !h?.seen || !h.landmarks || now-(h.updatedAt||0)>350){cursor.hidden=true;hovered=null;latched=null;position=null;return;}
+    if(window.JarvisHandMouseActive || !navigation || document.hidden || !h?.seen || !h.landmarks || now-(h.updatedAt||0)>350){cursor.hidden=true;hovered=null;latched=null;position=null;return;}
     const p=h.landmarks[8]; if(!p || !Number.isFinite(p.x)||!Number.isFinite(p.y)) return;
     const tx=Math.max(0,Math.min(1,(p.x-.1)/.8))*innerWidth,ty=Math.max(0,Math.min(1,(p.y-.1)/.8))*innerHeight;
     position=position?{x:position.x+(tx-position.x)*.28,y:position.y+(ty-position.y)*.28}:{x:tx,y:ty};
