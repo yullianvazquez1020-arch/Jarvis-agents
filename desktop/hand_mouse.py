@@ -36,13 +36,12 @@ class MacPointer:
         return bool(self.quartz.CGEventSourceKeyState(self.quartz.kCGEventSourceStateCombinedSessionState, 53))
 
     def move(self, x, y):
-        if getattr(self, "button_held", False):
-            self.gui.failSafeCheck()
-            event = self.quartz.CGEventCreateMouseEvent(None, self.quartz.kCGEventLeftMouseDragged,
-                                                       (x, y), self.quartz.kCGMouseButtonLeft)
-            self.quartz.CGEventPost(self.quartz.kCGHIDEventTap, event)
-        else:
-            self.gui.moveTo(x, y, duration=0, _pause=False)
+        # Direct Quartz events avoid wrapper pacing; FAILSAFE still runs first.
+        self.gui.failSafeCheck()
+        kind = (self.quartz.kCGEventLeftMouseDragged if getattr(self, "button_held", False)
+                else self.quartz.kCGEventMouseMoved)
+        event = self.quartz.CGEventCreateMouseEvent(None, kind, (x, y), self.quartz.kCGMouseButtonLeft)
+        self.quartz.CGEventPost(self.quartz.kCGHIDEventTap, event)
 
     def scroll(self, amount):
         self.gui.scroll(amount, _pause=False)
@@ -351,7 +350,7 @@ class HandMouse:
                 # Continuous gain avoids a speed jump at a threshold; no prediction.
                 if error <= 2:
                     return
-                gain = 0.14 + 0.31 * min(1.0, error / 300.0)
+                gain = 0.18 + 0.38 * min(1.0, error / 300.0)
                 dx, dy = (tx - px) * gain, (ty - py) * gain
                 distance = math.hypot(dx, dy)
                 if distance > 90:
@@ -362,7 +361,7 @@ class HandMouse:
                 self._stop("El control del puntero falló y se apagó. Revisa Accesibilidad.")
 
     def _loop(self):
-        while not self.closed.wait(0.025):
+        while not self.closed.wait(0.020):
             self.tick()
 
     def close(self):

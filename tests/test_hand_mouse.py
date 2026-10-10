@@ -236,10 +236,25 @@ class NativeMovementPacing(unittest.TestCase):
         from unittest.mock import Mock
         pointer = MacPointer.__new__(MacPointer)
         pointer.gui = Mock()
+        pointer.quartz = Mock()
         pointer.move(400, 300)
-        pointer.gui.moveTo.assert_called_once_with(400, 300, duration=0, _pause=False)
+        pointer.gui.failSafeCheck.assert_called_once()
+        pointer.quartz.CGEventCreateMouseEvent.assert_called_once_with(None, pointer.quartz.kCGEventMouseMoved, (400, 300), pointer.quartz.kCGMouseButtonLeft)
+        pointer.quartz.CGEventPost.assert_called_once()
+        pointer.gui.moveTo.assert_not_called()
         pointer.click()
         pointer.gui.click.assert_called_once_with(button="left", clicks=1)
+
+    def test_failsafe_prevents_native_event(self):
+        from unittest.mock import Mock
+        pointer = MacPointer.__new__(MacPointer)
+        pointer.gui = Mock()
+        pointer.quartz = Mock()
+        pointer.gui.failSafeCheck.side_effect = RuntimeError("corner")
+        with self.assertRaises(RuntimeError):
+            pointer.move(400, 300)
+        pointer.quartz.CGEventCreateMouseEvent.assert_not_called()
+        pointer.quartz.CGEventPost.assert_not_called()
 
 
 class AdaptiveMovement(unittest.TestCase):
