@@ -1,102 +1,38 @@
-/* Jarvis HUD, screen 2: read-only cards. Clicking a card only asks the main window to show its detail. */
-(function () {
-  "use strict";
-  var M = window.JarvisMask, $ = function (id) { return document.getElementById(id); };
-  var cards = [], seq = 0, windowId = "hud-" + Math.random().toString(16).slice(2);
-  var clockFmt = new Intl.DateTimeFormat("es-PR", { timeZone: "America/Puerto_Rico", hour: "2-digit", minute: "2-digit" });
-
-  function api(method, path, body) {
-    var opt = { method: method, credentials: "same-origin", headers: { "X-Jarvis-UI": "1" } };
-    if (body !== undefined) { opt.body = JSON.stringify(body); opt.headers["Content-Type"] = "application/json"; }
-    return fetch(path, opt).then(function (r) { return r.json().then(function (j) {
-      if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j; }); });
-  }
-  function show(t, sensitive) { return sensitive && !$("hud-reveal").checked ? M.mask(t) : String(t == null ? "" : t); }
-  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-
-  function render() {
-    renderNodes();
-    var g = $("grid"); while (g.firstChild) g.removeChild(g.firstChild);
-    cards.forEach(function (c) {
-      var b = el("button", "card" + (c.stale ? " stale" : "") + (c.demo ? " demo" : ""));
-      b.type = "button"; b.setAttribute("aria-label", c.title);
-      b.appendChild(el("div", "t", c.title));
-      b.appendChild(el("div", "v", show(c.value, c.sensitive)));
-      var ul = el("ul"); (c.lines || []).slice(0, 5).forEach(function (l) { ul.appendChild(el("li", "", show(l, c.sensitive))); });
-      b.appendChild(ul);
-      var when = c.as_of ? "Dato del " + String(c.as_of).slice(0, 16).replace("T", " ") : (c.demo ? "Ejemplo" : "");
-      if (c.stale) when += " · DATO VIEJO (más de 3 días)";
-      b.appendChild(el("div", "when", when));
-      b.onclick = function () { api("POST", "/api/open", { target: c.id }); };
-      g.appendChild(b);
-    });
-  }
-  function load() {
-    return api("GET", "/api/hud").then(function (r) {
-      cards = r.cards || []; $("hud-demo").hidden = !r.demo; render();
-      $("deck-caption").textContent = r.demo ? "DEMO · datos de ejemplo, sin conexión real" : "Datos del escritorio · toca un módulo para abrir el detalle";
-      $("hud-updated").textContent = "Actualizado " + clockFmt.format(new Date());
-    }).catch(function (e) { $("hud-updated").textContent = "Error: " + e.message; deckHealth({state:"down"}); });
-  }
-  function poll() {   // keeps this window registered (not the audio one) and follows server health
-    api("GET", "/api/events?since=" + seq + "&window=" + windowId).then(function (r) {
-      r.events.forEach(function (e) { if (e.type === "health" && e.health) deckHealth(e.health); });
-      seq = r.seq; poll();
-    }).catch(function () { setTimeout(poll, 3000); });
-  }
-  function tick() { $("hud-clock").textContent = "PR " + clockFmt.format(new Date()); }
-
-  function deckHealth(h) {
-    $("dot").setAttribute("data-s", h.state);
-    $("deck-state").textContent = {ok:"Servidor conectado",demo:"Demostración",slow:"Con retraso",down:"Sin conexión",error:"Error",unpaired:"Sin emparejar",unknown:"Sin comprobar"}[h.state] || "Sin comprobar";
-  }
-  function renderNodes() {
-    lastFrame = 0;
-    var parent = $("deck-nodes"); parent.textContent = "";
-    cards.slice(0, 8).forEach(function (c, i) {
-      var angle = (i / Math.min(cards.length, 8)) * Math.PI * 2 - Math.PI / 2;
-      var b = el("button", "deck-node"); b.type = "button";
-      b.style.left = (50 + Math.cos(angle) * 36) + "%";
-      b.style.top = (50 + Math.sin(angle) * 37) + "%";
-      b.appendChild(el("span", "deck-node-title", c.title));
-      b.appendChild(el("small", "", c.demo ? "Ejemplo" : c.stale ? "Dato antiguo" : "Abrir detalle"));
-      b.onclick = function () { api("POST", "/api/open", {target:c.id}).catch(function () { $("deck-caption").textContent = "No pude abrir el detalle. Revisa la ventana principal."; }); };
-      parent.appendChild(b);
-    });
-  }
-  var canvas = $("deck-canvas"), ctx = canvas.getContext("2d"), lastFrame = 0;
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)"), paused = reduced.matches;
-  function motionLabel() { $("deck-motion").textContent = paused ? "Activar animación" : "Pausar animación"; $("deck-motion").setAttribute("aria-pressed", String(paused)); }
-  function draw(time) {
-    requestAnimationFrame(draw);
-    if (document.hidden || (time - lastFrame < 40) || (paused && lastFrame)) return;
-    lastFrame = time;
-    var w = canvas.clientWidth, h = canvas.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-    if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width=Math.round(w*dpr); canvas.height=Math.round(h*dpr); }
-    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
-    var cx=w/2, cy=h/2, radius=Math.min(w,h)*0.22, t=paused?0:time/1800;
-    for (var n=0;n<4;n++) { ctx.beginPath(); ctx.strokeStyle=n===0?"#f5ce5e":"rgba(62,206,241,0.25)"; ctx.lineWidth=n===0?2:1;
-      ctx.arc(cx,cy,radius+n*13,0,Math.PI*2); ctx.stroke(); }
-    for (var i=0;i<150;i++) {
-      var a=i*2.39996+t*0.12, r=radius*Math.sqrt(i/150), pulse=1+Math.sin(i+t)*0.04;
-      ctx.fillStyle=i%5===0?"#ffda78":"rgba(67,209,244,0.65)"; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*r*pulse,cy+Math.sin(a)*r*pulse,1.3,0,Math.PI*2); ctx.fill();
-    }
-    cards.slice(0,8).forEach(function(c,i) {
-      var a=i/Math.min(cards.length,8)*Math.PI*2-Math.PI/2, nx=cx+Math.cos(a)*w*.36, ny=cy+Math.sin(a)*h*.37;
-      ctx.strokeStyle="rgba(54,208,241,0.3)"; ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*radius,cy+Math.sin(a)*radius);ctx.lineTo(nx,ny);ctx.stroke();
-      var f=(t*.3+i*.17)%1;ctx.fillStyle="#79e7ff";ctx.beginPath();ctx.arc(cx+(nx-cx)*f,cy+(ny-cy)*f,2,0,Math.PI*2);ctx.fill();
-    });
-  }
-  $("deck-motion").onclick=function(){paused=!paused;lastFrame=0;motionLabel();};
-  window.addEventListener("resize",function(){lastFrame=0;});
-  $("deck-fullscreen").onclick=function(){var fn=document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
-    if(fn){var p=fn.call(document.documentElement);if(p&&p.catch)p.catch(function(){$("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";});}
-    else $("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";};
-  motionLabel(); requestAnimationFrame(draw);
-
-  $("hud-refresh").onclick = load;
-  $("hud-reveal").onchange = render;
-  tick(); setInterval(tick, 15000);
-  api("GET", "/api/state").then(function (s) { if (s.server) deckHealth(s.server); }).catch(function(){deckHealth({state:"down"});});
-  load(); setInterval(load, 300000); poll();
+(function(){"use strict";
+var $=function(id){return document.getElementById(id);},M=window.JarvisMask,cards=[],jobs=null,jobsCount=null,seq=0;
+var windowId='hud-'+Math.random().toString(16).slice(2),clock=new Intl.DateTimeFormat('es-PR',{timeZone:'America/Puerto_Rico',hour:'2-digit',minute:'2-digit'});
+var stages=['quote','confirmed','in_progress','delivered','invoiced'],names={quote:'Cotización',confirmed:'Confirmado',in_progress:'En proceso',delivered:'Entregado',invoiced:'Facturado'};
+function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+function show(value,sensitive){if(value==null||value==='')return 'sin dato';return sensitive&&!$('hud-reveal').checked?M.mask(String(value)):String(value);}
+function api(method,path,body){var o={method:method,credentials:'same-origin',headers:{'X-Jarvis-UI':'1'}};if(body!==undefined){o.body=JSON.stringify(body);o.headers['Content-Type']='application/json';}return fetch(path,o).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+function number(id,n){$(id).textContent=typeof n==='number'&&Number.isFinite(n)&&n>=0?String(Math.round(n)):'sin dato';}
+function open(id){api('POST','/api/open',{target:id}).catch(function(){$('deck-caption').textContent='No pude abrir el detalle. Revisa la ventana principal.';});}
+function day(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}/.test(s))return null;var date=s.slice(0,10),n=Date.parse(date+'T12:00:00Z');return Number.isFinite(n)&&new Date(n).toISOString().slice(0,10)===date?n:null;}
+function renderJobs(){
+ var list=$('job-list'),timeline=$('timeline');list.textContent='';timeline.textContent='';number('metric-jobs',jobsCount);$('jobs-count').textContent=jobsCount==null?'sin dato':String(jobsCount);
+ if(jobs===null){list.appendChild(el('p','empty','sin dato'));timeline.appendChild(el('p','empty','sin dato'));return;}
+ if(!jobs.length){list.appendChild(el('p','empty','Sin trabajos abiertos'));timeline.appendChild(el('p','empty','Sin fechas de trabajos abiertos'));return;}
+ var dates=[];jobs.forEach(function(j){[day(j.created),day(j.due_date)].forEach(function(d){if(d!==null)dates.push(d);});});var min=Math.min.apply(null,dates),max=Math.max.apply(null,dates);
+ jobs.forEach(function(j){
+  var row=el('div','job'),stage=stages.indexOf(j.status);row.appendChild(el('span','job-title',show(j.title,true)));
+  row.appendChild(el('span','job-stage',(stage>=0?names[j.status]:'sin dato')));
+  var track=el('div','stage-track');track.setAttribute('aria-label','Etapa: '+((stage>=0?names[j.status]:'sin dato')));
+  stages.forEach(function(_,i){track.appendChild(el('i',stage>=i?'active':''));});row.appendChild(track);list.appendChild(row);
+  var tr=el('div','timeline-row'),start=day(j.created),end=day(j.due_date);tr.appendChild(el('span','timeline-title',show(j.title,true)));
+  tr.appendChild(el('span','timeline-dates','Registro: '+(start===null?'sin dato':j.created.slice(0,10))+' · Vence: '+(end===null?'sin dato':j.due_date.slice(0,10))));
+  if(start!==null&&end!==null&&end>=start){var rail=el('div','timeline-track'),bar=el('div','timeline-bar'),span=Math.max(max-min,86400000);bar.style.marginLeft=((start-min)/span*100)+'%';bar.style.width=((end-start)/span*100)+'%';rail.appendChild(bar);tr.appendChild(rail);}
+  timeline.appendChild(tr);
+ });
+ if(jobsCount>jobs.length)list.appendChild(el('p','caption','Mostrando '+jobs.length+' de '+jobsCount));
+}
+function render(){var grid=$('grid');grid.textContent='';cards.forEach(function(c){var b=el('button','card'+(c.stale?' stale':''));b.type='button';b.appendChild(el('div','t',(c.demo?'DEMO · ':'')+c.title));b.appendChild(el('div','v',show(c.value,c.sensitive)));b.appendChild(el('div','when',c.stale?'Dato antiguo':c.as_of?String(c.as_of).slice(0,16).replace('T',' '):'sin dato'));b.onclick=function(){open(c.id);};grid.appendChild(b);});if(!cards.length)grid.appendChild(el('p','empty','Módulos: sin dato'));renderJobs();}
+function clearData(){cards=[];jobs=null;jobsCount=null;render();}
+function load(){return api('GET','/api/hud').then(function(r){cards=Array.isArray(r.cards)?r.cards:[];jobs=Array.isArray(r.jobs)?r.jobs:null;jobsCount=Number.isInteger(r.jobs_count)&&r.jobs_count>=0?r.jobs_count:null;$('hud-demo').hidden=!r.demo;render();$('hud-updated').textContent='Consulta '+clock.format(new Date());$('deck-caption').textContent=r.demo?'DEMO · Datos de ejemplo. Trabajos: sin dato.':r.as_of?'Datos del '+String(r.as_of).slice(0,16).replace('T',' '):'Fecha de los datos: sin dato';}).catch(function(){clearData();health({state:'down'});$('hud-updated').textContent='sin dato';$('deck-caption').textContent='No se pudieron actualizar los datos. Pulsa Actualizar.';});}
+function health(h){$('dot').setAttribute('data-s',h.state||'unknown');$('deck-state').textContent=({ok:'Conectado',slow:'Con retraso',demo:'DEMO',down:'Sin conexión',unpaired:'Sin emparejar',error:'Error'})[h.state]||'sin dato';var fresh=h.state==='ok'||h.state==='slow';number('metric-latency',fresh?h.latency_ms:null);number('metric-age',fresh?h.age_s:null);var info=fresh?(h.info||{}):{};$('sec-storage').textContent=show(info.storage);$('sec-real').textContent=info.real_trading_active===true?'Activadas':info.real_trading_active===false?'Apagadas':'sin dato';}
+function state(){return api('GET','/api/state').then(function(s){health(s.server||{});number('metric-windows',s.windows);$('sec-paired').textContent=s.paired===true?'Sí':s.paired===false?'No':'sin dato';var t=s.tts;$('voice-state').textContent='Voz: '+(t&&t.engine&&t.engine!=='none'&&!t.problem?'motor local disponible':t?'no configurada':'sin dato');}).catch(function(){health({state:'down'});number('metric-windows',null);$('sec-paired').textContent='sin dato';$('voice-state').textContent='Voz: sin dato';});}
+function poll(){api('GET','/api/events?since='+seq+'&window='+windowId).then(function(r){(r.events||[]).forEach(function(e){if(e.type==='health'&&e.health)health(e.health);});seq=r.seq;poll();}).catch(function(){health({state:'down'});setTimeout(poll,3000);});}
+var reactor=window.JarvisReactor.create($('deck-canvas'),function(paused){$('deck-motion').textContent=paused?'Animar':'Pausar';$('deck-motion').setAttribute('aria-pressed',String(paused));});
+$('deck-motion').onclick=reactor.toggle;$('hud-refresh').onclick=function(){load();state();};$('hud-reveal').onchange=render;
+$('deck-fullscreen').onclick=function(){var root=document.documentElement,fn=root.requestFullscreen||root.webkitRequestFullscreen,exit=document.exitFullscreen||document.webkitExitFullscreen;if((document.fullscreenElement||document.webkitFullscreenElement)&&exit){exit.call(document);return;}if(fn){var p=fn.call(root);if(p&&p.catch)p.catch(function(){$('deck-caption').textContent='Usa pantalla completa desde el menú del navegador.';});}};
+function tick(){$('hud-clock').textContent='PR '+clock.format(new Date());}tick();setInterval(tick,15000);load();state();poll();setInterval(load,60000);setInterval(state,15000);
 })();
