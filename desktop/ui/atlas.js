@@ -110,40 +110,65 @@
     ctx.fillStyle='#e5ffff';ctx.beginPath();ctx.arc(17,-8,1,0,7);ctx.fill();
     ctx.fillStyle='#d9f2ee';ctx.beginPath();ctx.arc(2,-7,2,0,7);ctx.fill();ctx.fillRect(0,-5,3,7);ctx.restore();
   }
+  // A 90-second journey: verdant world, nebula, distant galaxy. Artistic only.
   function tower() {
-    nebula();const cx=550;
-    for(let floor=0;floor<100;floor++){
-      const sector=Math.floor(floor/20),y=530-floor*4.25,r=228-floor*1.86,col=ideas[sector].color;
-      if(floor%20===0){ctx.fillStyle=col+'12';ctx.beginPath();ctx.ellipse(cx,y,r,22,0,0,Math.PI*2);ctx.fill();}
-      ellipse(cx,y,r,7+r*.055,col+(sector===selected?'b0':'40'),floor%20===0?2:.65);
-      if(floor%4===0)for(let j=0;j<12;j++){
-        const angle=j*Math.PI/6+phase*.035;
-        if(Math.sin(angle)>0)dot(cx+Math.cos(angle)*r,y+Math.sin(angle)*(7+r*.055)-3,1.1,col);
+    const journey=phase/30, world=Math.floor(journey)%3, blend=(journey%1);
+    const names=['MUNDO VERDE','NEBULOSA ÁMBAR','GALAXIA AZUL'];
+    nebula();
+    if(world===0){
+      for(let layer=0;layer<4;layer++){
+        const pts=[[0,650]];
+        for(let i=0;i<=44;i++){const xx=i*25, yy=405+layer*43+Math.sin(i*.43+layer*2+phase*.012)*34+Math.cos(i*.91)*16;pts.push([xx,yy]);}
+        pts.push([1100,650]);ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.fillStyle=['#153b43','#145052','#123c38','#092a2c'][layer];ctx.fill();
       }
     }
-    for(let side of [-1,1])line([[cx+side*228,530],[cx+side*44,109],[cx,53]],'#98e7ed88');
-    line([[cx,53],[cx,550]],'#b7dfff65');
-    // Balconies, bridges and spires give the reserved sectors a city silhouette.
-    for(let k=0;k<5;k++){
-      const y=500-k*85,rr=210-k*37,col=ideas[k].color;
-      for(let j=-3;j<=3;j++){
-        const xx=cx+j*rr/4,hh=18+(j*j%3)*8;
-        line([[xx-4,y],[xx-4,y-hh],[xx,y-hh-13],[xx+4,y-hh],[xx+4,y]],col+'b0');
-        dot(xx,y-hh-13,1.5,'#d3ffff');
+    // Travel accelerates through the last third of each destination.
+    const transit=Math.max(0,(blend-.7)/.3), cx=550+Math.sin(phase*.13)*12, lift=Math.sin(phase*.19)*7;
+    if(transit>0)for(let i=0;i<70;i++){
+      const angle=i*2.399963,rr=70+(i*31)%450;
+      line([[550+Math.cos(angle)*rr,325+Math.sin(angle)*rr*.7],[550+Math.cos(angle)*(rr+transit*90),325+Math.sin(angle)*(rr+transit*90)*.7]],'#86eaff55');
+    }
+    ctx.save();ctx.translate(cx,300+lift);
+    // Cyan spherical lattice encloses the whole citadel.
+    for(let ring=0;ring<9;ring++)ellipse(0,0,285,40+ring*29,'#53dfff38',.7);
+    for(let ring=0;ring<9;ring++)ellipse(0,0,35+ring*31,275,'#53dfff32',.7);
+    for(let i=0;i<76;i++){
+      const angle=i*2.399963+phase*.035, yy=-255+i*510/75, radius=Math.sqrt(Math.max(0,1-(yy/275)**2))*285;
+      const xx=Math.cos(angle)*radius;
+      dot(xx,yy, i%7===0?3:1.4,'#8befff');
+      if(i%3===0)line([[xx,yy],[Math.cos(angle+.35)*radius,yy+12]],'#66ddff44');
+    }
+    // Shaded stacked terraces with masonry, windows and defensive towers.
+    const tiers=quality==='rich'?18:12;
+    for(let k=0;k<tiers;k++){
+      const u=k/(tiers-1), y=205-u*385, rr=205-u*153, hh=385/tiers;
+      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#49392c');shade.addColorStop(.45,'#947044');shade.addColorStop(1,'#302a29');
+      ctx.fillStyle=shade;ctx.fillRect(-rr,y-hh,rr*2,hh);
+      ctx.fillStyle='#574632';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
+      ellipse(0,y-hh,rr,rr*.13,'#d3aa66',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
+      const count=quality==='rich'?28:18;
+      for(let j=0;j<count;j++){
+        const xx=-rr+(j+.5)*rr*2/count;
+        ctx.fillStyle=j%4===0?'#8ddcff':'#ffd789';ctx.fillRect(xx,y-hh*.63,2,5);
+        if(j%4===0){ctx.strokeStyle='#201d1c88';ctx.strokeRect(xx-3,y-hh+3,7,hh-4);}
+      }
+      if(k%3===0)for(let side of [-1,1]){
+        const xx=side*rr*.84;ctx.fillStyle='#8c7047';ctx.fillRect(xx-7,y-hh-23,14,27);
+        ctx.beginPath();ctx.moveTo(xx-11,y-hh-23);ctx.lineTo(xx,y-hh-43);ctx.lineTo(xx+11,y-hh-23);ctx.fillStyle='#3a6269';ctx.fill();dot(xx,y-hh-32,1.5,'#c7faff');
       }
     }
-    line([[cx-190,552],[cx,622],[cx+190,552]],'#6fdfff55');
-    for(let i=0;i<5;i++){
-      const y=492-i*85,col=ideas[i].color;
-      line([[cx+205-i*37,y],[870,y],[887,y-12]],col+'77');label(`${i*20+1}–${(i+1)*20}`,895,y-10,col);
+    // Inverted floating foundation and luminous propulsion core.
+    for(let k=0;k<7;k++){
+      const y=210+k*9,rr=195-k*25;
+      line([[-rr,y],[0,y+23],[rr,y]],'#aa865777',2);
     }
-    const count=quality==='rich'?15:7;
-    for(let i=0;i<count;i++){
-      const angle=i*2.4+phase*(.07+(i%3)*.012);
-      dragon(cx+Math.cos(angle)*(270+i%3*60),305+Math.sin(angle)*210,.6+i%3*.2,ideas[i%5].color,Math.sin(angle)*.2);
-    }
-    label('CIUDAD ORBITAL / SECTORES RESERVADOS',30,40,'#afeced');
-    label('DRAGONES Y PORTALES · AMBIENTACIÓN ARTÍSTICA',30,60);
+    dot(0,279,7,'#baffff');ellipse(0,280,42,8,'#6cddff88');
+    ctx.fillStyle='#d7b675';ctx.fillRect(-9,-219,18,43);line([[-14,-219],[0,-250],[14,-219]],'#e8c983',2);
+    ctx.restore();
+    for(let i=0;i<5;i++){const y=490-i*83,col=ideas[i].color;line([[cx+205-i*37,y],[885,y]],col+'66');label(`${i*20+1}–${(i+1)*20}`,895,y,col);}
+    label('CIUDADELA ÓRBITA / 100 PISOS RESERVADOS',30,40,'#c9f5ff');
+    label(names[world]+(transit>0?' · VIAJE EN CURSO':' · ÓRBITA ESTABLE'),30,61,'#e0c28c');
+    label('CICLO VISUAL · 30 SEGUNDOS POR DESTINO',30,81);
   }
   function galaxy(){const cx=515,cy=315;for(let i=0;i<1200;i++){const a=i*2.399963+phase*.025,r=15+Math.sqrt(i/1200)*360,arm=i%5;const twist=a*.025+r*.009+arm*Math.PI*.4;const xx=cx+Math.cos(twist)*r,yy=cy+Math.sin(twist)*r*.60;dot(xx,yy,i%19===0?1.9:.8,ideas[arm].color+(arm===selected?'bb':'45'));}
     const g=ctx.createRadialGradient(cx,cy,1,cx,cy,70);g.addColorStop(0,'#fff4cbbb');g.addColorStop(.3,'#e1a55044');g.addColorStop(1,'#ffad0000');ctx.fillStyle=g;ctx.fillRect(cx-70,cy-70,140,140);

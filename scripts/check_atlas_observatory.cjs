@@ -2,7 +2,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 let native=null;if(process.env.ATLAS_NATIVE_CANVAS)native=require(process.env.ATLAS_NATIVE_CANVAS);
 let frames=[],draws=0;const nodes={};
-const noop=new Proxy({}, {get:(o,k)=>k==='createRadialGradient'?()=>({addColorStop(){}}):()=>{draws++},set:()=>true});
+const noop=new Proxy({}, {get:(o,k)=>(k==='createRadialGradient'||k==='createLinearGradient')?()=>({addColorStop(){}}):()=>{draws++},set:()=>true});
 function el(id='') { return {id,textContent:'',children:[],dataset:{},style:{setProperty(){}},attrs:{},appendChild(c){this.children.push(c)},replaceChildren(){this.children=[]},setAttribute(k,v){this.attrs[k]=v},getContext(){return this.canvas?this.canvas.getContext('2d'):noop},getBoundingClientRect(){return {left:0,right:1,top:0,bottom:1}},click(){this.onclick?.()}}; }
 for(const id of ['portfolio','atlas','atlas-list','atlas-detail','hand-navigation','atlas-hand-status','atlas-motion','atlas-quality','membrane-mini','brain-mini','audio-mini','observatory-hand','observatory-voice','atlas-view-name'])nodes[id]=el(id);
 if(native){for(const id of ['atlas','membrane-mini','brain-mini','audio-mini'])nodes[id].canvas=native.createCanvas(id==='atlas'?1100:300,id==='atlas'?650:id==='audio-mini'?70:180)}
