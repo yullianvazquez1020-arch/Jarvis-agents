@@ -26,7 +26,7 @@ function setup() {
   t=setup();await t.button.onclick();
   assert.equal(t.calls[0].body.confirm,'SOLO_MOVER_60S');
   assert.equal(t.context.window.JarvisHandMouseActive,true);
-  const tick=t.intervals.find(i=>i.ms===100).cb;
+  const tick=t.intervals.find(i=>i.ms===40).cb;
   await tick();assert.equal(t.calls[1].url,'/api/hand-mouse/frame');
   assert.deepEqual(Object.keys(t.calls[1].body).sort(),['captured_ms','lease','seq','x','y']);
   await tick();assert.equal(t.calls.length,2); // no duplicate sample
@@ -46,7 +46,7 @@ function setup() {
   assert.equal(t.calls.length,0); // declining explicit click opt-in does not arm
   t=setup();await t.clickButton.onclick();
   assert.equal(t.calls[0].body.confirm,'MOVER_Y_CLIC_60S');
-  const clickTick=t.intervals.find(i=>i.ms===100).cb;
+  const clickTick=t.intervals.find(i=>i.ms===40).cb;
   t.h.landmarks[5]={x:.4,y:.5};t.h.landmarks[17]={x:.6,y:.5};
   t.h.landmarks[4]={x:.7,y:.5};
   await clickTick();

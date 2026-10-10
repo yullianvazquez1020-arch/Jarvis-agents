@@ -35,7 +35,7 @@ class MacPointer:
         return bool(self.quartz.CGEventSourceKeyState(self.quartz.kCGEventSourceStateCombinedSessionState, 53))
 
     def move(self, x, y):
-        self.gui.moveTo(x, y, duration=0)
+        self.gui.moveTo(x, y, duration=0, _pause=False)
 
     def click(self):
         self.gui.click(button="left", clicks=1)
@@ -234,7 +234,7 @@ class HandMouse:
                 self._stop("El control del puntero falló y se apagó. Revisa Accesibilidad.")
 
     def _loop(self):
-        while not self.closed.wait(0.05):
+        while not self.closed.wait(0.025):
             self.tick()
 
     def close(self):

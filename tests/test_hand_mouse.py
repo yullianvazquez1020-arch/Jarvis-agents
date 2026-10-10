@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
-from hand_mouse import HandMouse
+from hand_mouse import HandMouse, MacPointer
 
 
 class Pointer:
@@ -229,3 +229,14 @@ class PinchPolicy(unittest.TestCase):
         self.assertEqual(len(self.pointer.clicks), 1)
 
 if __name__ == '__main__': unittest.main()
+
+
+class NativeMovementPacing(unittest.TestCase):
+    def test_only_move_skips_library_pause(self):
+        from unittest.mock import Mock
+        pointer = MacPointer.__new__(MacPointer)
+        pointer.gui = Mock()
+        pointer.move(400, 300)
+        pointer.gui.moveTo.assert_called_once_with(400, 300, duration=0, _pause=False)
+        pointer.click()
+        pointer.gui.click.assert_called_once_with(button="left", clicks=1)

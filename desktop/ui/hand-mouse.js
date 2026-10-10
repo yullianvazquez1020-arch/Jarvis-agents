@@ -96,7 +96,7 @@
     } catch (error) { if (ticket === generation) stop(error.message); }
     finally { if (ticket === generation) busy = false; }
   }
-  setInterval(tick, 100);
+  setInterval(tick, 40);
   // Update expiry/Escape status even when no hand is visible.
   setInterval(async () => {
     if (!lease) return;

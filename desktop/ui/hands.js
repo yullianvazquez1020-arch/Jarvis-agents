@@ -130,7 +130,9 @@
     requestAnimationFrame(function () { loop(ticket); });
     if (document.hidden) { decay(); return; }
     if (state.seen && performance.now() - state.updatedAt > 350) decay();
-    if (busy || performance.now() - lastDetection < 200) return;
+    // Faster sampling only during the explicit mouse trial; still one frame in flight.
+    const detectionInterval = window.JarvisHandMouseActive ? 80 : 200;
+    if (busy || performance.now() - lastDetection < detectionInterval) return;
     if (!worker || !video || video.readyState < 2) return;
     if (video.currentTime === lastVideoTime) return;
     lastVideoTime = video.currentTime;
