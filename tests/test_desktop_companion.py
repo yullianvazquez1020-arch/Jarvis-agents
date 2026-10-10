@@ -437,6 +437,15 @@ class AudioOutput(unittest.TestCase):
             self.assertEqual(engines.MacSay("Explicit Voice").resolve_voice(), "Explicit Voice")
             run.assert_not_called()
 
+    def test_local_voice_defaults_to_latin_instead_of_system_voice(self):
+        listing = type("Listing", (), {"stdout": "Alex en_US # Hello\nPaulina es_MX # Hola\n"})()
+        with patch.object(engines.subprocess, "run", return_value=listing):
+            self.assertEqual(engines.MacSay().resolve_voice(), "Paulina")
+            _, voice = engines.build({"VOICE_TTS_BACKEND": "macos_say"})
+            self.assertEqual(voice.resolve_voice(), "Paulina")
+            _, voice = engines.build({"VOICE_TTS_BACKEND": "macos_say", "VOICE_TTS_VOICE": ""})
+            self.assertEqual(voice.resolve_voice(), "Paulina")
+
     def test_local_voice_missing_spanish_reports_error(self):
         listing = type("Listing", (), {"stdout": "Alex en_US # Hello\n"})()
         with patch.object(engines.subprocess, "run", return_value=listing):

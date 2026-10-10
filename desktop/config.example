@@ -18,7 +18,7 @@ VOICE_STT_BACKEND=none
 
 # Text-to-speech. "macos_say" uses voices already in macOS (offline). "piper" needs the piper program + a voice.
 VOICE_TTS_BACKEND=none
-# VOICE_TTS_VOICE=Paulina          (macos_say: a Spanish voice listed by `say -v '?'`; piper: path to .onnx)
+# VOICE_TTS_VOICE=auto-latino          (macos_say: automatically prefers es_PR, then Latin American Spanish; or a voice listed by `say -v '?'`; piper: path to .onnx)
 # VOICE_PIPER_BIN=/usr/local/bin/piper
 
 # Phase 2 (not implemented yet): keep false.
