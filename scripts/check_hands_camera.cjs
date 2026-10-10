@@ -36,7 +36,8 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
     }
   }
   const context = {
-    document: { hidden: false, getElementById: id => elements[id], createElement: tag => {
+    Event: class { constructor(type) { this.type = type; } },
+    document: { dispatchEvent: event => { events.lastDetectionEvent = event.type; }, hidden: false, getElementById: id => elements[id], createElement: tag => {
       const e = element(); if (tag === 'select') chooser = e; return e;
     } },
     navigator: { mediaDevices: {
@@ -75,6 +76,7 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   let detection = {landmarks:[points(.25),points(.75)],handedness:[[{categoryName:'Left'}],[{categoryName:'Right'}]]};
   let pair = setup({detection:()=>detection}); pair.elements.hands.onclick(); await flush();
   pair.frames.shift()(); await flush();
+  assert.equal(pair.events.lastDetectionEvent,"jarvis-hand-frame");
   assert.equal(pair.context.window.JarvisHands.count,2);
   assert.equal(pair.context.window.JarvisHands.hands.filter(h=>h.active).length,1);
   assert.ok(Math.abs(pair.context.window.JarvisHands.landmarks[0].x-.75)<.001);

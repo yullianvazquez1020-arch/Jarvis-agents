@@ -148,9 +148,18 @@
       if (!result.active) stop(result.reason);
       else { cursor.textContent=result.dragging?'Arrastrando':mode==='scroll'?'Desplazar':ratio!==null && ratio<.8?'Pinza':'Listo'; status.textContent = `Mouse de Mac activo · ${result.remaining} s · ${clickMode ? result.gesture || 'Pinza activa' : mode==='scroll' ? result.gesture : 'SIN CLICS'}. Escape detiene.`; }
     } catch (error) { if (ticket === generation) stop(error.message); }
-    finally { if (ticket === generation) busy = false; }
+    finally {
+      if (ticket === generation) {
+        busy = false;
+        // Coalesce detections received during HTTP: send only the newest fresh sample.
+        const latest = window.JarvisHands;
+        if (lease && latest?.seen && latest.updatedAt !== lastSample &&
+            performance.now() - latest.updatedAt >= 0 && performance.now() - latest.updatedAt <= 300) tick();
+      }
+    }
   }
-  setInterval(tick, 40);
+  document.addEventListener("jarvis-hand-frame", tick);
+  setInterval(tick, 40); // Tracking-loss watchdog and fallback, not an extra sample queue.
   // Update expiry/Escape status even when no hand is visible.
   setInterval(async () => {
     if (!lease) return;

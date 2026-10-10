@@ -148,6 +148,8 @@
           inferenceMs = inferenceMs*.7 + Math.max(1,performance.now()-lastDetection)*.3;
           if (document.hidden || performance.now() - lastDetection > 350) decay();
           else applyResult(message);
+          // Notify the pointer bridge immediately; the capture timestamp stays unchanged.
+          document.dispatchEvent(new Event("jarvis-hand-frame"));
         }
       };
       worker.onerror = function (event) {

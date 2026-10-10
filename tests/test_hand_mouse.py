@@ -232,7 +232,7 @@ if __name__ == '__main__': unittest.main()
 
 
 class NativeMovementPacing(unittest.TestCase):
-    def test_only_move_skips_library_pause(self):
+    def test_move_and_click_skip_library_pause(self):
         from unittest.mock import Mock
         pointer = MacPointer.__new__(MacPointer)
         pointer.gui = Mock()
@@ -243,7 +243,7 @@ class NativeMovementPacing(unittest.TestCase):
         pointer.quartz.CGEventPost.assert_called_once()
         pointer.gui.moveTo.assert_not_called()
         pointer.click()
-        pointer.gui.click.assert_called_once_with(button="left", clicks=1)
+        pointer.gui.click.assert_called_once_with(button="left", clicks=1, _pause=False)
 
     def test_failsafe_prevents_native_event(self):
         from unittest.mock import Mock
@@ -272,3 +272,34 @@ class AdaptiveMovement(unittest.TestCase):
             elif offset==20: self.assertTrue(1<=moved<=5)
             else: self.assertTrue(60<moved<=90)
             self.assertLessEqual(moved,offset)
+
+
+class TimedMovement(unittest.TestCase):
+    def trajectory(self, interval):
+        moment = [1000.0]
+        p = Pointer()
+        c = HandMouse(True, lambda:p, lambda:moment[0], lambda:moment[0], False)
+        lease = c.arm("owner", {"confirm":"SOLO_MOVER_60S"})["lease"]
+        c.motion_at = moment[0]
+        c.frame("owner", dict(lease=lease,seq=1,x=(2200-12)/(3840-25),
+                              y=(500-12)/(1080-25),captured_ms=moment[0]*1000))
+        for _ in range(round(.240/interval)):
+            before = p.pos
+            moment[0] += interval
+            c.tick()
+            self.assertLessEqual(math.dist(before,p.pos),4500*interval+1)
+            self.assertLessEqual(p.pos[0],2200)
+        return p.pos[0]
+
+    def test_response_is_stable_across_loop_rates(self):
+        positions = [self.trajectory(dt) for dt in (.008,.016,.024,.040)]
+        self.assertLessEqual(max(positions)-min(positions),4,positions)
+        self.assertGreaterEqual(min(positions),2185,positions)
+
+    def test_same_time_never_advances_twice(self):
+        p = Pointer()
+        c = HandMouse(True,lambda:p,lambda:1000,lambda:1000,False)
+        lease = c.arm("owner",{"confirm":"SOLO_MOVER_60S"})["lease"]
+        c.frame("owner",dict(lease=lease,seq=1,x=.9,y=.5,captured_ms=1000000))
+        c.tick(); before = list(p.moves); c.tick()
+        self.assertEqual(p.moves,before)

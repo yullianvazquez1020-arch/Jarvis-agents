@@ -6,7 +6,7 @@ function setup(savedProfile=null) {
   const elements=[], listeners={}, intervals=[], calls=[];
   const parent={appendChild(){},insertAdjacentElement(){}};
   const h={running:true,seen:true,updatedAt:990,landmarks:Array.from({length:21},()=>({x:.5,y:.5}))};
-  let deferred=null; const storage=new Map(savedProfile ? [["jarvis-hand-profile-v1",JSON.stringify(savedProfile)]] : []);
+  let deferred=null, frameDeferred=null; const storage=new Map(savedProfile ? [["jarvis-hand-profile-v1",JSON.stringify(savedProfile)]] : []);
   const context={
     document:{hidden:false,getElementById:()=>({parentNode:parent}),createElement:()=>{const e={style:{},appendChild(){},setAttribute(){},insertAdjacentElement(){}};elements.push(e);return e;},addEventListener:(name,cb)=>listeners[name]=cb},
     localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
@@ -15,11 +15,13 @@ function setup(savedProfile=null) {
     fetch:async(url,options)=>{
       const body=options?.body?JSON.parse(options.body):null;calls.push({url,body,options});
       if(url.endsWith('/arm')&&deferred) await deferred.promise;
+      if(url.endsWith('/frame')&&frameDeferred) { const d=frameDeferred;frameDeferred=null;await d.promise; }
       return {ok:true,json:async()=>url.endsWith('/arm')?{lease:'test-grant',width:3840,height:1080}: {active:true,remaining:59}};
     }
   };
   vm.runInNewContext(source,context);
   return {context,h,calls,listeners,elements,storage,button:elements[0],clickButton:elements[1],practice:elements[3],intervals,
+    deferFrame:()=>{let resolve;const promise=new Promise(r=>resolve=r);frameDeferred={promise,resolve};return resolve;},
     defer:()=>{let resolve;const promise=new Promise(r=>resolve=r);deferred={promise,resolve};return resolve;}};
 }
 (async()=>{
@@ -84,5 +86,17 @@ function setup(savedProfile=null) {
   assert.equal(JSON.parse(t.storage.get('jarvis-hand-profile-v1')).cx,.6);
   t=setup({span:0,cx:999,cy:null});await t.button.onclick();await t.intervals[0].cb();
   assert.equal(t.calls.at(-1).body.x,.5); // invalid persisted calibration ignored
+  t=setup();await t.button.onclick();
+  const releaseFrame=t.deferFrame();
+  const sending=t.listeners['jarvis-hand-frame']();
+  assert.equal(t.calls.length,2); // detection sends immediately, without the 40 ms timer
+  t.h.updatedAt=993;t.h.landmarks[8]={x:.6,y:.5};t.listeners['jarvis-hand-frame']();
+  t.h.updatedAt=995;t.h.landmarks[8]={x:.7,y:.5};t.listeners['jarvis-hand-frame']();
+  assert.equal(t.calls.length,2); // only one HTTP request in flight
+  releaseFrame();await sending;await flush();
+  assert.equal(t.calls.length,3); // intermediate sample dropped; latest sent immediately
+  assert.equal(t.calls[2].body.seq,2);
+  assert.ok(Math.abs(t.calls[2].body.x-.75)<.001);
+  await t.intervals[0].cb();assert.equal(t.calls.length,3);
   console.log('PASS: scroll/drag isolation, loss of hand, saved calibration without autoactivation; move-only isolation, explicit click consent, measured ratio, tracking loss, Escape, hidden tab and late activation cancellation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
