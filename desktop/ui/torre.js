@@ -86,7 +86,11 @@
     return "translate(" + tx + "%," + ty + "%) scale(" + scale + ") rotate(" + rot + "deg)";
   }
 
+  let lastDraw=0, dirty=true;
   function frame(now) {
+    requestAnimationFrame(frame);
+    if(document.hidden || (!playing && !dirty) || now-lastDraw<1000/24)return;
+    lastDraw=now;dirty=false;
     const s = ((playing ? now : pauseAt) - t0 - pausedFor) / 1000;
     cam.style.transform = camAt(s);
     sx.clearRect(0, 0, sc.width, sc.height);
@@ -104,7 +108,6 @@
       g.addColorStop(0, "rgba(176,190,215," + p.a + ")"); g.addColorStop(1, "rgba(176,190,215,0)");
       fx.fillStyle = g; fx.fillRect(cx - R, cy - R, R * 2, R * 2);
     }
-    requestAnimationFrame(frame);
   }
 
   // Hora de Puerto Rico.
@@ -121,7 +124,7 @@
     const now = performance.now();
     if (playing) { playing = false; pauseAt = now; bPlay.textContent = "Reproducir"; }
     else { if (pauseAt) pausedFor += now - pauseAt; pauseAt = 0; playing = true; bPlay.textContent = "Pausa"; }
-    stage.classList.toggle("paused", !playing);
+    dirty=true;stage.classList.toggle("paused", !playing);
   });
   bHud.addEventListener("click", () => {
     const off = stage.classList.toggle("nohud");
@@ -144,7 +147,7 @@
     else if (e.key === "h" || e.key === "H") bHud.click();
   });
 
-  function resize() { sizeStars(); sizeFog(); }
+  function resize() { sizeStars(); sizeFog(); dirty=true; }
   addEventListener("resize", resize);
   const img = cam.querySelector("img");
   const ready = img.complete ? Promise.resolve() : new Promise((r) => { img.addEventListener("load", r, { once: true });

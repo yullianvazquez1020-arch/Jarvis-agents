@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ def main():
     if not shutil.which("redis-server"):
         raise RuntimeError("redis-server is required: Redis tests must not be skipped")
     sys.path.insert(0, str(ROOT))
+    subprocess.run(["node", str(ROOT / "scripts/check_visual_gestures.cjs")], cwd=ROOT, check=True)
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     summary = {
