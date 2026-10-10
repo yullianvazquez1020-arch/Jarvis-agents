@@ -38,3 +38,22 @@ canvas {border:1px solid #1b506b;border-radius:18px;background:radial-gradient(e
 #hand-video {position:absolute;right:12px;bottom:12px;width:160px;height:120px;object-fit:cover;border-radius:8px;border:1px solid #1b506b;transform:scaleX(-1);background:#020b13;}
 button {cursor:pointer;} button:focus-visible,a:focus-visible {outline:2px solid #ffdc83;outline-offset:4px;}
 @media(max-width:600px){.avatar header{flex-direction:column;}}
+/* Órbita: full-width control surface with readable controls on older displays. */
+body{background:#020912;color:#b5dce6;display:block;min-height:100vh}
+.avatar{width:min(1800px,98vw);margin:auto;padding:0 0 16px}
+.avatar header{padding:16px 12px;border-bottom:1px solid #183b4b;margin-bottom:10px;color:#8fe6ed}
+.stage{width:100%;margin:auto} #c{display:block;width:100%;height:auto;border-radius:2px;border-color:#24485a;background:#020912}
+#hand-video{right:auto;left:2%;bottom:60%;width:12%;height:15%;border-radius:2px;opacity:.85}
+#hand-video{display:none}
+button{border-radius:3px;background:#071a27;border-color:#285568;color:#b1e2ea;margin:8px 3px;font-size:12px}
+button:hover{background:#133646;border-color:#7ce2e9}
+#status,#hand-status,#voice-status{font:12px monospace;margin:8px;color:#83aebf}
+@media(max-width:700px){.avatar{width:100%}.avatar header{font-size:10px;padding:12px 6px}button{padding:8px}#status,#hand-status,#voice-status{font-size:10px} }
+/* Atlas: proposals stay visually distinct from connected operations. */
+#portfolio{text-align:left;border:1px solid #224150;margin:14px 0 24px;background:#030c16;padding:24px;box-sizing:border-box}
+.portfolio-heading{display:flex;align-items:center;justify-content:space-between;gap:18px}.portfolio-heading small{font:11px monospace;letter-spacing:.22em;color:#6fa5b6}.portfolio-heading h1{font-size:clamp(22px,3vw,38px);font-weight:400;letter-spacing:-.04em;color:#e4f1f0;margin:12px 0 20px}.proposal-label{border:1px solid #79633d;color:#dfbd7c;padding:9px;font:10px monospace;white-space:nowrap}
+.atlas-tabs{display:flex;flex-wrap:wrap;margin-bottom:14px}.atlas-tabs button[aria-pressed=true]{color:#c3f9ee;background:#113b41;border-color:#7edbcc}.atlas-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:22px}.atlas-scene{position:relative;background:#020b15;align-self:start}.atlas-scene canvas{display:block;width:100%;border-radius:0}.atlas-caption{display:flex;justify-content:space-between;padding:14px 10px;gap:14px;font:10px monospace;color:#789cab}.atlas-caption strong{color:#a5d4d9;font-weight:400}#atlas-list{display:grid;gap:5px}#atlas-list button{text-align:left;margin:0;padding:12px;border-left:2px solid var(--floor-color);font:12px monospace}#atlas-list button[aria-pressed=true]{background:#153343;color:#fff}#atlas-detail{padding:20px 0;color:#9bb2bd}#atlas-detail small{font:10px monospace;color:#d7bd88}#atlas-detail h2{font-size:23px;color:#e2eef0;font-weight:400;margin:10px 0}#atlas-detail h3{font:11px monospace;text-transform:uppercase;color:#76c9c4;margin:20px 0 7px}#atlas-detail p{font-size:12px;line-height:1.65;margin:0}.atlas-estimate{color:#dbbe85}.atlas-disclaimer{border-top:1px solid #28404b;padding-top:13px;margin-top:18px!important}.atlas-policy,#atlas-hand-status{font:11px/1.7 monospace;color:#89a4b1;border-top:1px solid #18333f;padding-top:12px}.atlas-cursor{position:fixed;z-index:1000;width:30px;height:30px;border:2px solid #d8ffe9;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;background:conic-gradient(#70efb9 var(--dwell,0%),transparent 0);box-shadow:0 0 22px #57ddc566}.atlas-cursor[hidden]{display:none}@media(max-width:1100px){.atlas-layout{grid-template-columns:1fr}.portfolio-heading{align-items:start}.atlas-caption{flex-direction:column}#atlas-list{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}@media(max-width:600px){#portfolio{padding:12px}.portfolio-heading{flex-direction:column}}
+
+/* Keep the camera visible while tracking, including Safari playback. */
+#hand-video.preview-active{display:block;position:static;width:240px;height:180px;margin:12px auto;opacity:1;transform:scaleX(-1)}
+#hand-camera{background:#061725;color:#c9eee9;border:1px solid #31586c;padding:7px;margin:6px;max-width:95%}
