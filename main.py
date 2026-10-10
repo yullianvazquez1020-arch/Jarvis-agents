@@ -7180,3 +7180,16 @@ try:
 except Exception as _e:
     OPS_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("ops off: %s", type(_e).__name__)
+
+# 4.2.5: autocorrección. Revisa la respuesta antes de enviarla y guarda tus correcciones como lecciones.
+# Sin modelo extra. Una lección nunca afloja dinero, topes, aprobaciones ni mensajes a clientes.
+SELFCHECK_STATUS = "no cargado"
+try:
+    if BRIEF_STATUS != "activo":
+        raise RuntimeError("requiere el brief 4.2.1")
+    import jarvis_selfcheck as _selfcheck
+    _selfcheck.install(__import__("sys").modules[__name__])
+    SELFCHECK_STATUS = "activo"
+except Exception as _e:
+    SELFCHECK_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("selfcheck off: %s", type(_e).__name__)
