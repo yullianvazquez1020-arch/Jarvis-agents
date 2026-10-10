@@ -108,7 +108,7 @@ class MacSay:
     BASE_WPM = 175
 
     def __init__(self, voice=""):
-        self.voice = voice or ""
+        self.voice = voice or "auto-latino"
         self._resolved_voice = None
 
     def resolve_voice(self):
@@ -201,7 +201,7 @@ def build(cfg):
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
                     cfg.get("VOICE_STT_THREADS", "4")) if stt == "whisper_cpp" else NoSTT())
     if tts == "macos_say":
-        t = MacSay(cfg.get("VOICE_TTS_VOICE", ""))
+        t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"))
     elif tts == "piper":
         t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""))
     else:
