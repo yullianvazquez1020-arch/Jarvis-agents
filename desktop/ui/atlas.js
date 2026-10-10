@@ -6,8 +6,8 @@
   const ideas = [
     {name:'Servicio local', color:'#54ffbd', cost:'$0–50', task:'Preparar una ficha de mantenimiento para ISLAFIX y una plantilla de cotización con costos pendientes.', goal:'Validar una necesidad y conseguir una cotización solicitada en 30 días.', metric:'Solicitudes, horas invertidas y cobros vinculados a trabajos.', approval:'Servicios ofrecidos, costos y cada contacto antes de enviarlo.'},
     {name:'Producto digital', color:'#ffd878', cost:'$0–30', task:'Preparar una plantilla original de inventario para contratistas y una muestra gratuita.', goal:'Conseguir 3 evaluaciones voluntarias y probar una venta en 30 días.', metric:'Evaluaciones reales, ventas, devoluciones y comisiones.', approval:'Contenido final, licencia, precio y publicación.'},
-    {name:'Contenido educativo', color:'#bd8aff', cost:'$0–20', task:'Redactar cuatro guiones originales de mantenimiento, basados en experiencia verificable.', goal:'Publicar hasta 4 piezas aprobadas y medir consultas calificadas durante 30 días.', metric:'Piezas publicadas, consultas y horas; seguidores no equivalen a ingresos.', approval:'Guiones, imágenes, plataforma y cada publicación.'},
-    {name:'Tienda por validar', color:'#ff69ce', cost:'$0–100', task:'Comparar una categoría de consumibles y preparar costos unitarios, envío y devoluciones.', goal:'Validar demanda antes de comprar inventario durante 30 días.', metric:'Interés documentado, margen estimado y ventas cobradas si se aprueban.', approval:'Proveedor, plataforma, compra y publicación; Amazon permanece bloqueado.'},
+    {name:'Contenido educativo', color:'#36a8ff', cost:'$0–20', task:'Redactar cuatro guiones originales de mantenimiento, basados en experiencia verificable.', goal:'Publicar hasta 4 piezas aprobadas y medir consultas calificadas durante 30 días.', metric:'Piezas publicadas, consultas y horas; seguidores no equivalen a ingresos.', approval:'Guiones, imágenes, plataforma y cada publicación.'},
+    {name:'Tienda por validar', color:'#ffad38', cost:'$0–100', task:'Comparar una categoría de consumibles y preparar costos unitarios, envío y devoluciones.', goal:'Validar demanda antes de comprar inventario durante 30 días.', metric:'Interés documentado, margen estimado y ventas cobradas si se aprueban.', approval:'Proveedor, plataforma, compra y publicación; Amazon permanece bloqueado.'},
     {name:'Afiliados', color:'#65eeff', cost:'$0–20', task:'Preparar una comparación honesta de herramientas que el dueño conozca y revisar requisitos del programa.', goal:'Evaluar un programa y una pieza aprobada en 30 días, sin tráfico artificial.', metric:'Clics y comisiones confirmadas por el programa, separados de estimaciones.', approval:'Programa, divulgación de afiliación, enlaces y publicación.'}
   ];
   const canvas = document.getElementById('atlas'), ctx = canvas.getContext('2d');
@@ -51,9 +51,9 @@
     for(let i=0;i<40;i++){
       const angle=i*Math.PI/20,xx=150+Math.cos(angle)*112,yy=90+Math.sin(angle)*51;
       m.strokeStyle='#63dcd788';m.beginPath();m.moveTo(xx,yy);m.lineTo(150+Math.cos(angle)*95,90+Math.sin(angle)*39);m.stroke();
-      m.fillStyle=i%3?'#61d6d6':'#b58cff';m.beginPath();m.arc(xx,yy,2.5,0,7);m.fill();
+      m.fillStyle=i%3?'#61d6d6':'#36a8ff';m.beginPath();m.arc(xx,yy,2.5,0,7);m.fill();
     }
-    for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#bd8aff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
+    for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#36a8ff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
     // Paired lobes and irregular cortical folds, decorative rather than biometric.
     for(const side of [-1,1])for(let fold=0;fold<12;fold++){
       b.beginPath();b.strokeStyle=ideas[fold%5].color+'88';
@@ -239,28 +239,45 @@
       const angle=arm*Math.PI*2/3+r*.0105+rotation+noise*(.10+.25*u);
       const spread=r+Math.sin(i*93.7)*24*Math.sqrt(u);
       const xx=cx+Math.cos(angle)*spread,yy=cy+Math.sin(angle)*spread*.52;
-      const hue=i%9===0?'#ffe4b0':i%4===0?'#a58dff':'#a9e8ff';
+      const hue=i%9===0?'#ffe4b0':i%4===0?'#469dff':'#a9e8ff';
       dot(xx,yy,i%37===0?2.1:i%7===0?1.1:.65,hue+(i%7===0?'d0':'75'));
-      if(i%38===0){const glow=ctx.createRadialGradient(xx,yy,0,xx,yy,14);glow.addColorStop(0,'#aa8fff40');glow.addColorStop(1,'#768dff00');ctx.fillStyle=glow;ctx.fillRect(xx-14,yy-14,28,28);}
+      if(i%38===0){const glow=ctx.createRadialGradient(xx,yy,0,xx,yy,14);glow.addColorStop(0,'#469dff40');glow.addColorStop(1,'#768dff00');ctx.fillStyle=glow;ctx.fillRect(xx-14,yy-14,28,28);}
     }
     for(let i=0;i<200;i++){
       const a=i*2.399963+rotation,r=82*Math.pow((i+.5)/200,1.7);
-      dot(cx+Math.cos(a)*r,cy+Math.sin(a)*r*.55,.7,i%4===0?'#ffe2aacc':'#e8e1ff88');
+      dot(cx+Math.cos(a)*r,cy+Math.sin(a)*r*.55,.7,i%4===0?'#ffe2aacc':'#dceeff88');
     }
     // Dark dust lanes separate the bright arms; central elliptical bulge.
     for(let arm=0;arm<3;arm++){
       const pts=[];for(let j=0;j<100;j++){const r=65+j*3.2,a=arm*Math.PI*2/3+r*.0105+rotation+.12;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r*.52]);}line(pts,'#03091866',5);
     }
-    const g=ctx.createRadialGradient(cx,cy,1,cx,cy,82);g.addColorStop(0,'#fff8e8ee');g.addColorStop(.18,'#ffe3a999');g.addColorStop(.5,'#c29cef36');g.addColorStop(1,'#c29cef00');ctx.save();ctx.translate(cx,cy);ctx.scale(1,.64);ctx.fillStyle=g;ctx.translate(-cx,-cy);ctx.fillRect(cx-82,cy-82,164,164);ctx.restore();
+    const g=ctx.createRadialGradient(cx,cy,1,cx,cy,82);g.addColorStop(0,'#fff8e8ee');g.addColorStop(.18,'#ffe3a999');g.addColorStop(.5,'#49baff36');g.addColorStop(1,'#49baff00');ctx.save();ctx.translate(cx,cy);ctx.scale(1,.64);ctx.fillStyle=g;ctx.translate(-cx,-cy);ctx.fillRect(cx-82,cy-82,164,164);ctx.restore();
     ideas.forEach((item,i)=>{const a=i*Math.PI*.4-.6,xx=cx+Math.cos(a)*370,yy=cy+Math.sin(a)*240;line([[cx,cy],[xx,yy]],item.color+'35');ellipse(xx,yy,i===selected?16:9,i===selected?16:9,item.color);dot(xx,yy,3,item.color);label(`0${i+1} ${item.name}`,xx-60,yy+30,item.color);});
     label('GALAXIA ÓRBITA / BRAZOS ESPIRALES',30,40,'#c8efff');label('ESCENA ARTÍSTICA · SECTORES PROPUESTOS',30,61);
   }
   function cell(){const cx=535,cy=320;for(let ring=0;ring<3;ring++){const pts=[];for(let i=0;i<=180;i++){const a=i*Math.PI/90,r=220+ring*8+Math.sin(a*7+phase*.3)*8;pts.push([cx+Math.cos(a)*r*1.5,cy+Math.sin(a)*r]);}line(pts,ring===1?'#65d9cbaa':'#42859755');}
     for(let i=0;i<5;i++){const a=i*Math.PI*.4-1.4,xx=cx+Math.cos(a)*215,yy=cy+Math.sin(a)*135,col=ideas[i].color;line([[cx,cy],[xx,yy]],col+'55');ellipse(xx,yy,i===selected?70:55,40,col,2);for(let j=0;j<12;j++)dot(xx+Math.cos(j*2.4+phase*.1)*34,yy+Math.sin(j*2.4)*21,1.5,col);label(`0${i+1} / ${ideas[i].name}`,xx-55,yy+60,col);}
-    ellipse(cx,cy,65,54,'#dabdff');label('JARVIS',cx-24,cy+4,'#ecddff');label('MEMBRANA / LÍMITES Y APROBACIONES',60,70);
+    ellipse(cx,cy,65,54,'#8bddff');label('JARVIS',cx-24,cy+4,'#e0faff');label('MEMBRANA / LÍMITES Y APROBACIONES',60,70);
   }
   function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);const fps=quality==='rich'?24:window.JarvisHandMouseActive?10:15;if(now-last<1000/fps)return;const elapsed=last?Math.min(.2,(now-last)/1000):1/fps;last=now;if(!paused)phase+=elapsed;ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
-    for(let i=0;i<420;i++){const xx=(i*197.3)%1100,yy=(i*97.9)%650;dot(xx,yy,i%9===0?1:.5,i%11===0?'#b6ddefaa':'#739fc355');}
+
+  // Deterministic deep-space field; no extra animation loop or asset downloads.
+  for(let star=0;star<720;star++){
+    const sx=(star*197.31)%1100,sy=(star*97.93)%650;
+    ctx.globalAlpha=.3+.55*(.5+.5*Math.sin(phase*.7+star));
+    ctx.fillStyle=star%13===0?'#ffcf79':star%5===0?'#54caff':'#e6f7ff';
+    const size=star%23===0?1.8:star%7===0?1:.65;ctx.fillRect(sx,sy,size,size);
+  }
+  ctx.globalAlpha=1;
+  for(let meteor=0;meteor<3;meteor++){
+    const travel=(phase*.16+meteor*.37)%1;
+    const mx=travel*(1100+360)-180,my=meteor*216+travel*220-100;
+    const tail=ctx.createLinearGradient(mx-100,my-42,mx,my);
+    tail.addColorStop(0,'#39baff00');tail.addColorStop(.8,'#58ceff80');tail.addColorStop(1,'#fff4d9');
+    ctx.strokeStyle=tail;ctx.lineWidth=meteor===0?1.8:1;ctx.beginPath();
+    ctx.moveTo(mx-100,my-42);ctx.lineTo(mx,my);ctx.stroke();
+    ctx.fillStyle='#f3fbff';ctx.fillRect(mx-1,my-1,2,2);
+  }
     ctx.strokeStyle='#27516b20';ctx.lineWidth=1;for(let xx=0;xx<1100;xx+=55)line([[xx,0],[xx,650]],'#27516b15');for(let yy=0;yy<650;yy+=50)line([[0,yy],[1100,yy]],'#27516b15');
     ({tower,galaxy,cell})[mode]();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':window.JarvisHandMouseActive?'GESTOS PRIORITARIOS / 10 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
   }
