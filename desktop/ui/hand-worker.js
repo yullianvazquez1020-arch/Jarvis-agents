@@ -17,7 +17,7 @@ self.onmessage = async function (event) {
       detector = await vision.HandLandmarker.createFromOptions(files, {
         canvas: new OffscreenCanvas(320, 240),
         baseOptions: { modelAssetPath: MODEL, delegate: "CPU" },
-        runningMode: "VIDEO", numHands: 1,
+        runningMode: "VIDEO", numHands: 2,
         minHandDetectionConfidence: 0.6, minTrackingConfidence: 0.5
       });
       self.postMessage({ type: "ready" });
@@ -30,7 +30,7 @@ self.onmessage = async function (event) {
   try {
     if (!detector) throw new Error("El detector no está listo");
     const result = detector.detectForVideo(message.bitmap, message.timestamp);
-    self.postMessage({ type: "result", id: message.id, landmarks: result.landmarks });
+    self.postMessage({ type: "result", id: message.id, landmarks: result.landmarks, handedness: result.handedness });
   } catch (error) {
     self.postMessage({ type: "error", message: error.message || "Falló la detección" });
   } finally {

@@ -6,7 +6,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../desktop/ui/hands.js'), 'utf8')
   ;
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-function setup({ devices, failDetect = false, pending = false, workerHang = false, frameHang = false } = {}) {
+function setup({ devices, failDetect = false, pending = false, workerHang = false, frameHang = false, detection = () => ({landmarks:[]}) } = {}) {
   const calls = [], streams = [], frames = [], events = {}, elements = {}, workers = [], timers = new Map();
   let timerId = 0, now = 1000;
   const container = { appendChild() {}, insertBefore() {} };
@@ -32,7 +32,7 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
     postMessage(message) {
       this.messages.push(message);
       if (message.type === 'init' && !workerHang) Promise.resolve().then(() => this.onmessage({data:{type:'ready'}}));
-      if (message.type === 'frame' && !frameHang) Promise.resolve().then(() => this.onmessage({data:failDetect ? {type:'error', message:'detector failed'} : {type:'result', id:message.id, landmarks:[]}}));
+      if (message.type === 'frame' && !frameHang) Promise.resolve().then(() => this.onmessage({data:failDetect ? {type:'error', message:'detector failed'} : {type:'result', id:message.id, ...detection()}}));
     }
   }
   const context = {
@@ -69,6 +69,24 @@ function setup({ devices, failDetect = false, pending = false, workerHang = fals
   t.events.keydown({key:'Escape'});
   assert.equal(t.context.window.JarvisHands.running, false);
   assert.equal(t.streams[1].getTracks()[0].stopped, true);
+
+  // Detector output order may change; only the original hand drives an active mouse.
+  const points = x => Array.from({length:21},(_,i)=>({x:x+i*.001,y:.4+i*.001}));
+  let detection = {landmarks:[points(.25),points(.75)],handedness:[[{categoryName:'Left'}],[{categoryName:'Right'}]]};
+  let pair = setup({detection:()=>detection}); pair.elements.hands.onclick(); await flush();
+  pair.frames.shift()(); await flush();
+  assert.equal(pair.context.window.JarvisHands.count,2);
+  assert.equal(pair.context.window.JarvisHands.hands.filter(h=>h.active).length,1);
+  assert.ok(Math.abs(pair.context.window.JarvisHands.landmarks[0].x-.75)<.001);
+  pair.context.window.JarvisHandMouseActive=true;
+  detection={landmarks:[points(.75),points(.26)],handedness:[[{categoryName:'Right'}],[{categoryName:'Left'}]]};
+  pair.advance();pair.frames.shift()();await flush();
+  assert.ok(Math.abs(pair.context.window.JarvisHands.landmarks[0].x-.74)<.001,'order reversal preserves pointer identity');
+  detection={landmarks:[points(.75)],handedness:[[{categoryName:'Right'}]]};
+  pair.advance();pair.frames.shift()();await flush();
+  assert.equal(pair.context.window.JarvisHands.seen,false,'second hand cannot inherit active pointer after primary loss');
+  pair.events.keydown({key:'Escape'});
+  console.log('PASS: two real landmark sets, stable primary through output reordering, no pointer handover on loss.');
 
   let enumerations = 0;
   t = setup({ devices: () => ++enumerations === 1 ? [{kind:'videoinput', deviceId:'', label:''}] : [{kind:'videoinput', deviceId:'brio', label:'Logitech BRIO'}] });

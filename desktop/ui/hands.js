@@ -20,7 +20,8 @@
   var generation = 0;
   var lastDetection = 0;
   var lastVideoTime = -1;
-  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "" };
+  var state = { x: 0, y: 0, open: 0, seen: false, landmarks: null, updatedAt: 0, running: false, camera: "", hands: [], count: 0 };
+  var primaryWrist = null, primaryLabel = "", inferenceMs = 50;
   var selector = document.createElement("select");
   selector.id = "hand-camera";
   selector.setAttribute("aria-label", "Cámara para la mano");
@@ -63,7 +64,7 @@
     var chosen = cameras.find(function (d) { return selected ? d.deviceId === selected : /brio/i.test(d.label); });
     if (!chosen) throw new Error("No aparece la Brio o la cámara elegida. Revisa el USB o elige otra cámara.");
     var s = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: chosen.deviceId }, width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 10, max: 15 } },
+      video: { deviceId: { exact: chosen.deviceId }, width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 24, max: 30 } },
       audio: false
     });
     if (ticket !== generation) { release(s); throw new Error("Inicio cancelado"); }
@@ -76,6 +77,7 @@
   function decay() {
     state.seen = false;
     state.landmarks = null;
+    state.hands = []; state.count = 0;
     state.x *= 0.85;
     state.y *= 0.85;
     state.open *= 0.85;
@@ -91,6 +93,27 @@
     state.seen = true;
     state.updatedAt = performance.now();
     state.landmarks = landmarks.map(function (p) { return { x: 1 - p.x, y: p.y }; });
+  }
+
+  function applyResult(message) {
+    var candidates = (message.landmarks || []).map(function (points, index) {
+      var category = message.handedness && message.handedness[index] && message.handedness[index][0];
+      return {points:points, label:category ? category.categoryName : ""};
+    }).filter(function (item) { return item.points.length === 21 && item.points.every(function(p) { return Number.isFinite(p.x) && Number.isFinite(p.y); }); });
+    if (!candidates.length) { decay(); return; }
+    var selected = null, distance = Infinity;
+    candidates.forEach(function(item) {
+      if (window.JarvisHandMouseActive && primaryLabel && item.label !== primaryLabel) return;
+      var d = primaryWrist ? Math.hypot(item.points[0].x-primaryWrist.x,item.points[0].y-primaryWrist.y) : 0;
+      if (d < distance) { distance = d; selected = item; }
+    });
+    // An unseen second hand must never inherit the active pointer or a held drag.
+    if (!selected || (window.JarvisHandMouseActive && primaryWrist && distance > .3)) { decay(); return; }
+    primaryWrist = {x:selected.points[0].x,y:selected.points[0].y};
+    primaryLabel = selected.label;
+    apply(selected.points);
+    state.hands = candidates.map(function(item) { return {label:item.label, active:item===selected, landmarks:item.points.map(function(p) { return {x:1-p.x,y:p.y}; })}; });
+    state.count = state.hands.length;
   }
 
   function fail(message) { stop(); say(message); }
@@ -113,9 +136,9 @@
           clearTimeout(watchdog);
           watchdog = null;
           busy = false;
-          var points = message.landmarks && message.landmarks[0];
-          if (document.hidden || performance.now() - lastDetection > 350 || !points || points.length !== 21) decay();
-          else apply(points);
+          inferenceMs = inferenceMs*.7 + Math.max(1,performance.now()-lastDetection)*.3;
+          if (document.hidden || performance.now() - lastDetection > 350) decay();
+          else applyResult(message);
         }
       };
       worker.onerror = function (event) {
@@ -136,7 +159,7 @@
     if (document.hidden) { decay(); return; }
     if (state.seen && performance.now() - state.updatedAt > 350) decay();
     // Faster sampling only during the explicit mouse trial; still one frame in flight.
-    const detectionInterval = window.JarvisHandMouseActive ? 80 : 200;
+    const detectionInterval = Math.max(window.JarvisHandMouseActive ? 45 : 100, Math.min(200,inferenceMs*1.1));
     if (busy || performance.now() - lastDetection < detectionInterval) return;
     if (!worker || !video || video.readyState < 2) return;
     if (video.currentTime === lastVideoTime) return;
@@ -165,6 +188,7 @@
 
   function stop() {
     generation++;
+    primaryWrist = null; primaryLabel = ""; inferenceMs = 50;
     clearTimeout(watchdog);
     watchdog = null;
     if (worker) { worker.terminate(); worker = null; }
