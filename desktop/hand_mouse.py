@@ -1,4 +1,4 @@
-"""Owner-driven, local pointer movement trial. No clicks, keys, scrolling or agents."""
+"""Owner-driven local movement and explicit opt-in single-left-click trial."""
 import math
 import secrets
 import sys
@@ -37,10 +37,15 @@ class MacPointer:
     def move(self, x, y):
         self.gui.moveTo(x, y, duration=0)
 
+    def click(self):
+        self.gui.click(button="left", clicks=1)
+
 
 class HandMouse:
     TTL = 60.0
     FRESH = 0.4
+    HOLD = 0.35
+    COOLDOWN = 1.0
 
     def __init__(self, enabled=False, pointer_factory=MacPointer, clock=time.monotonic,
                  wall=time.time, threaded=True):
@@ -54,11 +59,23 @@ class HandMouse:
         self.deadline = 0
         self.target = None
         self.last_seq = -1
+        self.click_enabled = False
+        self.last_click = -math.inf
+        self._reset_gesture()
         self.reason = "Apagado. Solo movimiento; sin clics."
+
+    def _reset_gesture(self):
+        self.ready = False
+        self.pinch_start = None
+        self.pinch_frames = 0
+        self.pinch_last = None
+        self.frozen = False
+        self.gesture = "Abre pulgar e índice"
 
     def _stop(self, reason):
         self.lease = self.owner = ""
         self.target = None
+        self._reset_gesture()
         self.reason = reason
 
     def _expire(self):
@@ -68,11 +85,11 @@ class HandMouse:
     def status(self):
         with self.lock:
             self._expire()
-            return {"enabled": self.enabled, "active": bool(self.lease), "reason": self.reason,
+            return {"click_enabled": self.click_enabled, "gesture": self.gesture, "enabled": self.enabled, "active": bool(self.lease), "reason": self.reason,
                     "remaining": max(0, round(self.deadline - self.clock())) if self.lease else 0}
 
     def arm(self, owner, data):
-        if data != {"confirm": "SOLO_MOVER_60S"}:
+        if data not in ({"confirm": "SOLO_MOVER_60S"}, {"confirm": "MOVER_Y_CLIC_60S"}):
             raise ValueError("Confirma la prueba de solo movimiento.")
         with self.lock:
             if not self.enabled or self.closed.is_set():
@@ -94,7 +111,11 @@ class HandMouse:
             self.deadline = self.clock() + self.TTL
             self.last_seq = -1
             self.target = None
-            self.reason = "Solo movimiento en la pantalla principal. Escape detiene."
+            self.click_enabled = data["confirm"] == "MOVER_Y_CLIC_60S"
+            self.last_click = -math.inf
+            self._reset_gesture()
+            self.reason = ("Movimiento y clic izquierdo por pinza. Escape detiene." if self.click_enabled
+                           else "Solo movimiento en la pantalla principal. Escape detiene.")
             if self.threaded and self.thread is None:
                 self.thread = threading.Thread(target=self._loop, daemon=True)
                 self.thread.start()
@@ -106,28 +127,66 @@ class HandMouse:
                     and secrets.compare_digest(self.lease, lease))
 
     def frame(self, owner, data):
-        if set(data) != {"lease", "seq", "x", "y", "captured_ms"}:
-            raise ValueError("Solo se aceptan coordenadas; ninguna otra acción.")
         with self.lock:
-            if not self._authorized(owner, data["lease"]):
+            if not self._authorized(owner, data.get("lease")):
                 raise ValueError("Prueba apagada, vencida o de otra sesión.")
-            seq = data["seq"]
-            if type(seq) is not int or seq <= self.last_seq:
-                raise ValueError("Cuadro repetido o fuera de orden.")
-            for key in ("x", "y", "captured_ms"):
-                if type(data[key]) not in (int, float) or not math.isfinite(data[key]):
-                    raise ValueError("Coordenadas inválidas.")
-            if not (0 <= data["x"] <= 1 and 0 <= data["y"] <= 1):
-                raise ValueError("Coordenadas fuera de la pantalla.")
-            age = self.wall() - data["captured_ms"] / 1000
-            if age < -0.1 or age > self.FRESH:
+            try:
+                keys = {"lease", "seq", "x", "y", "captured_ms"}
+                if self.click_enabled:
+                    keys.add("pinch_ratio")
+                if set(data) != keys:
+                    raise ValueError("Cuadro no permitido para este modo.")
+                seq = data["seq"]
+                if type(seq) is not int or seq <= self.last_seq:
+                    raise ValueError("Cuadro repetido o fuera de orden.")
+                for key in ("x", "y", "captured_ms"):
+                    if type(data[key]) not in (int, float) or not math.isfinite(data[key]):
+                        raise ValueError("Coordenadas inválidas.")
+                if not (0 <= data["x"] <= 1 and 0 <= data["y"] <= 1):
+                    raise ValueError("Coordenadas fuera de la pantalla.")
+                age = self.wall() - data["captured_ms"] / 1000
+                if age < -0.1 or age > self.FRESH:
+                    raise ValueError("Cuadro vencido; no se mueve el puntero.")
+                now = self.clock()
+                captured = now - max(0, age)
+                ratio = data.get("pinch_ratio")
+                if self.click_enabled and ratio is not None:
+                    if type(ratio) not in (int, float) or not math.isfinite(ratio) or ratio < 0:
+                        raise ValueError("Pinza inválida.")
+                self.last_seq = seq
+                if self.click_enabled:
+                    if ratio is None:
+                        self.target = None
+                        self._reset_gesture()
+                        return self.status()
+                    if self.pinch_last is not None and captured - self.pinch_last > self.FRESH:
+                        self._reset_gesture()
+                    if self.pinch_last is not None and captured <= self.pinch_last:
+                        raise ValueError("Captura repetida o fuera de orden.")
+                    self.pinch_last = captured
+                    self.frozen = ratio < 0.6
+                    if ratio >= 0.6:
+                        self.ready = now - self.last_click >= self.COOLDOWN
+                        self.pinch_start = None
+                        self.pinch_frames = 0
+                        self.gesture = ("Listo: junta pulgar e índice" if self.ready
+                                        else "Espera un segundo y abre los dedos")
+                    elif ratio <= 0.3 and self.ready:
+                        if self.pinch_start is None:
+                            self.pinch_start = captured
+                        self.pinch_frames += 1
+                        self.gesture = "Mantén la pinza; puntero inmóvil"
+                    else:
+                        self.pinch_start = None
+                        self.pinch_frames = 0
+                        self.gesture = "Abre pulgar e índice" if not self.ready else "Acerca los dedos"
+                self.target = (12 + data["x"] * (self.width - 25),
+                               12 + data["y"] * (self.height - 25), captured)
+                return self.status()
+            except (ValueError, TypeError):
                 self.target = None
-                raise ValueError("Cuadro vencido; no se mueve el puntero.")
-            self.last_seq = seq
-            # Keep targets away from physical fail-safe corners; preserve original capture age.
-            self.target = (12 + data["x"] * (self.width - 25),
-                           12 + data["y"] * (self.height - 25), self.clock() - max(0, age))
-            return self.status()
+                self._reset_gesture()
+                raise
 
     def stop(self, owner, lease):
         with self.lock:
@@ -150,6 +209,19 @@ class HandMouse:
                     return
                 if not self.target or self.clock() - self.target[2] > self.FRESH:
                     self.target = None
+                    self._reset_gesture()
+                    return
+                if self.click_enabled and self.frozen:
+                    if (self.ready and self.pinch_start is not None and self.pinch_frames >= 3
+                            and self.pinch_last - self.pinch_start >= self.HOLD
+                            and self.clock() - self.last_click >= self.COOLDOWN):
+                        # Consume before invoking native code: no queued or repeated click.
+                        self.ready = False
+                        self.pinch_start = None
+                        self.pinch_frames = 0
+                        self.last_click = self.clock()
+                        self.gesture = "Clic realizado. Abre los dedos para rearmar"
+                        self.pointer.click()
                     return
                 tx, ty, _ = self.target
                 dx, dy = (tx - px) * 0.25, (ty - py) * 0.25

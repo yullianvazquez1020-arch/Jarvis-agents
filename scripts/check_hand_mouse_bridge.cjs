@@ -8,8 +8,8 @@ function setup() {
   const h={running:true,seen:true,updatedAt:990,landmarks:Array.from({length:21},()=>({x:.5,y:.5}))};
   let deferred=null;
   const context={
-    document:{hidden:false,getElementById:()=>({parentNode:parent}),createElement:()=>{const e={setAttribute(){}};elements.push(e);return e;},addEventListener:(name,cb)=>listeners[name]=cb},
-    window:{JarvisHands:h},performance:{now:()=>1000},Date,
+    document:{hidden:false,getElementById:()=>({parentNode:parent}),createElement:()=>{const e={setAttribute(){},insertAdjacentElement(){}};elements.push(e);return e;},addEventListener:(name,cb)=>listeners[name]=cb},
+    window:{JarvisHands:h,confirm:()=>true},performance:{now:()=>1000},Date,
     setInterval:(cb,ms)=>intervals.push({cb,ms}),addEventListener:(name,cb)=>listeners[name]=cb,
     fetch:async(url,options)=>{
       const body=options?.body?JSON.parse(options.body):null;calls.push({url,body,options});
@@ -18,11 +18,11 @@ function setup() {
     }
   };
   vm.runInNewContext(source,context);
-  return {context,h,calls,listeners,button:elements[0],intervals,
+  return {context,h,calls,listeners,button:elements[0],clickButton:elements[1],practice:elements[3],intervals,
     defer:()=>{let resolve;const promise=new Promise(r=>resolve=r);deferred={promise,resolve};return resolve;}};
 }
 (async()=>{
-  let t=setup();t.h.running=false;await t.button.onclick();assert.equal(t.calls.length,0);
+  let t=setup();t.practice.onclick();assert.equal(t.practice.textContent,'Probar clic · 1');assert.equal(t.calls.length,0);t.h.running=false;await t.button.onclick();assert.equal(t.calls.length,0);
   t=setup();await t.button.onclick();
   assert.equal(t.calls[0].body.confirm,'SOLO_MOVER_60S');
   assert.equal(t.context.window.JarvisHandMouseActive,true);
@@ -42,5 +42,29 @@ function setup() {
   t=setup();await t.button.onclick();t.context.document.hidden=true;t.listeners.visibilitychange();await flush();
   assert.equal(t.context.window.JarvisHandMouseActive,false);
   assert.equal(t.calls.at(-1).url,'/api/hand-mouse/stop');
-  console.log('PASS: explicit activation, one fresh sample, no clicks, Escape, hidden tab and late activation cancellation.');
+  t=setup();t.context.window.confirm=()=>false;await t.clickButton.onclick();
+  assert.equal(t.calls.length,0); // declining explicit click opt-in does not arm
+  t=setup();await t.clickButton.onclick();
+  assert.equal(t.calls[0].body.confirm,'MOVER_Y_CLIC_60S');
+  const clickTick=t.intervals.find(i=>i.ms===100).cb;
+  t.h.landmarks[5]={x:.4,y:.5};t.h.landmarks[17]={x:.6,y:.5};
+  t.h.landmarks[4]={x:.7,y:.5};
+  await clickTick();
+  assert.ok(Math.abs(t.calls.at(-1).body.pinch_ratio-1)<1e-9);
+  assert.deepEqual(Object.keys(t.calls.at(-1).body).sort(),['captured_ms','lease','pinch_ratio','seq','x','y']);
+  const before=t.calls.length;await clickTick();assert.equal(t.calls.length,before);
+  t.h.updatedAt=991;t.h.landmarks[4]={x:.51,y:.5};await clickTick();
+  assert.ok(Math.abs(t.calls.at(-1).body.pinch_ratio-.05)<1e-9);
+  t.h.seen=false;await clickTick();assert.equal(t.calls.at(-1).body.pinch_ratio,null);
+  t.h.seen=true;t.h.updatedAt=100;await clickTick();assert.equal(t.calls.at(-1).body.pinch_ratio,null);
+  t.h.updatedAt=992;t.h.landmarks[17]={x:.4,y:.5};await clickTick();
+  assert.equal(t.calls.at(-1).body.pinch_ratio,null); // degenerate palm never creates pinch
+  t.listeners.keydown({key:'Escape'});await flush();
+  assert.equal(t.calls.at(-1).url,'/api/hand-mouse/stop');
+  const stoppedCount=t.calls.length;await clickTick();assert.equal(t.calls.length,stoppedCount);
+  t=setup();const releaseClick=t.defer();const armingClick=t.clickButton.onclick();
+  t.listeners.pagehide();releaseClick();await armingClick;await flush();
+  assert.equal(t.context.window.JarvisHandMouseActive,false);
+  assert.equal(t.calls.at(-1).url,'/api/hand-mouse/stop');
+  console.log('PASS: move-only isolation, explicit click consent, measured ratio, tracking loss, Escape, hidden tab and late activation cancellation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
