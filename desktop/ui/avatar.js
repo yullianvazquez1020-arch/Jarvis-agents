@@ -1,4 +1,19 @@
 const c = document.getElementById("c"), x = c.getContext("2d");
+
+  // Match CSS size and Retina density, bounded for the 8 GB Mac.
+  function resizeDisplay() {
+    if (typeof c.getBoundingClientRect !== 'function') return;
+    const width = c.getBoundingClientRect().width;
+    if (!(width > 0)) return;
+    const density = Math.min(2, window.devicePixelRatio || 1);
+    const scale = Math.min(2.5, width * density / 960, Math.sqrt(3200000 / (960 * 540)));
+    const bw = Math.round(960 * scale), bh = Math.round(540 * scale);
+    if (c.width === bw && c.height === bh) return;
+    c.width = bw; c.height = bh;
+    x.setTransform(bw / 960, 0, 0, bh / 540, 0, 0);
+  }
+  resizeDisplay();
+  if ('ResizeObserver' in window) new ResizeObserver(() => { resizeDisplay(); lastFrame = 0; }).observe(c);
 let animationId = 0;
 let particleMode = true, paused = matchMedia("(prefers-reduced-motion: reduce)").matches, lastFrame = 0;
 let blink = 0, talk = 0, smile = 0, talking = false, t = 0, viseme = "rest";
