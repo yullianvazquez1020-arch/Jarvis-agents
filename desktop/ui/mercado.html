@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Jarvis · Mercado</title>
+  <link rel="stylesheet" href="/ui/mercado.css">
+</head>
+<body>
+<canvas class="sky" id="sky" aria-hidden="true"></canvas>
+<main class="holo" id="holo">
+  <header class="bar">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>JARVIS <span class="sub">MERCADO</span></div>
+    <div class="tags">
+      <span class="tag sim">PRÁCTICA · DINERO SIMULADO</span>
+      <span class="tag warn" id="demo" hidden>DEMO · DATOS DE EJEMPLO</span>
+      <span class="tag" id="paused" hidden></span>
+      <span class="when" id="when">—</span>
+    </div>
+    <nav class="nav" aria-label="Pantallas">
+      <a href="/">Conversación</a><a href="/avatar">Órbita</a>
+      <button id="toggle-table" type="button" aria-pressed="false">Ver tabla</button>
+      <button id="fullscreen" type="button">Pantalla completa</button>
+    </nav>
+  </header>
+
+  <section class="kpis" aria-label="Resumen de la práctica">
+    <div class="kpi hero"><span class="k">Capital simulado</span><span class="v" id="k-equity">—</span><span class="d" id="k-pnl">—</span></div>
+    <div class="kpi"><span class="k">Caída máxima</span><span class="v" id="k-dd">—</span><span class="d" id="k-ddnow">—</span></div>
+    <div class="kpi"><span class="k">Factor de ganancia</span><span class="v" id="k-pf">—</span><span class="d">ganado ÷ perdido</span></div>
+    <div class="kpi"><span class="k">Ganadoras</span><span class="v" id="k-win">—</span><span class="d" id="k-n">—</span></div>
+    <div class="kpi"><span class="k">Por operación</span><span class="v" id="k-exp">—</span><span class="d" id="k-fees">—</span></div>
+  </section>
+
+  <section class="stage" aria-label="Curva de capital de la práctica">
+    <div class="stage-head">
+      <h1>Curva de capital <small>últimos registros · hora de Puerto Rico</small></h1>
+      <p class="legend"><span class="sw line" aria-hidden="true"></span>Capital simulado
+        <span class="sw base" aria-hidden="true"></span>Capital inicial
+        <span class="tri up" aria-hidden="true">▲</span>Compra <span class="tri down" aria-hidden="true">▼</span>Venta</p>
+    </div>
+    <div class="plot" id="plot">
+      <canvas id="chart" aria-describedby="chart-note"></canvas>
+      <div class="tip" id="tip" role="status" hidden></div>
+      <p class="empty" id="empty" hidden></p>
+    </div>
+    <p class="note" id="chart-note">Cada punto es el capital simulado después de una revisión del mercado. Pasa el puntero sobre la curva para ver el valor.</p>
+    <div class="table-wrap" id="table-wrap" hidden>
+      <table><caption>Últimos 24 registros de la curva</caption>
+        <thead><tr><th scope="col">Hora (PR)</th><th scope="col">Capital simulado</th></tr></thead>
+        <tbody id="table-body"></tbody></table>
+    </div>
+  </section>
+
+  <section class="markets" aria-label="Mercados que vigila la práctica">
+    <h2>Mercados vigilados <small>RSI de 14 horas · 0 a 100</small></h2>
+    <div class="rings" id="rings"></div>
+  </section>
+
+  <footer class="foot">Práctica con dinero simulado y precios reales de Coinbase. No es consejo financiero y no toca dinero real.
+    <span id="sample"></span></footer>
+</main>
+<script src="/ui/mecanismo.js"></script>
+<script src="/ui/mercado.js"></script>
+</body>
+</html>

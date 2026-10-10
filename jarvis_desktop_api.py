@@ -324,7 +324,14 @@ def _panel_practica():
         lines += ["", f"Cuenta de práctica manual: {e}"]
     speak = "Abrí el panel de práctica. Todo es dinero simulado." if ms["effective"] == "practice" else \
         "Abrí el panel de práctica. Ojo: el modo activo es real; aquí solo se muestra."
-    return {"title": "Práctica (simulado)", "lines": lines, "speak": speak, "sensitive": True}
+    out = {"title": "Práctica (simulado)", "lines": lines, "speak": speak, "sensitive": True}
+    chart = getattr(core, "practica_chart", None)
+    if chart is not None and ms["effective"] == "practice":       # la gráfica es solo de la práctica simulada
+        try:
+            out["chart"] = chart()
+        except Exception as e:
+            core.logger.warning("practice chart failed: %s", type(e).__name__)
+    return out
 
 def _panel_brief():
     module = getattr(core, "_brief", None)
@@ -530,12 +537,25 @@ def _hud_cards():
                        ps.get("last_run") or ps.get("started") or now, core._bank_usd(ps["equity"]), detail="practica"))
     return cards
 
+# Etapas reales del trabajo (v3.6): el avance de la barra es la etapa, no un porcentaje inventado.
+JOB_STAGES = {"quote": ("Cotización", 10), "confirmed": ("Confirmado", 25), "in_progress": ("En progreso", 50),
+              "delivered": ("Entregado", 75), "invoiced": ("Facturado", 90)}
+
 def _hud_open_jobs():
     """Read-only projection: stored stage and dates, never a guessed completion percentage."""
     rows = [j for j in core._cload().get("jobs", []) if j.get("status") not in ("paid", "cancelled")]
     rows.sort(key=lambda j: (str(j.get("due_date") or "9999"), str(j.get("id") or "")))
     fields = ("id", "title", "client_name", "status", "created", "updated", "due_date")
-    return {"jobs": [{k: j.get(k) for k in fields} for j in rows[:20]], "jobs_count": len(rows)}
+    out = []
+    today = core._today().isoformat()
+    for j in rows[:20]:
+        row = {k: j.get(k) for k in fields}
+        stage = JOB_STAGES.get(j.get("status"))
+        row.update(title=f"{j.get("client_name") or ""} — {j.get("title") or ""}".strip(" —")[:80], stage=stage[0] if stage else "sin dato", progress=stage[1] if stage else None,
+                   start=str(j.get("created") or "")[:10] or None, due=j.get("due_date") or None,
+                   overdue=bool(j.get("due_date") and str(j["due_date"]) < today))
+        out.append(row)
+    return {"jobs": out, "jobs_count": len(rows)}
 
 async def hud():
     cards = await _read_only(_hud_cards)

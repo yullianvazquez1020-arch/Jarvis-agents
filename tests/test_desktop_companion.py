@@ -627,6 +627,26 @@ class Displays(CompanionBase):
             self.assertNotIn(banned, js, banned)
         self.assertNotIn(b"@import", css); self.assertNotIn(b"https://", css)
 
+    def test_torre_is_local_scene_behind_session_and_csp(self):
+        for path in ("/torre", "/ui/torre.js", "/ui/torre.css", "/ui/torre.jpg"):
+            self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
+        status, _, response, body = self.req("GET", "/torre")
+        self.assertEqual(status, 200)
+        self.assertIn(b'<script src="/ui/torre.js">', body)
+        self.assertNotIn(b"<script>", body)
+        self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
+        self.assertNotIn(b"https://", body)
+        self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
+        self.assertIn(b'href="/torre"', self.req("GET", "/")[3])
+        st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
+        self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
+        self.assertTrue(jpg.startswith(b"\xff\xd8"))
+        js = self.req("GET", "/ui/torre.js")[3]
+        css = self.req("GET", "/ui/torre.css")[3]
+        for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"getUserMedia", b"https://"):
+            self.assertNotIn(banned, js, banned)
+        self.assertNotIn(b"@import", css); self.assertNotIn(b"https://", css)
+
     def test_avatar_preserves_session_guard_and_content_security_policy(self):
         self.assertEqual(self.req("GET", "/avatar", cookie=False)[0], 401)
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
@@ -739,3 +759,109 @@ process.stdout.write(JSON.stringify({on,off,steady,jumped,paused,up,down:v,
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MercadoDisplay(CompanionBase):
+    demo = True
+
+    def test_mercado_page_is_behind_session_and_csp(self):
+        for path in ("/mercado", "/ui/mercado.js", "/ui/mercado.css"):
+            self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
+        status, _, response, body = self.req("GET", "/mercado")
+        self.assertEqual(status, 200)
+        self.assertIn(b'<script src="/ui/mercado.js">', body)
+        for banned in (b"<script>", b"style=", b"https://"):
+            self.assertNotIn(banned, body)
+        self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
+        self.assertIn(b'href="/mercado"', self.req("GET", "/")[3])
+        js = self.req("GET", "/ui/mercado.js")[3]
+        self.assertIn(b"/api/panels/practica", js)
+        for banned in (b"method: \"POST\"", b"/api/turn", b"/voice/", b"https://", b"eval("):
+            self.assertNotIn(banned, js, banned)
+
+    def test_demo_chart_is_labeled_example(self):
+        _, p, _, _ = self.req("GET", "/api/panels/practica")
+        self.assertTrue(p["demo"])
+        self.assertEqual(p["chart"]["mode"], "practice")
+        self.assertGreater(len(p["chart"]["equity"]), 100)
+        self.assertEqual(self.jarvis.calls, [])
+
+    def test_clean_chart_keeps_only_safe_values(self):
+        raw = {"mode": "practice", "start": 1000,
+               "equity": [{"t": "2026-10-08T07:00-04:00", "v": 1000}, {"t": "<script>", "v": 5},
+                          {"t": "2026-10-08T08:00-04:00", "v": "nan"}, {"t": "2026-10-08T09:00-04:00", "v": -3}],
+               "trades": [{"t": "2026-10-08T07:00-04:00", "side": "buy", "product": "BTC-USD"},
+                          {"t": "2026-10-08T07:00-04:00", "side": "exec", "product": "x"}],
+               "products": [{"product": "BTC-USD", "rsi": 250, "trend": "<img>", "price": 1e99},
+                            {"product": "../../etc", "rsi": 50}],
+               "summary": {"equity": "1000", "profit_factor": float("inf"), "evil": "<b>"}, "paused": "<x>"}
+        c = desk.clean_chart(raw)
+        self.assertEqual(c["equity"], [{"t": "2026-10-08T07:00-04:00", "v": 1000.0}])
+        self.assertEqual([t["side"] for t in c["trades"]], ["buy"])
+        self.assertEqual(c["products"], [{"product": "BTC-USD", "price": None, "change_24h_pct": None, "rsi": None,
+                                          "trend": None, "open": False}])
+        self.assertIsNone(c["summary"]["profit_factor"]); self.assertNotIn("evil", c["summary"])
+        self.assertIsNone(c["paused"])
+        self.assertIsNone(desk.clean_chart({"mode": "real", "equity": []}))
+        self.assertIsNone(desk.clean_chart("x"))
+
+
+class GalaxyTheme(CompanionBase):
+    demo = True
+
+    def test_sky_script_is_local_and_reads_no_data(self):
+        self.assertEqual(self.req("GET", "/ui/cielo.js", cookie=False)[0], 401)
+        st, _, r, js = self.req("GET", "/ui/cielo.js")
+        self.assertEqual(st, 200); self.assertIn("javascript", r.getheader("Content-Type"))
+        for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"getUserMedia", b"eval("):
+            self.assertNotIn(banned, js, banned)
+        for page in ("/", "/hud"):
+            body = self.req("GET", page)[3]
+            self.assertIn(b'<script src="/ui/cielo.js"></script>', body)
+            self.assertNotIn(b"<script>", body)
+        css = self.req("GET", "/ui/app.css")[3]
+        self.assertNotIn(b"@import", css); self.assertNotIn(b"https://", css)
+
+    def test_blue_mechanism_is_local_and_no_yellow_remains(self):
+        st, _, _, js = self.req("GET", "/ui/mecanismo.js")
+        self.assertEqual(st, 200)
+        for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"eval("):
+            self.assertNotIn(banned, js, banned)
+        for page in ("/", "/hud", "/mercado"):
+            self.assertIn(b'<script src="/ui/mecanismo.js"></script>', self.req("GET", page)[3], page)
+        hud = self.req("GET", "/ui/hud.js")[3]
+        for yellow in (b"#ffda78", b"#f5ce5e"):
+            self.assertNotIn(yellow, hud)
+        self.assertNotIn(b"#f3c27a", self.req("GET", "/ui/mercado.css")[3])
+        self.assertIn(b"gemState", hud)                      # cristales: su brillo sale de las tarjetas, no de otra fuente
+        self.assertIn(b"function crystal", js)
+
+
+class HudV2(CompanionBase):
+    demo = True
+
+    def test_hud_v2_page_and_demo_jobs(self):
+        body = self.req("GET", "/hud")[3]
+        for marker in (b'class="hud-page hud-v2"', b'id="hx-jobs"', b'id="hx-gantt"', b'id="hx-gauges"',
+                       b'<script src="/ui/hudx.js"></script>'):
+            self.assertIn(marker, body)
+        self.assertNotIn(b"<script>", body)
+        js = self.req("GET", "/ui/hudx.js")[3]
+        for banned in (b"https://", b"eval(", b"XMLHttpRequest", b"/api/hud"):
+            self.assertNotIn(banned, js, banned)                       # no pide datos: los recibe de hud.js
+        h = self.req("GET", "/api/hud")[1]
+        self.assertTrue(h["demo"]); self.assertTrue(all("(ejemplo)" in j["title"] for j in h["jobs"]))
+        self.assertTrue(all(0 <= j["progress"] <= 100 for j in h["jobs"]))
+
+    def test_clean_jobs_keeps_only_known_stages_and_dates(self):
+        raw = [{"id": 1, "title": "Ana — Cocina", "status": "in_progress", "stage": "En progreso", "progress": 50,
+                "start": "2026-10-01", "due": "2026-10-12", "overdue": False},
+               {"id": 2, "title": "x", "status": "paid", "progress": 100},
+               {"id": 3, "title": "<b>y</b>" * 40, "status": "quote", "progress": 900, "start": "ayer", "due": "<script>"},
+               "basura"]
+        out = desk.clean_jobs(raw)
+        self.assertEqual([j["id"] for j in out], [1, 3])
+        self.assertEqual(out[1]["progress"], 0)
+        self.assertIsNone(out[1]["start"]); self.assertIsNone(out[1]["due"])
+        self.assertLessEqual(len(out[1]["title"]), 80)
+        self.assertEqual(desk.clean_jobs("x"), [])

@@ -7180,3 +7180,27 @@ try:
 except Exception as _e:
     OPS_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("ops off: %s", type(_e).__name__)
+
+# 4.2.5: autocorrección. Revisa la respuesta antes de enviarla y guarda tus correcciones como lecciones.
+# Sin modelo extra. Una lección nunca afloja dinero, topes, aprobaciones ni mensajes a clientes.
+SELFCHECK_STATUS = "no cargado"
+try:
+    if BRIEF_STATUS != "activo":
+        raise RuntimeError("requiere el brief 4.2.1")
+    import jarvis_selfcheck as _selfcheck
+    _selfcheck.install(__import__("sys").modules[__name__])
+    SELFCHECK_STATUS = "activo"
+except Exception as _e:
+    SELFCHECK_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("selfcheck off: %s", type(_e).__name__)
+
+# 4.2.6: práctica de trading más seria (riesgo y stop dinámico) y datos para la gráfica del escritorio.
+# Sigue siendo dinero simulado. No envía órdenes, no toca dinero real y no recomienda qué comprar.
+PRACTICA_STATUS = "no cargado"
+try:
+    import jarvis_practica as _practica
+    _practica.install(__import__("sys").modules[__name__])
+    PRACTICA_STATUS = "activa"
+except Exception as _e:
+    PRACTICA_STATUS = f"apagada ({type(_e).__name__})"
+    logger.warning("practica off: %s", type(_e).__name__)

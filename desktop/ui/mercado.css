@@ -1,0 +1,96 @@
+/* Jarvis · Mercado. Negro de galaxia: estrellas y una nebulosa muy tenue detrás, paneles negros, y una sola línea
+   de datos en verde azulado con resplandor sobre una rejilla en perspectiva. Una sola apariencia oscura, a propósito (es un display).
+   Sin fuentes ni scripts externos: CSP del escritorio. */
+:root{
+  color-scheme:dark;
+  --surface:#000000;      /* fondo: negro */
+  --panel:rgba(0,0,0,.72);
+  --ink:#e6f1f2;          /* texto principal */
+  --ink-2:#9db3b8;        /* texto secundario */
+  --ink-3:#61787e;        /* ejes y notas */
+  --series:#2f8fe6;       /* la curva: azul, validado contra negro */
+  --glow:#7cc8ff;         /* solo resplandor decorativo */
+  --sell:#e2546a;         /* marcador de venta (con forma ▼) */
+  --rule:rgba(255,255,255,.09);
+  --f-ui:"SF Pro Display","Avenir Next","Helvetica Neue",system-ui,sans-serif;
+  --f-data:"SF Mono",Menlo,Monaco,Consolas,ui-monospace,monospace;
+}
+html,body{margin:0;min-height:100%;background:var(--surface);color:var(--ink);font-family:var(--f-ui)}
+/* nebulosa: violeta y azul profundos, casi negros */
+body{background:
+  radial-gradient(60% 45% at 18% 22%,rgba(88,52,160,.16),transparent 70%),
+  radial-gradient(50% 40% at 82% 70%,rgba(30,64,150,.14),transparent 70%),
+  radial-gradient(35% 30% at 60% 15%,rgba(150,60,140,.08),transparent 70%),
+  var(--surface) fixed}
+.sky{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.holo{position:relative;z-index:1;max-width:1900px;margin:0 auto;padding:16px max(16px,2.2vw) 28px;display:grid;gap:18px}
+
+.bar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.brand{font:600 1.05rem/1 var(--f-data);letter-spacing:.32em;display:flex;align-items:center;gap:10px}
+.brand .sub{color:var(--glow);font-weight:500}
+.mark{display:none}
+.emblem{width:28px;height:28px;flex:none;filter:drop-shadow(0 0 6px rgba(63,180,255,.6))}
+.tags{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tag{font:500 .68rem/1 var(--f-data);letter-spacing:.14em;padding:6px 9px;border:1px solid var(--rule);color:var(--ink-2)}
+.tag.sim{color:var(--ink);border-color:rgba(255,255,255,.28)}
+.tag.warn{color:#bfe6ff;border-color:rgba(63,180,255,.6)}
+.tag.warn::before{content:"⚠ "}
+.when{font:400 .72rem/1 var(--f-data);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.nav{display:flex;gap:8px;flex-wrap:wrap}
+.nav a,.nav button{font:500 .7rem/1 var(--f-data);letter-spacing:.12em;text-transform:uppercase;color:var(--ink);
+  background:transparent;border:1px solid var(--rule);padding:8px 11px;cursor:pointer;text-decoration:none}
+.nav a:hover,.nav button:hover,.nav button[aria-pressed="true"]{border-color:var(--glow);color:var(--glow)}
+.nav a:focus-visible,.nav button:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
+
+.kpis{display:grid;grid-template-columns:1.4fr repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);
+  backdrop-filter:blur(2px)}
+.kpi{background:var(--panel);padding:14px 16px;display:grid;gap:6px;min-width:0}
+.k{font:500 .66rem/1 var(--f-data);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.v{font:300 clamp(1.4rem,2.4vw,2.2rem)/1 var(--f-ui);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.hero .v{font-size:clamp(1.9rem,3.6vw,3.3rem);text-shadow:0 0 22px rgba(255,255,255,.18)}
+.d{font:400 .78rem/1.3 var(--f-data);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.d.up::before{content:"▲ ";color:var(--series)} .d.down::before{content:"▼ ";color:var(--sell)}
+
+.stage{border:1px solid var(--rule);background:rgba(0,0,0,.6);padding:16px 18px 12px;position:relative;overflow:hidden}
+.stage-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 20px;position:relative}
+h1,h2{margin:0;font:500 .95rem/1.2 var(--f-data);letter-spacing:.14em;text-transform:uppercase;text-wrap:balance}
+h1 small,h2 small{font-size:.7rem;color:var(--ink-3);letter-spacing:.08em;text-transform:none;margin-left:8px}
+.legend{margin:0;font:400 .74rem/1 var(--f-data);color:var(--ink-2);display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap}
+.sw{display:inline-block;width:18px;height:0;border-top:2px solid var(--series);margin-left:6px}
+.sw.base{border-top:1px dashed var(--ink-3)}
+.tri{font-size:.7rem;margin-left:6px}.tri.up{color:var(--series)}.tri.down{color:var(--sell)}
+.plot{position:relative;height:clamp(300px,52vh,620px);margin-top:10px}
+.plot canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tip{position:absolute;pointer-events:none;background:rgba(0,0,0,.92);border:1px solid rgba(124,200,255,.5);padding:8px 10px;
+  font:400 .76rem/1.45 var(--f-data);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;
+  box-shadow:0 0 18px rgba(124,200,255,.18)}
+.tip b{font-weight:600}
+.empty{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:var(--ink-2);font:400 .9rem/1.5 var(--f-data);
+  text-align:center;padding:0 16px}
+.note{margin:6px 0 0;font:400 .72rem/1.4 var(--f-data);color:var(--ink-3);position:relative}
+.table-wrap{overflow-x:auto;margin-top:10px;position:relative}
+table{border-collapse:collapse;font:400 .78rem/1.4 var(--f-data);font-variant-numeric:tabular-nums;min-width:320px}
+caption{text-align:left;color:var(--ink-3);padding-bottom:6px}
+th,td{padding:4px 14px 4px 0;text-align:left;border-bottom:1px solid var(--rule)}
+th{color:var(--ink-3);font-weight:500}
+
+.markets{display:grid;gap:12px}
+.rings{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.ring{border:1px solid var(--rule);background:var(--panel);padding:14px;display:grid;grid-template-columns:110px 1fr;gap:14px;
+  align-items:center;min-width:0}
+.ring canvas{width:110px;height:110px}
+.ring .name{font:600 .95rem/1 var(--f-data);letter-spacing:.12em}
+.ring .meta{display:grid;gap:6px;font:400 .76rem/1.3 var(--f-data);color:var(--ink-2);min-width:0}
+.ring .chip{justify-self:start;border:1px solid rgba(124,200,255,.45);color:var(--glow);padding:3px 7px;font-size:.66rem;letter-spacing:.12em}
+
+.foot{font:400 .72rem/1.5 var(--f-data);color:var(--ink-3)}
+.foot span{display:block;color:#bfe6ff}
+.foot span:not(:empty)::before{content:"⚠ "}
+
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.hero{grid-column:1/-1}}
+@media (max-width:420px){.ring{grid-template-columns:84px 1fr}.ring canvas{width:84px;height:84px}}
+
+/* detalle de mecanismo: marcas de medición en el borde de los paneles */
+.kpis,.stage,.ring{background-image:repeating-linear-gradient(90deg,rgba(63,180,255,.4) 0 1px,transparent 1px 14px);
+  background-size:100% 4px;background-repeat:no-repeat}
+.brand .sub{color:#3fb4ff}
