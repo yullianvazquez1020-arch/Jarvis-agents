@@ -146,7 +146,7 @@
       const result = await post('frame', payload);
       if (ticket !== generation) return;
       if (!result.active) stop(result.reason);
-      else { cursor.textContent=result.dragging?'Arrastrando':mode==='scroll'?'Desplazar':ratio!==null && ratio<.6?'Pinza':'Listo'; status.textContent = `Mouse de Mac activo · ${result.remaining} s · ${clickMode ? result.gesture || 'Pinza activa' : mode==='scroll' ? result.gesture : 'SIN CLICS'}. Escape detiene.`; }
+      else { cursor.textContent=result.dragging?'Arrastrando':mode==='scroll'?'Desplazar':ratio!==null && ratio<.8?'Pinza':'Listo'; status.textContent = `Mouse de Mac activo · ${result.remaining} s · ${clickMode ? result.gesture || 'Pinza activa' : mode==='scroll' ? result.gesture : 'SIN CLICS'}. Escape detiene.`; }
     } catch (error) { if (ticket === generation) stop(error.message); }
     finally { if (ticket === generation) busy = false; }
   }

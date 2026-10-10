@@ -83,6 +83,8 @@ class HandMouse:
         self.last_seq = -1
         self.mode = "move"
         self.dragging = False
+        self.drag_offset = (0, 0)
+        self.resume_motion_at = 0.0
         self.scroll_anchor = None
         self.scroll_remainder = 0.0
         self.scroll_pending = 0
@@ -104,6 +106,7 @@ class HandMouse:
         if self.dragging:
             self.pointer.up()
             self.dragging = False
+            self.resume_motion_at = self.clock() + .12
 
     def _stop(self, reason):
         self.lease = self.owner = ""
@@ -222,7 +225,12 @@ class HandMouse:
                                 self.scroll_remainder = 0.0
                                 self.scroll_pending = 0
                             else:
-                                self.scroll_remainder += data["y"] - ay
+                                delta = data["y"] - ay
+                                # A deliberate reversal cancels unconsumed steps in the old direction.
+                                if abs(delta) >= .003 and delta * self.scroll_pending > 0:
+                                    self.scroll_pending = 0
+                                    self.scroll_remainder = 0.0
+                                self.scroll_remainder += delta
                                 steps = math.trunc(self.scroll_remainder / .015)
                                 if steps:
                                     self.scroll_remainder -= steps * .015
@@ -243,8 +251,11 @@ class HandMouse:
                     if self.pinch_last is not None and captured <= self.pinch_last:
                         raise ValueError("Captura repetida o fuera de orden.")
                     self.pinch_last = captured
-                    self.frozen = ratio < 0.6
-                    if ratio >= 0.6:
+                    was_frozen = self.frozen
+                    self.frozen = ratio < (0.8 if was_frozen else 0.7)
+                    if ratio >= 0.8:
+                        if was_frozen:
+                            self.resume_motion_at = now + .12
                         self._release_drag()
                         self.ready = now - self.last_click >= self.COOLDOWN
                         self.pinch_start = None
@@ -323,18 +334,24 @@ class HandMouse:
                         self.gesture = "Clic realizado. Abre los dedos para rearmar"
                         if self.mode == "drag":
                             self.dragging = True
+                            self.drag_offset = (px - self.target[0], py - self.target[1])
                             self.pointer.down()
                             self.gesture = "Arrastrando: abre los dedos para soltar"
                         else:
                             self.pointer.click()
                     return
+                if self.clock() < self.resume_motion_at:
+                    return
                 tx, ty, _ = self.target
+                if self.dragging:
+                    tx = max(12, min(self.width-13, tx+self.drag_offset[0]))
+                    ty = max(12, min(self.height-13, ty+self.drag_offset[1]))
                 error = math.hypot(tx - px, ty - py)
                 # Reject tiny tremor, damp near a target, catch up on long reaches.
                 # Continuous gain avoids a speed jump at a threshold; no prediction.
                 if error <= 2:
                     return
-                gain = 0.18 + 0.27 * min(1.0, error / 300.0)
+                gain = 0.14 + 0.31 * min(1.0, error / 300.0)
                 dx, dy = (tx - px) * gain, (ty - py) * gain
                 distance = math.hypot(dx, dy)
                 if distance > 90:

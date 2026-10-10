@@ -79,6 +79,26 @@ class Modes(unittest.TestCase):
         self.now+=.08;self.c.tick();self.assertEqual(self.p.events,[-1,-1])
         self.now+=.02;self.frame(two_fingers=False)
         self.now+=.2;self.c.tick();self.assertEqual(self.p.events,[-1,-1])
+    def test_drag_starts_without_jump_from_closing_fingers(self):
+        self.drag();position=self.p.pos
+        self.now+=.1;self.frame(pinch_ratio=.2)
+        self.assertEqual(self.p.pos,position)
+    def test_scroll_reversal_cancels_old_direction(self):
+        self.arm('DESPLAZAR_60S');self.frame(two_fingers=True,y=.3)
+        self.now+=.1;self.frame(two_fingers=True,y=.4)
+        self.assertLess(self.c.scroll_pending,0)
+        self.now+=.13;self.frame(two_fingers=True,y=.37)
+        self.assertEqual(self.p.events[-1],1)
+    def test_pinching_freezes_before_click_and_hysteresis_prevents_jitter(self):
+        self.arm('MOVER_Y_CLIC_60S');self.frame(pinch_ratio=.9)
+        before=self.p.pos
+        for ratio in [.68,.73,.69,.76]:
+            self.now+=.1;self.frame(pinch_ratio=ratio,x=.8)
+            self.assertEqual(self.p.pos,before)
+        self.now+=.1;self.frame(pinch_ratio=.9,x=.8)
+        self.assertEqual(self.p.pos,before)  # brief release stabilization
+        self.now+=.13;self.frame(pinch_ratio=.9,x=.8)
+        self.assertNotEqual(self.p.pos,before)
     def test_modes_reject_other_actions(self):
         self.arm('DESPLAZAR_60S')
         with self.assertRaises(ValueError): self.frame(two_fingers=True,pinch_ratio=.1)
