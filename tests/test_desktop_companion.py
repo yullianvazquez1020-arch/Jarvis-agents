@@ -865,3 +865,15 @@ class HudV2(CompanionBase):
         self.assertIsNone(out[1]["start"]); self.assertIsNone(out[1]["due"])
         self.assertLessEqual(len(out[1]["title"]), 80)
         self.assertEqual(desk.clean_jobs("x"), [])
+
+
+class DisconnectedPoll(unittest.TestCase):
+    def test_only_disconnected_clients_suppress_traceback(self):
+        server = object.__new__(desk.Server)
+        for error in (BrokenPipeError(), ConnectionResetError(), ValueError("unexpected")):
+            with patch.object(desk.http.server.HTTPServer, "handle_error") as base:
+                try:
+                    raise error
+                except Exception:
+                    server.handle_error(None, ("127.0.0.1", 1))
+                self.assertEqual(base.call_count, int(isinstance(error, ValueError)))

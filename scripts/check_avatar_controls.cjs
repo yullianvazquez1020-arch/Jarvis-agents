@@ -26,3 +26,13 @@ console.log('PASS: pause with hand, core/rings toggle, luminous greeting, audio 
 const beforeHidden=read('t');read('avatarVisible=false;loop(4200)');assert.equal(read('t'),beforeHidden,'off-screen body skips rendering');read('avatarVisible=true;lastFrame=0;loop(4300)');assert.ok(read('t')>beforeHidden,'body resumes on return');console.log('PASS: off-screen rendering suspension and resume');
 
 if(nativeCanvas){read('particleMode=true;paused=false;loop(5000)');fs.writeFileSync('/tmp/avatar-anatomy.png',nativeCanvas.toBuffer('image/png'));}
+
+// A fresh hand sample renders between expensive ambient frames, without changing phase.
+read('paused=false;window.JarvisHands={running:true,seen:true,updatedAt:6000,landmarks:Array.from({length:21},()=>({x:.5,y:.5}))};loop(6000)');
+const phaseBeforeHand=read('t');
+read('window.JarvisHands.updatedAt=6034;loop(6034)');
+assert.equal(read('lastHandStamp'),6034,'hand overlay updates before 67 ms scene interval');
+assert.equal(read('t'),phaseBeforeHand,'hand update does not redraw heavy ambience');
+read('window.JarvisHands.seen=false;window.JarvisHands.landmarks=null;loop(6035)');
+assert.equal(read('lastHandSeen'),false,'tracking loss clears the overlay immediately');
+console.log('PASS: fresh hand overlay bypasses scene throttle; loss clears without prediction');

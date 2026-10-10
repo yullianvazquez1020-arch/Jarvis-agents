@@ -285,3 +285,48 @@ class FinalIntegration(Base):
             pointer = ae.MacPointer(); pointer.move(720, 450)
         self.assertEqual(fake.PAUSE, 0); self.assertTrue(fake.FAILSAFE)
         self.assertEqual(calls[0][1]["duration"], .16)
+
+
+class SessionRecovery(Base):
+    def test_status_does_not_create_session(self):
+        self.assertEqual(ae.session_status(), "sin sesión")
+        self.assertFalse((self.dir / "session.json").exists())
+
+    def test_renewal_requires_terminal_and_correct_code(self):
+        self.assertEqual(quiet(ae.start_session, tty=False)[0], 2)
+        self.assertEqual(quiet(ae.start_session, tty=True, ask=lambda _: "wrong")[0], 3)
+        self.assertFalse((self.dir / "session.json").exists())
+
+    def test_explicit_renewal_does_not_grant_actions(self):
+        (self.dir / "session.json").write_text('{"started":"2020-01-01T00:00:00+00:00"}')
+        self.assertEqual(ae.session_status(), "sesión vencida")
+        self.assertEqual(quiet(ae.start_session, tty=True, ask=lambda p: p.rstrip(": ").split()[-1])[0], 0)
+        self.assertIn("sesión activa", ae.session_status())
+        pointer = Pointer()
+        rc, out = quiet(ae.run_actions, self.file([ORDENES[0]]), dry=False, libre=False, pointer=pointer, automatic=True)
+        self.assertEqual(rc, 3)
+        self.assertIn("ESPERA", out)
+        self.assertEqual(pointer.calls, [])
+
+    def test_stop_and_existing_turn_prevent_renewal(self):
+        approve = lambda p: p.rstrip(": ").split()[-1]
+        (self.dir / "STOP").touch()
+        self.assertEqual(quiet(ae.start_session, tty=True, ask=approve)[0], 3)
+        self.assertFalse((self.dir / "session.json").exists())
+        (self.dir / "STOP").unlink()
+        quiet(ae.take_lock, "jarvis", 5)
+        self.assertEqual(quiet(ae.start_session, tty=True, ask=approve)[0], 3)
+        self.assertFalse((self.dir / "session.json").exists())
+
+    def test_expired_automatic_attempt_explains_and_audits_without_using_grant(self):
+        (self.dir / "session.json").write_text('{"started":"2020-01-01T00:00:00+00:00"}')
+        self.assertTrue(ae.grant_once(ORDENES[0]))
+        pointer = Pointer()
+        rc, out = quiet(ae.run_actions, self.file([ORDENES[0]]), dry=False, libre=False, pointer=pointer, automatic=True)
+        self.assertEqual(rc, 3)
+        self.assertIn("--start-session", out)
+        record = json.loads((self.dir / "audit.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(record["verdict"], "BLOQUEADO")
+        self.assertIn("sesión", record["reason"])
+        self.assertEqual(pointer.calls, [])
+        self.assertEqual(ae.consume_grant(ORDENES[0]), "codigo")

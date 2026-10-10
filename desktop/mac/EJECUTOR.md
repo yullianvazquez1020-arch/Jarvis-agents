@@ -58,3 +58,30 @@ El primer comando muestra el texto completo (escapando caracteres de control) y 
 El movimiento aprobado tiene una transición de 160 ms y no añade la pausa global de PyAutoGUI. Es suavizado intencional, no una garantía de cero latencia. La sesión dura **10 minutos** desde su inicio; el permiso puede vencer más tarde, pero no prolonga una sesión vencida. STOP y la esquina superior izquierda siguen deteniendo el control. Si falla el puntero, se crea STOP y las órdenes siguientes no se ejecutan. El mouse por gestos mantiene su permiso independiente de 60 segundos y Escape.
 
 Los permisos anteriores de atajos quedan invalidados al cambiar la representación de sus teclas; vuelve a aprobarlos. Con el mismo usuario de macOS, los agentes y el dueño no están aislados por sistema operativo: el candado y la firma no sustituyen ese aislamiento.
+
+### Recuperar una sesión vencida
+
+`python desktop/mac/agent_executor.py --status` consulta STOP, sesión y turno. No mueve el puntero.
+`python desktop/mac/agent_executor.py --start-session` pide un código en la Terminal del dueño y abre
+10 minutos nuevos. No elimina STOP, no toma turnos ocupados ni concede o prolonga permisos de órdenes.
+Después se usa `--otorgar --file ARCHIVO` y `--automatic --file ARCHIVO` como antes.
+Los bloqueos automáticos muestran su motivo y quedan en el registro de auditoría.
+
+### Panel en segundo plano (macOS)
+
+Desde el repositorio actualizado: `python3 scripts/mac_service.py start`.
+Si el panel ya está abierto en Terminal, primero ciérralo con Ctrl+C en esa pestaña.
+El instalador verifica el entorno y Accesibilidad; instala un LaunchAgent del usuario, sin sudo.
+El panel abre el navegador, continúa después de cerrar Terminal y vuelve a arrancar tras un fallo
+ o al iniciar sesión en macOS. La Mac tiene que estar encendida y despierta.
+
+Estado: `python3 scripts/mac_service.py status`.
+Detener y desactivar el inicio al iniciar sesión: `python3 scripts/mac_service.py stop`.
+Registros locales: `~/Library/Logs/Jarvis/panel.log` y `panel-error.log` (acceso solo del dueño).
+El registro de salida puede incluir enlaces de acceso locales de corta duración: no se debe publicar.
+macOS puede pedir Accesibilidad de nuevo al cambiar de Terminal al servicio; verificar en la Mac.
+
+Este servicio mantiene el panel y sus consultas de estado. No genera tareas, no inicia un agente de IA
+continuo y no vuelve a ejecutar `ordenes_confirmadas.jsonl`. El mouse sigue necesitando órdenes concretas,
+permisos de un uso y sesión vigente. Los recordatorios y la práctica programada del servidor dependen
+de su propia configuración y no necesitan el mouse local.
