@@ -15,21 +15,86 @@
   const tabs = [...root.querySelectorAll('[data-atlas]')];
   const handButton = document.getElementById('hand-navigation'), handStatus = document.getElementById('atlas-hand-status');
   let selected = 0, mode = 'tower', navigation = false, hovered = null, since = 0, latched = null;
-  let last = 0, phase = 0, visible = true, position = null;
+  let last = 0, phase = 0, visible = true, position = null, paused = false, quality = 'eco';
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  paused = reduced.matches;
+  const motionButton=document.getElementById('atlas-motion');
+  function motionLabel(){motionButton.textContent=paused?'Reanudar universo':'Pausar universo';motionButton.setAttribute('aria-pressed',String(paused));}
+  motionButton.onclick=()=>{paused=!paused;motionLabel();};motionLabel();
+  document.getElementById('atlas-quality').onchange=e=>{quality=e.target.value==='rich'?'rich':'eco';};
+  const mini = ['membrane','brain','audio'].map(id=>document.getElementById(id+'-mini').getContext('2d'));
+  let lastStatus=0;
+  function telemetry(now){
+    if(now-lastStatus<300)return;lastStatus=now;
+    const hand=window.JarvisHands,voice=window.JarvisAvatar?.telemetry?.();
+    document.getElementById('observatory-hand').textContent=hand?.seen?'Mano detectada · '+(hand.landmarks?.length||0)+' puntos':hand?.running?'Cámara activa · buscando mano':'Cámara apagada';
+    document.getElementById('observatory-voice').textContent=voice?.audioActive?'Audio reproducido · amplitud RMS':'Sin audio reproducido';
+  }
+  function science(){
+    mini.forEach((c,i)=>c.clearRect(0,0,300,i===2?70:180));
+    const m=mini[0],b=mini[1],a=mini[2];
+    for(let i=0;i<40;i++){
+      const angle=i*Math.PI/20,xx=150+Math.cos(angle)*112,yy=90+Math.sin(angle)*51;
+      m.strokeStyle='#63dcd788';m.beginPath();m.moveTo(xx,yy);m.lineTo(150+Math.cos(angle)*95,90+Math.sin(angle)*39);m.stroke();
+      m.fillStyle=i%3?'#61d6d6':'#b58cff';m.beginPath();m.arc(xx,yy,2.5,0,7);m.fill();
+    }
+    for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#bb8cff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
+    // Paired lobes and irregular cortical folds, decorative rather than biometric.
+    for(const side of [-1,1])for(let fold=0;fold<12;fold++){
+      b.beginPath();b.strokeStyle=ideas[fold%5].color+'88';
+      for(let j=0;j<=70;j++){
+        const angle=j*Math.PI/35, wobble=1+.075*Math.sin(angle*9+fold*.7);
+        const xx=150+side*(5+(36+30*Math.cos(angle))*(1-fold*.025)*wobble);
+        const yy=88+Math.sin(angle)*(65-fold*2)*wobble;
+        j?b.lineTo(xx,yy):b.moveTo(xx,yy);
+      }b.stroke();
+    }
+    b.strokeStyle='#8be8ff99';b.beginPath();b.moveTo(148,130);b.lineTo(140,166);b.lineTo(159,164);b.stroke();
+    for(let i=0;i<10;i++){b.fillStyle=ideas[i%5].color;b.beginPath();b.arc(150+Math.sin(i*3+phase*.5)*68,88+Math.cos(i*1.4+phase*.4)*43,2,0,7);b.fill();}
+    const amp=window.JarvisAvatar?.telemetry?.().amplitude||0;
+    a.strokeStyle='#6bf5ad';a.beginPath();a.moveTo(0,60);a.lineTo(300,60);a.stroke();
+    a.fillStyle='#6bf5ad';a.fillRect(12,60-amp*48,276,amp*48);
+  }
+  // Explicit read-only refresh. No new server route, model call or background polling.
+  const connect=document.getElementById('atlas-connect');
+  if(connect)connect.onclick=async()=>{
+    connect.disabled=true;
+    const status=document.getElementById('atlas-live-status'),output=document.getElementById('atlas-live');
+    output.replaceChildren();status.textContent='Consultando conexión…';
+    try{
+      const stateResponse=await fetch('/api/state',{credentials:'same-origin'});
+      if(!stateResponse.ok)throw new Error('estado no disponible');
+      const state=await stateResponse.json();
+      if(state.demo||!state.paired||!state.server_configured){status.textContent='Sin datos reales: panel DEMO o equipo sin emparejar';return;}
+      const results=await Promise.allSettled(['estado','agenda','cobros'].map(async name=>{
+        const response=await fetch('/api/panels/'+name,{credentials:'same-origin'});
+        if(!response.ok)throw new Error(name+' no disponible');
+        const panel=await response.json();if(panel.demo)throw new Error('datos DEMO');return panel;
+      }));
+      let loaded=0;
+      for(const result of results){
+        if(result.status!=='fulfilled')continue;
+        const panel=result.value;add('h3',panel.title||panel.panel,output);
+        for(const line of (panel.lines||[]).slice(0,12))add('p',String(line),output);
+        add('small','Actualizado: '+(panel.as_of||'fecha no informada'),output);loaded++;
+      }
+      status.textContent=loaded?'ISLAFIX · '+loaded+' fuentes consultadas. Otras especialidades siguen propuestas.':'Servidor sin datos disponibles';
+    }catch(error){status.textContent='Sin conexión verificable. No se muestran cifras inventadas.';}
+    finally{connect.disabled=false;}
+  };
   const cursor = document.createElement('div'); cursor.className = 'atlas-cursor'; cursor.hidden = true; cursor.setAttribute('aria-hidden','true'); root.appendChild(cursor);
   function add(tag, text, parent, cls) { const e = document.createElement(tag); e.textContent = text; if(cls)e.className=cls; parent.appendChild(e); return e; }
   function select(index) {
     selected = index;
     [...list.children].forEach((b,i) => b.setAttribute('aria-pressed',String(i===index)));
     detail.replaceChildren(); const item = ideas[index];
-    add('small',`PISO ${String(index+1).padStart(2,'0')} / PROPUESTA`,detail);
+    add('small',`SECTOR ${index+1} · PISOS ${index*20+1}–${(index+1)*20} / PROPUESTA`,detail);
     add('h2',item.name,detail); add('p',`Arranque estimado: ${item.cost}. No gastado.`,detail,'atlas-estimate');
     for (const [title, text] of [['Preparación de Jarvis',item.task],['Meta propuesta · 30 días',item.goal],['Cómo medir',item.metric],['Aprobación del dueño',item.approval]]) {add('h3',title,detail);add('p',text,detail);}
     add('p','Cobrado no es ganancia. Sin datos conectados no se calcula rendimiento ni se decide cerrar o ampliar la prueba.',detail,'atlas-disclaimer');
   }
-  ideas.forEach((item,i)=> {const b=add('button',`${String(i+1).padStart(2,'0')} / ${item.name}`,list);b.type='button'; b.dataset.floor=String(i);b.style.setProperty('--floor-color',item.color);b.onclick=()=>select(i);});
-  tabs.forEach(button => button.onclick = () => {mode=button.dataset.atlas;tabs.forEach(b=>b.setAttribute('aria-pressed',String(b===button)));document.getElementById('atlas-view-name').textContent={tower:'TORRE / UN PISO POR PRUEBA',galaxy:'GALAXIA / MERCADOS POR EXPLORAR',cell:'MEMBRANA / ÁREAS DEL PORTAFOLIO'}[mode];});
+  ideas.forEach((item,i)=> {const b=add('button',`${i*20+1}–${(i+1)*20} / ${item.name}`,list);b.type='button'; b.dataset.floor=String(i);b.style.setProperty('--floor-color',item.color);b.onclick=()=>select(i);});
+  tabs.forEach(button => button.onclick = () => {mode=button.dataset.atlas;tabs.forEach(b=>b.setAttribute('aria-pressed',String(b===button)));document.getElementById('atlas-view-name').textContent={tower:'CIUDAD ORBITAL / 100 PISOS RESERVADOS',galaxy:'GALAXIA / MERCADOS POR EXPLORAR',cell:'MEMBRANA / ÁREAS DEL PORTAFOLIO'}[mode];});
   handButton.onclick = () => {navigation=!navigation;handButton.setAttribute('aria-pressed',String(navigation));if(!navigation){cursor.hidden=true;hovered=null;latched=null;position=null;}handStatus.textContent=navigation?'Activa la cámara con «Activar mano». Señala con el índice y mantén 1,2 segundos sobre una vista o piso. Escape detiene la navegación.':'Navegación por mano apagada. No controla el cursor del sistema.';};
   addEventListener('keydown',e=>{if(e.key==='Escape'&&navigation)handButton.click();});
   const safeTargets = [...tabs,...list.children];
@@ -49,17 +114,99 @@
   function ellipse(x,y,rx,ry,color,width=1){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}
   function dot(x,y,r,color){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();}
   function label(text,x,y,color='#6d99ad'){ctx.fillStyle=color;ctx.font='11px ui-monospace, monospace';ctx.fillText(text,x,y);}
-  function tower() {
-    const cx=510;
-    for(let floor=4;floor>=0;floor--){const y=480-floor*82,r=210-floor*27,col=ideas[floor].color;
-      ctx.fillStyle=floor===selected?'#12313d':'#081c2b';ctx.beginPath();ctx.ellipse(cx,y,r,35,0,0,Math.PI*2);ctx.fill();
-      for(let k=0;k<5;k++)ellipse(cx,y+k*4,r-k*2,35,col+(k?'35':'bb'),floor===selected?2:1);
-      for(let j=0;j<20;j++){const a=j*Math.PI/10+phase*.05;const xx=cx+Math.cos(a)*(r-18),yy=y+Math.sin(a)*25;if(Math.sin(a)>0){line([[xx,yy-20],[xx,yy]],col+'60');dot(xx,yy-20,1.3,col);}}
-      line([[cx+r,y],[790,y-25],[835,y-25]],col+'55');label(`0${floor+1} / ${ideas[floor].name.toUpperCase()}`,840,y-22,floor===selected?col:'#7295a7');
+  function nebula(){
+    for(let i=0;i<7;i++){
+      const cx=180+i*125,cy=280+Math.sin(i*1.8+phase*.03)*115;
+      const g=ctx.createRadialGradient(cx,cy,5,cx,cy,220);
+      g.addColorStop(0,ideas[i%5].color+'42');g.addColorStop(1,'#04091800');ctx.fillStyle=g;ctx.fillRect(cx-220,cy-220,440,440);
     }
-    line([[cx,85],[cx,548]],'#89ddec45');ellipse(cx,563,285,42,'#4acbd430');ellipse(cx,563,310,52,'#4acbd415');
-    for(let i=0;i<100;i++){const a=i*2.399+phase*.1,rr=30+((i*37)%240);dot(cx+Math.cos(a)*rr,545+(i%7)*5,1,'#63c9d355');}
-    label('FLOOR ACCESS / SELECT IN DIRECTORY',60,70);label('00 / OWNER APPROVAL',390,608,'#d0b887');
+    for(const [cx,cy] of [[145,475],[925,135]]){
+      for(let k=0;k<9;k++)ellipse(cx,cy,18+k*4,28+k*5,ideas[(k+2)%5].color+'48');
+      dot(cx,cy,17,'#01060d');
+      const angle=phase*.6;dot(cx+Math.cos(angle)*43,cy+Math.sin(angle)*63,3,'#bffaff');
+    }
+  }
+  function dragon(cx,cy,size,color,angle){
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(angle);ctx.scale(size,size);
+    const flap=Math.sin(phase*3+cx)*7;
+    ctx.fillStyle=color+'a0';ctx.strokeStyle=color;ctx.lineWidth=.8;
+    // Two articulated wings, long tail, neck, horns and rider; all procedural.
+    for(const side of [-1,1]){
+      ctx.beginPath();ctx.moveTo(0,1);ctx.lineTo(-12,-22-flap*side);
+      ctx.lineTo(-31,-32-flap*side);ctx.quadraticCurveTo(-25,-15,-30,-8);
+      ctx.quadraticCurveTo(-18,-16,-17,-2);ctx.quadraticCurveTo(-8,-8,0,4);ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.moveTo(1,1);ctx.lineTo(13,-25+flap*side);
+      ctx.lineTo(30,-29+flap*side);ctx.quadraticCurveTo(24,-15,29,-9);
+      ctx.quadraticCurveTo(17,-15,15,-2);ctx.lineTo(2,5);ctx.fill();ctx.stroke();
+    }
+    ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(-9,3);ctx.bezierCurveTo(-24,4,-25,18,-39,10);ctx.bezierCurveTo(-25,23,-16,8,-6,8);ctx.lineTo(7,7);ctx.quadraticCurveTo(16,3,15,-5);ctx.lineTo(24,-6);ctx.lineTo(19,-10);ctx.lineTo(14,-10);ctx.lineTo(10,-17);ctx.lineTo(9,-8);ctx.quadraticCurveTo(9,1,3,2);ctx.closePath();ctx.fill();
+    line([[-3,6],[-8,13],[-3,12]],color);line([[5,6],[9,12],[14,11]],color);
+    ctx.fillStyle='#e5ffff';ctx.beginPath();ctx.arc(17,-8,1,0,7);ctx.fill();
+    ctx.fillStyle='#d9f2ee';ctx.beginPath();ctx.arc(2,-7,2,0,7);ctx.fill();ctx.fillRect(0,-5,3,7);ctx.restore();
+  }
+  // A 90-second journey: verdant world, nebula, distant galaxy. Artistic only.
+  function tower() {
+    const journey=phase/30, world=Math.floor(journey)%3, blend=(journey%1);
+    const names=['MUNDO VERDE','NEBULOSA ÁMBAR','GALAXIA AZUL'];
+    nebula();
+    if(world===0){
+      for(let layer=0;layer<4;layer++){
+        const pts=[[0,650]];
+        for(let i=0;i<=44;i++){const xx=i*25, yy=405+layer*43+Math.sin(i*.43+layer*2+phase*.012)*34+Math.cos(i*.91)*16;pts.push([xx,yy]);}
+        pts.push([1100,650]);ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.fillStyle=['#153b43','#145052','#123c38','#092a2c'][layer];ctx.fill();
+      }
+    }
+    // Travel accelerates through the last third of each destination.
+    const transit=Math.max(0,(blend-.7)/.3), cx=550+Math.sin(phase*.13)*12, lift=Math.sin(phase*.19)*7;
+    if(transit>0)for(let i=0;i<70;i++){
+      const angle=i*2.399963,rr=70+(i*31)%450;
+      line([[550+Math.cos(angle)*rr,325+Math.sin(angle)*rr*.7],[550+Math.cos(angle)*(rr+transit*90),325+Math.sin(angle)*(rr+transit*90)*.7]],'#86eaff55');
+    }
+    ctx.save();ctx.translate(cx,300+lift);
+    // Cyan spherical lattice encloses the whole citadel.
+    for(let ring=0;ring<9;ring++)ellipse(0,0,285,40+ring*29,'#53dfff38',.7);
+    for(let ring=0;ring<9;ring++)ellipse(0,0,35+ring*31,275,'#53dfff32',.7);
+    for(let i=0;i<76;i++){
+      const angle=i*2.399963+phase*.035, yy=-255+i*510/75, radius=Math.sqrt(Math.max(0,1-(yy/275)**2))*285;
+      const xx=Math.cos(angle)*radius;
+      dot(xx,yy, i%7===0?3:1.4,'#8befff');
+      if(i%3===0)line([[xx,yy],[Math.cos(angle+.35)*radius,yy+12]],'#66ddff44');
+    }
+    // Shaded stacked terraces with masonry, windows and defensive towers.
+    const tiers=quality==='rich'?18:12;
+    for(let k=0;k<tiers;k++){
+      const u=k/(tiers-1), y=205-u*385, rr=205-u*153, hh=385/tiers;
+      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#49392c');shade.addColorStop(.45,'#947044');shade.addColorStop(1,'#302a29');
+      ctx.fillStyle=shade;ctx.fillRect(-rr,y-hh,rr*2,hh);
+      ctx.fillStyle='#574632';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
+      ellipse(0,y-hh,rr,rr*.13,'#d3aa66',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
+      const count=quality==='rich'?28:18;
+      for(let j=0;j<count;j++){
+        const xx=-rr+(j+.5)*rr*2/count;
+        ctx.fillStyle=j%4===0?'#8ddcff':'#ffd789';ctx.fillRect(xx,y-hh*.63,2,5);
+        if(j%4===0){ctx.strokeStyle='#201d1c88';ctx.strokeRect(xx-3,y-hh+3,7,hh-4);}
+      }
+      if(k%3===0)for(let side of [-1,1]){
+        const xx=side*rr*.84;ctx.fillStyle='#8c7047';ctx.fillRect(xx-7,y-hh-23,14,27);
+        ctx.beginPath();ctx.moveTo(xx-11,y-hh-23);ctx.lineTo(xx,y-hh-43);ctx.lineTo(xx+11,y-hh-23);ctx.fillStyle='#3a6269';ctx.fill();dot(xx,y-hh-32,1.5,'#c7faff');
+      }
+    }
+    // Inverted floating foundation and luminous propulsion core.
+    for(let k=0;k<7;k++){
+      const y=210+k*9,rr=195-k*25;
+      line([[-rr,y],[0,y+23],[rr,y]],'#aa865777',2);
+    }
+    dot(0,279,7,'#baffff');ellipse(0,280,42,8,'#6cddff88');
+    ctx.fillStyle='#d7b675';ctx.fillRect(-9,-219,18,43);line([[-14,-219],[0,-250],[14,-219]],'#e8c983',2);
+    ctx.restore();
+    for(let i=0;i<(quality==='rich'?6:3);i++){
+      const angle=phase*.09+i*2.1;
+      dragon(cx+Math.cos(angle)*345,290+Math.sin(angle)*185,.65+i*.08,ideas[i%5].color,Math.sin(angle)*.22);
+    }
+    for(let i=0;i<5;i++){const y=490-i*83,col=ideas[i].color;line([[cx+205-i*37,y],[885,y]],col+'66');label(`${i*20+1}–${(i+1)*20}`,895,y,col);}
+    label('CIUDADELA ÓRBITA / 100 PISOS RESERVADOS',30,40,'#c9f5ff');
+    label(names[world]+(transit>0?' · VIAJE EN CURSO':' · ÓRBITA ESTABLE'),30,61,'#e0c28c');
+    label('CICLO VISUAL · 30 SEGUNDOS POR DESTINO',30,81);
   }
   function galaxy(){const cx=515,cy=315;for(let i=0;i<1200;i++){const a=i*2.399963+phase*.025,r=15+Math.sqrt(i/1200)*360,arm=i%5;const twist=a*.025+r*.009+arm*Math.PI*.4;const xx=cx+Math.cos(twist)*r,yy=cy+Math.sin(twist)*r*.60;dot(xx,yy,i%19===0?1.9:.8,ideas[arm].color+(arm===selected?'bb':'45'));}
     const g=ctx.createRadialGradient(cx,cy,1,cx,cy,70);g.addColorStop(0,'#fff4cbbb');g.addColorStop(.3,'#e1a55044');g.addColorStop(1,'#ffad0000');ctx.fillStyle=g;ctx.fillRect(cx-70,cy-70,140,140);
@@ -69,11 +216,11 @@
     for(let i=0;i<5;i++){const a=i*Math.PI*.4-1.4,xx=cx+Math.cos(a)*215,yy=cy+Math.sin(a)*135,col=ideas[i].color;line([[cx,cy],[xx,yy]],col+'55');ellipse(xx,yy,i===selected?70:55,40,col,2);for(let j=0;j<12;j++)dot(xx+Math.cos(j*2.4+phase*.1)*34,yy+Math.sin(j*2.4)*21,1.5,col);label(`0${i+1} / ${ideas[i].name}`,xx-55,yy+60,col);}
     ellipse(cx,cy,65,54,'#dabdff');label('JARVIS',cx-24,cy+4,'#ecddff');label('MEMBRANA / LÍMITES Y APROBACIONES',60,70);
   }
-  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);if(now-last<1000/24)return;last=now;if(!reduced.matches)phase+=1/24;ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
-    for(let i=0;i<140;i++){const xx=(i*197.3)%1100,yy=(i*97.9)%650;dot(xx,yy,i%9===0?1:.5,'#739fc344');}
+  function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible)return;gesture(now);telemetry(now);if(now-last<1000/(quality==='rich'?24:15))return;last=now;if(!paused)phase+=1/(quality==='rich'?24:15);ctx.fillStyle='#020b15';ctx.fillRect(0,0,1100,650);
+    for(let i=0;i<420;i++){const xx=(i*197.3)%1100,yy=(i*97.9)%650;dot(xx,yy,i%9===0?1:.5,i%11===0?'#b6ddefaa':'#739fc355');}
     ctx.strokeStyle='#27516b20';ctx.lineWidth=1;for(let xx=0;xx<1100;xx+=55)line([[xx,0],[xx,650]],'#27516b15');for(let yy=0;yy<650;yy+=50)line([[0,yy],[1100,yy]],'#27516b15');
-    ({tower,galaxy,cell})[mode]();label('LOCAL RENDER / 24 FPS MAX',30,625);label('REVENUE / SIN DATOS',840,625);
+    ({tower,galaxy,cell})[mode]();science();label(paused?'UNIVERSO PAUSADO':quality==='rich'?'DETALLE / 24 FPS MÁX':'LIGERO / 15 FPS MÁX',30,625);label('REVENUE / SIN DATOS',840,625);
   }
-  if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;}).observe(root);
+  if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;}).observe(canvas);
   select(0);requestAnimationFrame(frame);
 })();

@@ -50,7 +50,7 @@ function voiceLevel(now, dt) {
   }
   return playing || value > 0.01 ? value : null;
 }
-window.JarvisAvatar = { syncLog: () => (measure ? syncLog.slice() : []) };
+window.JarvisAvatar = { syncLog: () => (measure ? syncLog.slice() : []), telemetry: () => ({audioActive:voice.active, amplitude:voice.active?talk:0}) };
 
 function hand() {
   const h = window.JarvisHands;
@@ -206,6 +206,18 @@ function particles() {
       const u=(phase*.3+k*.17)%1,p=pts[Math.floor(u*35)];x.fillStyle=orbitColors[k%5];x.beginPath();x.arc(p[0],p[1],1.6,0,7);x.fill();
     }
   });
+  // Continuous luminous spine and paired branching vessels retain Órbita's identity.
+  for(let side of [-1,1])for(let branch=0;branch<9;branch++){
+    const y=cy+94+branch*14;
+    strokePath([[cx, y-9],[cx+side*10,y],[cx+side*(34-branch*1.4),y+8]],orbitColors[branch%5],1,.65);
+  }
+  strokePath([[cx,cy+70],[cx,cy+176],[cx,cy+224]],'#ffd77b',1.6,.85);
+  for(let side of [-1,1])for(let finger=0;finger<5;finger++){
+    const start=[cx+side*104,cy+231], tip=[cx+side*(102+finger*6),cy+255-(finger===0?10:0)];
+    for(let joint=0;joint<4;joint++){
+      const u=joint/3; x.fillStyle=orbitColors[finger];x.beginPath();x.arc(start[0]+(tip[0]-start[0])*u,start[1]+(tip[1]-start[1])*u,1.4,0,7);x.fill();
+    }
+  }
   orbitalHead(cx,cy+36, .87,talk,phase);
   strokePath([[cx-9,cy+65],[cx-10,cy+81],[cx-48,cy+88]],'#b477ff',1);
   strokePath([[cx+9,cy+65],[cx+10,cy+81],[cx+48,cy+88]],'#69e8ff',1);

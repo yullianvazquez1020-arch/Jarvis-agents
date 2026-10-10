@@ -423,6 +423,26 @@ class AudioOutput(unittest.TestCase):
         args = (tmp / "args").read_text()
         self.assertIn("-v Paulina", args); self.assertIn("-r 148", args); self.assertNotIn("tienes", args)
 
+    def test_local_voice_prefers_puerto_rico_then_latin_and_caches(self):
+        listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nLocal PR es_PR # Hola\n"})()
+        with patch.object(engines.subprocess, "run", return_value=listing) as run:
+            voice = engines.MacSay("auto-latino")
+            self.assertEqual(voice.resolve_voice(), "Local PR")
+            self.assertEqual(voice.resolve_voice(), "Local PR")
+            run.assert_called_once()
+        listing.stdout = "Monica es_ES # Hola\nPaulina es_MX # Hola\n"
+        with patch.object(engines.subprocess, "run", return_value=listing):
+            self.assertEqual(engines.MacSay("auto-latino").resolve_voice(), "Paulina")
+        with patch.object(engines.subprocess, "run") as run:
+            self.assertEqual(engines.MacSay("Explicit Voice").resolve_voice(), "Explicit Voice")
+            run.assert_not_called()
+
+    def test_local_voice_missing_spanish_reports_error(self):
+        listing = type("Listing", (), {"stdout": "Alex en_US # Hello\n"})()
+        with patch.object(engines.subprocess, "run", return_value=listing):
+            with self.assertRaises(engines.EngineError):
+                engines.MacSay("auto-latino").resolve_voice()
+
     def test_no_engine_reports_unavailable(self):
         s, t = engines.build({"VOICE_STT_BACKEND": "none", "VOICE_TTS_BACKEND": "none"})
         self.assertTrue(s.problem()); self.assertTrue(t.problem())

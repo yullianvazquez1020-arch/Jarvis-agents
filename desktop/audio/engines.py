@@ -107,6 +107,30 @@ class MacSay:
 
     def __init__(self, voice=""):
         self.voice = voice or ""
+        self._resolved_voice = None
+
+    def resolve_voice(self):
+        """Choose an installed Latin-American Spanish voice; never download one."""
+        if self.voice != "auto-latino":
+            return self.voice
+        if self._resolved_voice is not None:
+            return self._resolved_voice
+        try:
+            result = subprocess.run(["say", "-v", "?"], capture_output=True,
+                                    text=True, timeout=5, check=True)
+        except (OSError, subprocess.SubprocessError):
+            raise EngineError("no pude consultar las voces locales de macOS") from None
+        voices = []
+        for line in result.stdout.splitlines():
+            match = re.match(r"^(.+?)\s+(es_[A-Z]{2})\s+#", line)
+            if match:
+                voices.append((match.group(1).strip(), match.group(2)))
+        for locale in ("es_PR", "es_MX", "es_CO", "es_AR", "es_CL", "es_ES"):
+            chosen = next((name for name, loc in voices if loc == locale), None)
+            if chosen:
+                self._resolved_voice = chosen
+                return chosen
+        raise EngineError("no hay una voz española instalada; selecciona una en macOS")
 
     def problem(self):
         if sys.platform != "darwin" or not shutil.which("say"):
@@ -125,8 +149,9 @@ class MacSay:
             out = Path(tmp) / "out.wav"
             cmd = ["say", "-r", str(int(self.BASE_WPM * rate)), "-o", str(out), "--file-format=WAVE",
                    "--data-format=LEI16@22050", "-f", str(src)]
-            if self.voice:
-                cmd[1:1] = ["-v", self.voice]
+            chosen = self.resolve_voice()
+            if chosen:
+                cmd[1:1] = ["-v", chosen]
             _run(cmd, timeout=60)
             return out.read_bytes(), "audio/wav"
 

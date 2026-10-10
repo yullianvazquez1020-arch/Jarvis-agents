@@ -30,3 +30,13 @@ Tras reportarse un bloqueo al activar la mano en Safari del Mac del dueño, se s
 `node scripts/check_hands_camera.cjs` prueba con dobles la selección, los permisos sin etiquetas, la cancelación, los tiempos de espera, la ausencia de cola de cuadros y la liberación de imágenes. No equivale a ejecutar MediaPipe real ni Safari: la compatibilidad del worker/OffscreenCanvas, la Brio física y el rendimiento en el Mac siguen pendientes de comprobación. Si el navegador no admite el detector aislado, debe mostrar el error y detenerse, sin ejecutar el detector en el hilo del avatar.
 
 Los cuadros solo pasan al worker del mismo navegador, no a Jarvis/Render ni a una API de IA. La descarga inicial del modelo y de MediaPipe sigue necesitando red. Este control permanece dentro del panel: no equivale a conectar el seguimiento con el mouse de macOS.
+
+## Observatorio por especialidades
+
+La vista de torre reserva 100 niveles en cinco sectores de 20: servicio local, producto digital, contenido educativo, tienda por validar y afiliados. El directorio conserva las cinco propuestas originales, con costos estimados y autorizaciones; no representa 100 negocios ni empleados activos.
+
+Composición ultrawide: izquierda percepción, membrana y campo neuronal; centro ciudad orbital procedural con portales y dragones/jinetes originales; derecha amplitud de voz, sectores y estado no verificado de agentes/equipo. Cerebro y membrana son decorativos. Voz y detección se leen del estado local real; no hay porcentajes de inteligencia, penetración ni latencias ficticias.
+
+Modo ligero predeterminado: hasta 15 FPS; detalle: hasta 24 FPS. Pausa explícita y respeto inicial de movimiento reducido. No se dibuja si la escena queda fuera de pantalla o la pestaña se oculta. Canvas 2D procedural, no un motor 3D ni una reproducción fotorrealista de la referencia. Sin activos de franquicias ni nuevos modelos descargados.
+
+Validación: scripts/check_atlas_observatory.cjs ejercita vistas, sectores, pausa, estados reales y ocultación. Con ATLAS_NATIVE_CANVAS permite renderizar el lienzo en /tmp, no la página completa. Falta verificar layout Firefox y rendimiento Mac real.
