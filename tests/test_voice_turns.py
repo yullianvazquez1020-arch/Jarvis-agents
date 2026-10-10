@@ -165,6 +165,31 @@ class ServerDisplays(DesktopBase):
         self.assertTrue(all(c["as_of"] for c in h["cards"]))
         self.assertEqual(self.snapshot(), before)
 
+    def test_hud_jobs_are_authenticated_read_only_and_minimal(self):
+        token, _ = self.pair()
+        self.assertEqual(self.client.post("/desktop/v1/hud").status_code, 401)
+        client = j.add_client("Ana")
+        for stage in ("confirmed", "in_progress", "paid", "cancelled"):
+            j.add_job(client["id"], stage, price=100, status=stage)
+        before = self.snapshot()
+        response = self.client.post("/desktop/v1/hud", headers=self.hdr(token))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["jobs_count"], 2)
+        self.assertEqual({row["status"] for row in data["jobs"]}, {"confirmed", "in_progress"})
+        for row in data["jobs"]:
+            self.assertNotIn("price", row); self.assertNotIn("notes", row); self.assertNotIn("payments", row)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_hud_jobs_are_bounded_without_fabricating_dates(self):
+        rows = [{"id": str(i), "title": "Job", "status": "new-stage"} for i in range(25)]
+        with patch.object(j, "_cload", return_value={"jobs": rows}):
+            projection = D._hud_open_jobs()
+        self.assertEqual(projection["jobs_count"], 25)
+        self.assertEqual(len(projection["jobs"]), 20)
+        self.assertTrue(all(row["due_date"] is None and row["created"] is None for row in projection["jobs"]))
+        self.assertTrue(all(row["status"] == "new-stage" for row in projection["jobs"]))
+
     def test_pulse_alerts_read_only_and_heartbeat_not_audited(self):
         token, _ = self.pair(); self.seed(); before = self.snapshot()
         n_audit = len(j.kv_get(D.AUDIT_KEY, []))

@@ -565,6 +565,24 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("POST", "/api/open", {"target": "../x"})[0], 404)
         self.assertEqual(self.jarvis.turn_posts(), [])                                    # showing never writes
 
+    def test_hud_jobs_preserve_unknowns_and_drop_private_fields(self):
+        self.pair()
+        with patch.object(self.app.client, "hud", return_value={"cards": []}):
+            data = self.req("GET", "/api/hud")[1]
+            self.assertIsNone(data["jobs"]); self.assertIsNone(data["jobs_count"])
+        payload = {"cards": [], "jobs": [{"id": "7", "title": "Cocina", "status": "in_progress",
+                   "due_date": None, "notes": "private", "payments": [100]}], "jobs_count": 1}
+        with patch.object(self.app.client, "hud", return_value=payload):
+            data = self.req("GET", "/api/hud")[1]
+            self.assertEqual(data["jobs_count"], 1)
+            self.assertEqual(data["jobs"][0]["status"], "in_progress")
+            self.assertIsNone(data["jobs"][0]["due_date"])
+            self.assertNotIn("notes", data["jobs"][0]); self.assertNotIn("payments", data["jobs"][0])
+        payload.update(jobs=[], jobs_count=0)
+        with patch.object(self.app.client, "hud", return_value=payload):
+            data = self.req("GET", "/api/hud")[1]
+            self.assertEqual(data["jobs"], []); self.assertEqual(data["jobs_count"], 0)
+
     def test_local_health_answer_has_no_balances(self):
         self.pair(); self.app.pulse_once()
         ev = self.turn("Jarvis, ¿cómo estás?", "health-0001")
@@ -584,6 +602,10 @@ class Displays(CompanionBase):
         st, _, r, body = self.req("GET", "/hud")
         self.assertEqual(st, 200); self.assertIn(b"HUD", body)
         self.assertEqual(self.req("GET", "/ui/hud.js")[0], 200); self.assertEqual(self.req("GET", "/ui/mask.js")[0], 200)
+        for path in ("/ui/hud.css", "/ui/reactor.js"):
+            self.assertEqual(self.req("GET", path, cookie=False)[0], 401)
+            self.assertEqual(self.req("GET", path)[0], 200)
+
 
     def test_torre_is_local_scene_behind_session_and_csp(self):
         for path in ("/torre", "/ui/torre.js", "/ui/torre.css", "/ui/torre.jpg"):
@@ -639,6 +661,11 @@ class DemoDisplays(CompanionBase):
 
 
 class JavaScript(unittest.TestCase):
+    def test_hud_real_data_and_missing_values(self):
+        import subprocess
+        subprocess.run(["node", str(ROOT / "scripts/check_hud.cjs")], cwd=ROOT, check=True)
+
+
     def test_js_syntax_and_wav_encoder(self):
         import shutil, subprocess
         node = shutil.which("node")
@@ -659,7 +686,7 @@ class JavaScript(unittest.TestCase):
         for bad in ("1,234", "120.50", "482913", "1234567"):
             self.assertNotIn(bad, masked)
         self.assertFalse(flag)
-        for f in ("hud.js", "mask.js"):
+        for f in ("hud.js", "mask.js", "reactor.js"):
             self.assertEqual(subprocess.run([node, "--check", str(ui / f)]).returncode, 0, f)
         out = subprocess.run([node, "-e", script], stdout=subprocess.PIPE)
         self.assertEqual(out.returncode, 0)

@@ -1,37 +1,13 @@
 <!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jarvis · HUD</title>
-  <link rel="stylesheet" href="/ui/app.css">
-</head>
-<body class="hud-page">
-  <header class="top">
-    <div class="brand"><span id="dot" class="dot"></span>JARVIS · HUD <span class="small">solo lectura</span></div>
-    <div class="chips">
-      <span id="hud-clock" class="chip">--:--</span>
-      <span id="hud-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
-      <span id="hud-updated" class="chip">…</span>
-      <button id="hud-refresh" type="button" class="ghost">Actualizar</button>
-      <label class="check"><input id="hud-reveal" type="checkbox"> Mostrar montos</label>
-    </div>
-  </header>
-  <section class="command-deck" aria-label="Centro visual de Jarvis">
-    <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · CENTRO DE OPERACIONES</span><h1>JARVIS <span>MONITOR</span></h1></div>
-      <nav class="deck-links"><a href="/" target="_blank" rel="noopener">Conversación ↗</a><a href="/avatar" target="_blank" rel="noopener">Avatar ↗</a>
-      <button id="deck-motion" type="button" aria-pressed="false">Pausar animación</button>
-      <button id="deck-fullscreen" type="button">Pantalla completa</button></nav></div>
-    <div class="deck-stage">
-      <canvas id="deck-canvas" aria-hidden="true"></canvas>
-      <div class="deck-core"><span class="deck-kicker">NÚCLEO</span><strong>JARVIS</strong><span id="deck-state">Sin comprobar</span><small>Vista de módulos · solo lectura</small></div>
-      <div id="deck-nodes" aria-label="Módulos"></div>
-    </div>
-    <div class="deck-bottom"><span id="deck-caption">Esperando datos del escritorio</span><span>01 CONVERSACIÓN / 02 OPERACIONES / 03 AVATAR</span></div>
-  </section>
-  <main id="grid" class="grid deck-cards" aria-label="Datos de los módulos"></main>
-  <p class="small hud-note">Tocar una tarjeta abre el detalle en la ventana principal. Desde aquí no se cambia nada.</p>
-  <script src="/ui/mask.js"></script>
-  <script src="/ui/hud.js"></script>
-</body>
-</html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis · HUD v2</title><link rel="stylesheet" href="/ui/hud.css"></head>
+<body>
+<header class="top"><div class="brand"><span id="dot" data-s="unknown"></span>JARVIS <small>HUD / 02</small></div><h1>INTERFAZ DE OPERACIONES</h1><span id="hud-clock">PR —</span></header>
+<nav class="toolbar" aria-label="Controles del HUD"><span id="hud-demo" hidden>DEMO · DATOS DE EJEMPLO</span><span id="hud-updated">sin dato</span><div><label><input id="hud-reveal" type="checkbox"> Mostrar montos</label><button id="hud-refresh">Actualizar</button><button id="deck-motion" aria-pressed="false">Pausar</button><button id="deck-fullscreen">Pantalla completa</button><a href="/" target="_blank" rel="noopener">Conversación ↗</a></div></nav>
+<section id="grid" class="summary" aria-label="Resumen de módulos"></section>
+<main class="dashboard">
+<aside class="projects"><section class="panel"><h2>TRABAJOS <span id="jobs-count">sin dato</span></h2><p class="caption">Etapa registrada · no es porcentaje de avance</p><div id="job-list" class="job-list"><p class="empty">sin dato</p></div></section><section class="panel timeline-panel"><h2>LÍNEA DE TIEMPO</h2><p class="caption">Registro → vencimiento</p><div id="timeline"><p class="empty">sin dato</p></div></section></aside>
+<section class="reactor-panel" aria-label="Núcleo visual de Jarvis"><div class="reactor-heading"><span>JARVIS / REACTOR</span><span id="deck-state">sin dato</span></div><canvas id="deck-canvas" aria-hidden="true"></canvas><div class="reactor-caption"><strong>NÚCLEO DE OPERACIONES</strong><span>Animación visual · consultas de solo lectura</span></div><div class="gauges" aria-label="Mediciones disponibles"><div class="gauge"><strong id="metric-jobs">sin dato</strong><span>TRABAJOS ABIERTOS</span></div><div class="gauge"><strong id="metric-latency">sin dato</strong><span>LATENCIA · ms</span></div><div class="gauge"><strong id="metric-windows">sin dato</strong><span>VENTANAS LOCALES</span></div><div class="gauge"><strong id="metric-age">sin dato</strong><span>ANTIGÜEDAD · s</span></div></div></section>
+<aside class="assistant"><section class="panel assistant-panel"><h2>ASISTENTE <span>VISUAL</span></h2><svg class="hologram" viewBox="0 0 200 410" role="img" aria-label="Silueta decorativa del asistente"><defs><pattern id="mesh" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 0H6V6H0Z M0 0L6 6"/></pattern><linearGradient id="bodylight" x1="0" x2="1"><stop offset="0" stop-color="#0b5774"/><stop offset=".5" stop-color="#68d7f4" stop-opacity=".45"/><stop offset="1" stop-color="#0b5774"/></linearGradient></defs><ellipse cx="100" cy="382" rx="75" ry="17"/><ellipse cx="100" cy="382" rx="55" ry="11"/><g class="body"><path d="M100 22C75 22 77 56 83 68L88 79 86 94 62 107 49 150 36 212 34 240 42 245 52 218 66 165 74 137 76 183 70 227 74 260 78 310 77 366 67 380 94 382 99 315 100 273 101 315 106 382 133 380 123 366 122 310 126 260 130 227 124 183 126 137 134 165 148 218 158 245 166 240 164 212 151 150 138 107 114 94 112 79 117 68C123 56 125 22 100 22Z"/><path class="mesh-fill" d="M100 22C75 22 77 56 83 68L88 79 86 94 62 107 49 150 36 212 34 240 42 245 52 218 66 165 74 137 76 183 70 227 74 260 78 310 77 366 67 380 94 382 99 315 100 273 101 315 106 382 133 380 123 366 122 310 126 260 130 227 124 183 126 137 134 165 148 218 158 245 166 240 164 212 151 150 138 107 114 94 112 79 117 68C123 56 125 22 100 22Z"/></g><path d="M100 91V261M73 121Q100 146 127 121M77 156Q100 173 123 156M76 186Q100 202 124 186M74 226Q100 247 126 226M83 260L87 360M117 260L113 360"/><circle cx="100" cy="138" r="12"/></svg><a class="avatar-link" href="/avatar" target="_blank" rel="noopener">Abrir avatar y voz ↗</a><p id="voice-state" class="caption">Voz: sin dato</p></section>
+<section class="panel security"><h2>SEGURIDAD / CONEXIÓN</h2><dl><div><dt>Equipo emparejado</dt><dd id="sec-paired">sin dato</dd></div><div><dt>Almacenamiento</dt><dd id="sec-storage">sin dato</dd></div><div><dt>Operaciones reales</dt><dd id="sec-real">sin dato</dd></div><div><dt>Canal HUD</dt><dd>Solo lectura</dd></div></dl><p class="caption">Los permisos se gestionan en Jarvis.</p></section></aside>
+</main><footer><span id="deck-caption" role="status">Esperando datos del escritorio.</span><span>ISLAFIX PRO · JARVIS</span></footer>
+<script src="/ui/mask.js"></script><script src="/ui/reactor.js"></script><script src="/ui/hud.js"></script></body></html>

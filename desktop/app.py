@@ -48,7 +48,7 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
 UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
-            "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
+            "hud.css": "text/css; charset=utf-8", "reactor.js": "text/javascript; charset=utf-8", "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
             "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
             "torre.jpg": "image/jpeg"}
@@ -276,12 +276,21 @@ class Companion:
 
     # --- HUD for the second monitor (read-only) ---
     def hud(self):
+        jobs = None; jobs_count = None; as_of = None
         if self.demo:
             cards = [dict(c, as_of="", stale=c.get("stale", False), sensitive=False, demo=True) for c in DEMO_HUD]
         elif not self.client.url or not self._token():
             cards = []  # Missing connection is not permission to fabricate business data.
         else:
-            raw = self.client.hud().get("cards") or []
+            payload = self.client.hud()
+            raw = payload.get("cards") or []
+            if isinstance(payload.get("jobs"), list):
+                jobs = [{k: (str(row[k])[:300] if row.get(k) is not None else None)
+                         for k in ("id", "title", "client_name", "status", "created", "updated", "due_date")}
+                        for row in payload["jobs"][:20] if isinstance(row, dict)]
+                count = payload.get("jobs_count")
+                jobs_count = count if type(count) is int and count >= len(jobs) else None
+            as_of = str(payload.get("as_of") or "")[:40] or None
             cards = []
             for c in raw:
                 if not isinstance(c, dict) or c.get("id") not in HUD_IDS:
@@ -292,7 +301,8 @@ class Companion:
                               "detail": c.get("detail") if c.get("detail") in PANELS else None, "demo": False})
         with self.lock:
             self.hud_cache = cards
-        return {"cards": cards, "demo": bool(cards and cards[0].get("demo"))}
+        return {"cards": cards, "demo": bool(cards and cards[0].get("demo")),
+                "jobs": jobs, "jobs_count": jobs_count, "as_of": as_of}
 
     def open_detail(self, target):
         """A card or panel clicked on any monitor opens in the main window. Only shows; never writes."""

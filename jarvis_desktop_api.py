@@ -530,9 +530,17 @@ def _hud_cards():
                        ps.get("last_run") or ps.get("started") or now, core._bank_usd(ps["equity"]), detail="practica"))
     return cards
 
+def _hud_open_jobs():
+    """Read-only projection: stored stage and dates, never a guessed completion percentage."""
+    rows = [j for j in core._cload().get("jobs", []) if j.get("status") not in ("paid", "cancelled")]
+    rows.sort(key=lambda j: (str(j.get("due_date") or "9999"), str(j.get("id") or "")))
+    fields = ("id", "title", "client_name", "status", "created", "updated", "due_date")
+    return {"jobs": [{k: j.get(k) for k in fields} for j in rows[:20]], "jobs_count": len(rows)}
+
 async def hud():
     cards = await _read_only(_hud_cards)
-    return {"cards": core._redact_any(cards), "as_of": _stamp()}
+    jobs = await _read_only(_hud_open_jobs)
+    return core._redact_any({"cards": cards, "as_of": _stamp(), **jobs})
 
 
 # --- alerts (4.0.5, 3.3): what deserves a side-strip notice now. Read-only: the Telegram engine keeps its own
