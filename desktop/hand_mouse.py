@@ -84,6 +84,7 @@ class HandMouse:
         self.mode = "move"
         self.dragging = False
         self.scroll_anchor = None
+        self.scroll_remainder = 0.0
         self.scroll_pending = 0
         self.scroll_at = -math.inf
         self.click_enabled = False
@@ -108,6 +109,7 @@ class HandMouse:
         self.lease = self.owner = ""
         self.target = None
         self.scroll_anchor = None
+        self.scroll_remainder = 0.0
         self.scroll_pending = 0
         self._reset_gesture()
         self.reason = reason
@@ -155,6 +157,7 @@ class HandMouse:
                          "DESPLAZAR_60S":"scroll", "ARRASTRAR_60S":"drag"}[data["confirm"]]
             self.click_enabled = self.mode in ("click", "drag")
             self.scroll_anchor = None
+            self.scroll_remainder = 0.0
             self.scroll_pending = 0
             self.scroll_at = -math.inf
             self.last_click = -math.inf
@@ -205,24 +208,27 @@ class HandMouse:
                     two = data["two_fingers"]
                     if type(two) is not bool:
                         raise ValueError("Gesto inválido.")
-                    self.scroll_pending = 0
                     if not two:
                         self.scroll_anchor = None
-                        self.gesture = "Extiende índice y medio; recoge anular y meñique"
+                        self.scroll_remainder = 0.0
+                        self.scroll_pending = 0
+                        self.gesture = "Extiende índice y medio; recoge los otros dedos"
                     else:
                         if self.scroll_anchor is not None:
                             ay, at = self.scroll_anchor
                             if captured <= at:
                                 raise ValueError("Captura repetida.")
-                            delta = data["y"] - ay
                             if captured-at > self.FRESH:
-                                self.scroll_anchor = (data["y"], captured)
-                            elif abs(delta) >= .025:
-                                self.scroll_pending = -1 if delta > 0 else 1
-                                self.scroll_anchor = (data["y"], captured)
-                        else:
-                            self.scroll_anchor = (data["y"], captured)
-                        self.gesture = "Dos dedos: mueve arriba o abajo"
+                                self.scroll_remainder = 0.0
+                                self.scroll_pending = 0
+                            else:
+                                self.scroll_remainder += data["y"] - ay
+                                steps = math.trunc(self.scroll_remainder / .015)
+                                if steps:
+                                    self.scroll_remainder -= steps * .015
+                                    self.scroll_pending = max(-3, min(3, self.scroll_pending - steps))
+                        self.scroll_anchor = (data["y"], captured)
+                        self.gesture = "Dos dedos detectados: mueve arriba o abajo"
                     self.target = (0, 0, captured)
                     return self.status()
                 if self.click_enabled:
@@ -260,6 +266,7 @@ class HandMouse:
             except (ValueError, TypeError):
                 self._release_drag()
                 self.scroll_anchor = None
+                self.scroll_remainder = 0.0
                 self.scroll_pending = 0
                 self.target = None
                 self._reset_gesture()
@@ -292,13 +299,15 @@ class HandMouse:
                 if not self.target or self.clock() - self.target[2] > self.FRESH:
                     self._release_drag()
                     self.scroll_anchor = None
+                    self.scroll_remainder = 0.0
                     self.scroll_pending = 0
                     self.target = None
                     self._reset_gesture()
                     return
                 if self.mode == "scroll":
-                    amount, self.scroll_pending = self.scroll_pending, 0
-                    if amount and self.clock() - self.scroll_at >= .12:
+                    if self.scroll_pending and self.clock() - self.scroll_at >= .12:
+                        amount = 1 if self.scroll_pending > 0 else -1
+                        self.scroll_pending -= amount
                         self.scroll_at = self.clock()
                         self.pointer.scroll(amount)
                     return

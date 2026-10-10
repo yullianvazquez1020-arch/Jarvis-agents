@@ -110,8 +110,8 @@
   function twoFingers(points) {
     if(!points || points.length!==21 || !points.every(p=>p && Number.isFinite(p.x) && Number.isFinite(p.y))) return false;
     const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-    const extended=(tip,pip)=>d(points[tip],points[0])>d(points[pip],points[0])*1.2;
-    return extended(8,6) && extended(12,10) && !extended(16,14) && !extended(20,18);
+    const extended=(tip,pip)=>d(points[tip],points[0])>d(points[pip],points[0])*1.12;
+    return extended(8,6) && extended(12,10) && !(extended(16,14) && extended(20,18));
   }
   async function tick() {
     if (!lease || busy) return;
@@ -134,7 +134,11 @@
       x:valid ? Math.max(0,Math.min(1,(point.x-profile.cx)/profile.span+.5)) : .5,
       y:valid ? Math.max(0,Math.min(1,(point.y-profile.cy)/profile.span+.5)) : .5,
       captured_ms:Date.now()-(valid ? Math.max(0,age) : 0)};
-    if(mode==='scroll') payload.two_fingers=Boolean(valid && twoFingers(h.landmarks));
+    if(mode==='scroll') {
+      payload.two_fingers=Boolean(valid && twoFingers(h.landmarks));
+      // Raw midpoint avoids calibration clipping and individual finger jitter.
+      payload.y=payload.two_fingers ? Math.max(0,Math.min(1,(h.landmarks[8].y+h.landmarks[12].y)/2)) : .5;
+    }
     if (clickMode) payload.pinch_ratio = valid ? ratio : null;
     const ticket = generation;
     lastSample = h.updatedAt; busy = true;

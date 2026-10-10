@@ -65,6 +65,20 @@ class Modes(unittest.TestCase):
         self.now+=.6;self.frame(two_fingers=True)
         self.now+=.13;self.frame(two_fingers=True,y=.6)
         self.assertEqual(self.p.events,[-1])
+    def test_slow_continuous_motion_accumulates(self):
+        self.arm('DESPLAZAR_60S');self.frame(two_fingers=True,y=.3)
+        for i in range(1,31):
+            self.now+=.1;self.frame(two_fingers=True,y=.3+i*.002)
+        self.assertGreaterEqual(len(self.p.events),3)
+        self.assertTrue(all(n==-1 for n in self.p.events))
+    def test_rate_limit_retains_step_then_loss_discards_it(self):
+        self.arm('DESPLAZAR_60S');self.frame(two_fingers=True,y=.3)
+        self.now+=.1;self.frame(two_fingers=True,y=.32)
+        self.now+=.05;self.frame(two_fingers=True,y=.34)
+        self.assertEqual(self.p.events,[-1])
+        self.now+=.08;self.c.tick();self.assertEqual(self.p.events,[-1,-1])
+        self.now+=.02;self.frame(two_fingers=False)
+        self.now+=.2;self.c.tick();self.assertEqual(self.p.events,[-1,-1])
     def test_modes_reject_other_actions(self):
         self.arm('DESPLAZAR_60S')
         with self.assertRaises(ValueError): self.frame(two_fingers=True,pinch_ratio=.1)
