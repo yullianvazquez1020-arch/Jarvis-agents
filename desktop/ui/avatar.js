@@ -297,3 +297,13 @@ document.getElementById("motion").onclick = () => { paused = !paused; lastFrame 
 motionLabel();
 
 viewLabel();
+
+// Fullscreen requires an explicit click; Escape remains the browser exit.
+const fullDisplay = document.getElementById('display-fullscreen');
+if (fullDisplay) fullDisplay.onclick = async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    else fullDisplay.textContent = 'Usa pantalla completa del navegador';
+  } catch (_) { fullDisplay.textContent = 'No se pudo ampliar la pantalla'; }
+};

@@ -125,6 +125,12 @@
     cursor.style.setProperty('--dwell',`${target?Math.min(100,(now-since)/12):0}%`);
     if(target&&target!==latched&&now-since>=1200){latched=target;target.click();handStatus.textContent=`Seleccionado: ${target.textContent}. Solo navegación local.`;}
   }
+  // Refresh real read-only reports while this observatory is visible. No model or actions.
+  if (connect && typeof setInterval === 'function') {
+    const refresh = () => { if (!document.hidden && visible && !connect.disabled) connect.onclick(); };
+    setInterval(refresh, 60000);
+    if (typeof setTimeout === 'function') setTimeout(refresh, 1200);
+  }
   function line(points,color,width=1){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}
   function ellipse(x,y,rx,ry,color,width=1){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}
   function dot(x,y,r,color){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();}

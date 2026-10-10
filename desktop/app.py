@@ -465,7 +465,7 @@ class Companion:
         if name not in PANELS:
             raise ServerError(404, "panel desconocido")
         if self.demo:
-            p = dict(DEMO_PANELS[name]); p.update(panel=name, demo=True)
+            p = dict(DEMO_PANELS.get(name, {"title": name, "lines": ["DEMO: sin datos reales"], "speak": "Este panel está en demostración.", "sensitive": True})); p.update(panel=name, demo=True)
             return p
         if not self.client.url or not self._token():
             raise ServerError(503, "Sin datos reales: configura y empareja el equipo")

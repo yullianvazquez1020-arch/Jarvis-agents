@@ -42,12 +42,14 @@ _LOCAL = (
 )
 
 _PANEL = (
+    ("brief", re.compile(r"\b(brief|resumen comercial|informe comercial)\b")),
+    ("caja", re.compile(r"\b(caja|flujo de efectivo)\b")),
     ("cobros", re.compile(r"\b(cobros?|por cobrar|me deben)\b")),
     ("agenda", re.compile(r"\b(agenda|calendario|que tengo hoy|mis citas)\b")),
     ("practica", re.compile(r"\b(practica|simulador|simulado)\b")),
     ("estado", re.compile(r"\b(panel de estado|estado del servidor)\b")),
 )
-_NAV = re.compile(r"\b(abre|abrir|muestrame|muestra|ensename|ensena|ver|pon|lee|leeme|panel|como estas|que tengo)\b")
+_NAV = re.compile(r"\b(dame|abre|abrir|muestrame|muestra|ensename|ensena|ver|pon|lee|leeme|panel|como estas|que tengo)\b")
 
 
 def parse(text):
