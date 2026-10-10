@@ -4,11 +4,11 @@
   const root = document.getElementById('portfolio');
   if (!root) return;
   const ideas = [
-    {name:'Servicio local', color:'#50d5bd', cost:'$0–50', task:'Preparar una ficha de mantenimiento para ISLAFIX y una plantilla de cotización con costos pendientes.', goal:'Validar una necesidad y conseguir una cotización solicitada en 30 días.', metric:'Solicitudes, horas invertidas y cobros vinculados a trabajos.', approval:'Servicios ofrecidos, costos y cada contacto antes de enviarlo.'},
-    {name:'Producto digital', color:'#efbc64', cost:'$0–30', task:'Preparar una plantilla original de inventario para contratistas y una muestra gratuita.', goal:'Conseguir 3 evaluaciones voluntarias y probar una venta en 30 días.', metric:'Evaluaciones reales, ventas, devoluciones y comisiones.', approval:'Contenido final, licencia, precio y publicación.'},
-    {name:'Contenido educativo', color:'#bb8cff', cost:'$0–20', task:'Redactar cuatro guiones originales de mantenimiento, basados en experiencia verificable.', goal:'Publicar hasta 4 piezas aprobadas y medir consultas calificadas durante 30 días.', metric:'Piezas publicadas, consultas y horas; seguidores no equivalen a ingresos.', approval:'Guiones, imágenes, plataforma y cada publicación.'},
-    {name:'Tienda por validar', color:'#ff7cae', cost:'$0–100', task:'Comparar una categoría de consumibles y preparar costos unitarios, envío y devoluciones.', goal:'Validar demanda antes de comprar inventario durante 30 días.', metric:'Interés documentado, margen estimado y ventas cobradas si se aprueban.', approval:'Proveedor, plataforma, compra y publicación; Amazon permanece bloqueado.'},
-    {name:'Afiliados', color:'#68c7ff', cost:'$0–20', task:'Preparar una comparación honesta de herramientas que el dueño conozca y revisar requisitos del programa.', goal:'Evaluar un programa y una pieza aprobada en 30 días, sin tráfico artificial.', metric:'Clics y comisiones confirmadas por el programa, separados de estimaciones.', approval:'Programa, divulgación de afiliación, enlaces y publicación.'}
+    {name:'Servicio local', color:'#54ffbd', cost:'$0–50', task:'Preparar una ficha de mantenimiento para ISLAFIX y una plantilla de cotización con costos pendientes.', goal:'Validar una necesidad y conseguir una cotización solicitada en 30 días.', metric:'Solicitudes, horas invertidas y cobros vinculados a trabajos.', approval:'Servicios ofrecidos, costos y cada contacto antes de enviarlo.'},
+    {name:'Producto digital', color:'#ffd878', cost:'$0–30', task:'Preparar una plantilla original de inventario para contratistas y una muestra gratuita.', goal:'Conseguir 3 evaluaciones voluntarias y probar una venta en 30 días.', metric:'Evaluaciones reales, ventas, devoluciones y comisiones.', approval:'Contenido final, licencia, precio y publicación.'},
+    {name:'Contenido educativo', color:'#bd8aff', cost:'$0–20', task:'Redactar cuatro guiones originales de mantenimiento, basados en experiencia verificable.', goal:'Publicar hasta 4 piezas aprobadas y medir consultas calificadas durante 30 días.', metric:'Piezas publicadas, consultas y horas; seguidores no equivalen a ingresos.', approval:'Guiones, imágenes, plataforma y cada publicación.'},
+    {name:'Tienda por validar', color:'#ff69ce', cost:'$0–100', task:'Comparar una categoría de consumibles y preparar costos unitarios, envío y devoluciones.', goal:'Validar demanda antes de comprar inventario durante 30 días.', metric:'Interés documentado, margen estimado y ventas cobradas si se aprueban.', approval:'Proveedor, plataforma, compra y publicación; Amazon permanece bloqueado.'},
+    {name:'Afiliados', color:'#65eeff', cost:'$0–20', task:'Preparar una comparación honesta de herramientas que el dueño conozca y revisar requisitos del programa.', goal:'Evaluar un programa y una pieza aprobada en 30 días, sin tráfico artificial.', metric:'Clics y comisiones confirmadas por el programa, separados de estimaciones.', approval:'Programa, divulgación de afiliación, enlaces y publicación.'}
   ];
   const canvas = document.getElementById('atlas'), ctx = canvas.getContext('2d');
   const list = document.getElementById('atlas-list'), detail = document.getElementById('atlas-detail');
@@ -38,7 +38,7 @@
       m.strokeStyle='#63dcd788';m.beginPath();m.moveTo(xx,yy);m.lineTo(150+Math.cos(angle)*95,90+Math.sin(angle)*39);m.stroke();
       m.fillStyle=i%3?'#61d6d6':'#b58cff';m.beginPath();m.arc(xx,yy,2.5,0,7);m.fill();
     }
-    for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#bb8cff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
+    for(let i=0;i<14;i++){const angle=i*2.4+phase*.15;m.fillStyle='#bd8aff';m.fillRect(148+Math.cos(angle)*65,88+Math.sin(angle)*28,3,3);}
     // Paired lobes and irregular cortical folds, decorative rather than biometric.
     for(const side of [-1,1])for(let fold=0;fold<12;fold++){
       b.beginPath();b.strokeStyle=ideas[fold%5].color+'88';
@@ -118,7 +118,7 @@
     for(let i=0;i<7;i++){
       const cx=180+i*125,cy=280+Math.sin(i*1.8+phase*.03)*115;
       const g=ctx.createRadialGradient(cx,cy,5,cx,cy,220);
-      g.addColorStop(0,ideas[i%5].color+'42');g.addColorStop(1,'#04091800');ctx.fillStyle=g;ctx.fillRect(cx-220,cy-220,440,440);
+      g.addColorStop(0,ideas[i%5].color+'60');g.addColorStop(1,'#04091800');ctx.fillStyle=g;ctx.fillRect(cx-220,cy-220,440,440);
     }
     for(const [cx,cy] of [[145,475],[925,135]]){
       for(let k=0;k<9;k++)ellipse(cx,cy,18+k*4,28+k*5,ideas[(k+2)%5].color+'48');
@@ -176,10 +176,10 @@
     const tiers=quality==='rich'?18:12;
     for(let k=0;k<tiers;k++){
       const u=k/(tiers-1), y=205-u*385, rr=205-u*153, hh=385/tiers;
-      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#10252e');shade.addColorStop(.45,'#41646b');shade.addColorStop(1,'#091820');
+      const shade=ctx.createLinearGradient(-rr,y,rr,y);shade.addColorStop(0,'#162344');shade.addColorStop(.45,'#647aa3');shade.addColorStop(1,'#10152e');
       ctx.fillStyle=shade;ctx.fillRect(-rr,y-hh,rr*2,hh);
-      ctx.fillStyle='#213e46';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
-      ellipse(0,y-hh,rr,rr*.13,'#dcdfb1',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
+      ctx.fillStyle='#30446f';ctx.beginPath();ctx.ellipse(0,y-hh,rr,rr*.13,0,0,Math.PI*2);ctx.fill();
+      ellipse(0,y-hh,rr,rr*.13,'#ede2b6',1.1);ellipse(0,y,rr,rr*.13,'#85dbea66',.65);
       const count=quality==='rich'?28:18;
       for(let j=0;j<count;j++){
         const xx=-rr+(j+.5)*rr*2/count;
@@ -194,7 +194,7 @@
     // Inverted floating foundation and luminous propulsion core.
     for(let k=0;k<7;k++){
       const y=210+k*9,rr=195-k*25;
-      line([[-rr,y],[0,y+23],[rr,y]],'#aa865777',2);
+      line([[-rr,y],[0,y+23],[rr,y]],'#d7aa7077',2);
     }
     dot(0,279,7,'#baffff');ellipse(0,280,42,8,'#6cddff88');
     ctx.fillStyle='#d7b675';ctx.fillRect(-9,-219,18,43);line([[-14,-219],[0,-250],[14,-219]],'#e8c983',2);
@@ -220,7 +220,7 @@
       const xx=cx+Math.cos(angle)*spread,yy=cy+Math.sin(angle)*spread*.52;
       const hue=i%9===0?'#ffe4b0':i%4===0?'#a58dff':'#a9e8ff';
       dot(xx,yy,i%37===0?2.1:i%7===0?1.1:.65,hue+(i%7===0?'d0':'75'));
-      if(i%38===0){const glow=ctx.createRadialGradient(xx,yy,0,xx,yy,14);glow.addColorStop(0,'#768dff24');glow.addColorStop(1,'#768dff00');ctx.fillStyle=glow;ctx.fillRect(xx-14,yy-14,28,28);}
+      if(i%38===0){const glow=ctx.createRadialGradient(xx,yy,0,xx,yy,14);glow.addColorStop(0,'#aa8fff40');glow.addColorStop(1,'#768dff00');ctx.fillStyle=glow;ctx.fillRect(xx-14,yy-14,28,28);}
     }
     for(let i=0;i<200;i++){
       const a=i*2.399963+rotation,r=82*Math.pow((i+.5)/200,1.7);

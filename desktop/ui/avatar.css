@@ -70,3 +70,14 @@ button:hover{background:#133646;border-color:#7ce2e9}
 .atlas-scene{border:1px solid #2b5261;box-shadow:0 0 50px #13265530}.atlas-scene canvas{border:0}#atlas-detail{padding:12px}#atlas-detail h3{margin-top:12px}#atlas-detail h2{font-size:20px}#atlas-detail p{font-size:11px}.stage{max-width:1600px}#atlas-list button{font-size:11px;padding:10px}
 @media(max-width:1200px){.atlas-layout{grid-template-columns:200px minmax(0,1fr)}.operations-rail{grid-column:1/-1}#atlas-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}.operations-rail #atlas-detail{max-width:850px}.fui-module h2{font-size:14px}}
 @media(max-width:750px){.atlas-layout{display:flex;flex-direction:column}.science-rail{display:none}.atlas-scene,.operations-rail{width:100%}#atlas-list{grid-template-columns:repeat(2,minmax(0,1fr))}.observatory-controls span{margin-left:0}}
+
+/* Astral palette: static gradients, no additional animation or camera workload. */
+body{background:radial-gradient(ellipse at 15% 5%,#23143d 0,transparent 45%),radial-gradient(ellipse at 90% 35%,#063138 0,transparent 48%),#040713;color:#d4e3f5}
+.avatar header{color:#a4f6ff;border-color:#7565a2}
+#portfolio{background:linear-gradient(135deg,#15152ee8,#071b29ed 55%,#17102ae8);border-color:#7565a2;box-shadow:0 0 32px #9565ed19}
+.portfolio-heading h1{color:#f4edff;text-shadow:0 0 22px #ba86ff40}.portfolio-heading small{color:#98f7eb}
+.fui-module{background:linear-gradient(145deg,#111e32e8,#15112ae8);border-color:#546994;box-shadow:inset 0 1px #9ddfff18}.fui-module small{color:#81f6ee}.fui-module h2{color:#f0eaff}.fui-module p{color:#c3d5e8}.fui-module .module-note{color:#a4b8d0}
+.atlas-scene{border-color:#9673c9;box-shadow:0 0 32px #9b6cff22,0 0 18px #65eeff14}.atlas-caption{color:#b0c7df}.atlas-caption strong{color:#9ef5ef}
+button,select{background:#141b32;color:#d0efff;border-color:#6886ad}button:hover{background:#283052;border-color:#a8f4ff}.atlas-tabs button[aria-pressed=true]{background:#33254d;border-color:#c39aff;color:#f2e9ff}
+#atlas-list button[aria-pressed=true]{background:linear-gradient(100deg,#293454,#332145);box-shadow:inset 0 0 18px #bd8aff18}#atlas-detail{color:#c3d5e8}#atlas-detail h3{color:#88f4d1}
+#status,#hand-status,#voice-status,.atlas-policy,#atlas-hand-status,.observatory-controls{color:#b0c7df}.proposal-label,.atlas-estimate{color:#ffe0a1;border-color:#a58451}
