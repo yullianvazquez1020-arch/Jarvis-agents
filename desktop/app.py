@@ -47,11 +47,15 @@ from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
-            "hud.css": "text/css; charset=utf-8", "reactor.js": "text/javascript; charset=utf-8", "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
+UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/css; charset=utf-8", "reactor.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+            "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
             "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
-            "torre.jpg": "image/jpeg"}
+            "torre.jpg": "image/jpeg",
+            "mercado.css": "text/css; charset=utf-8", "mercado.js": "text/javascript; charset=utf-8",   # gráfica holográfica
+            "cielo.js": "text/javascript; charset=utf-8",                                         # fondo de galaxia
+            "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
+            "hudx.js": "text/javascript; charset=utf-8"}                                          # HUD v2: barras y medidores
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
@@ -89,8 +93,117 @@ DEMO_PANELS = {
                                                    "• Cliente Ejemplo — Cocina: $350.00 (ejemplo)"],
                "speak": "Estos cobros son de ejemplo.", "sensitive": False},
     "practica": {"title": "DEMO — Práctica", "lines": ["Datos de ejemplo.", "Efectivo simulado: $1,000.00 (ejemplo)"],
-                 "speak": "Panel de práctica de ejemplo.", "sensitive": False},
+                 "speak": "Panel de práctica de ejemplo.", "sensitive": False, "chart": None},
 }
+
+
+def _num(v, low=-1e12, high=1e12):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if x == x and low <= x <= high else None
+
+
+_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[0-9:+\-.Z]{0,15}")
+
+
+def clean_chart(raw):
+    """Gráfica de la práctica: solo números finitos, fechas con forma de fecha y listas cortas. Nada se ejecuta."""
+    if not isinstance(raw, dict) or raw.get("mode") != "practice":
+        return None
+    equity = []
+    for e in (raw.get("equity") or [])[-400:]:
+        if isinstance(e, dict) and isinstance(e.get("t"), str) and _STAMP.fullmatch(e["t"]):
+            v = _num(e.get("v"), 0)
+            if v is not None:
+                equity.append({"t": e["t"], "v": round(v, 2)})
+    trades = [{"t": t["t"], "side": t["side"], "product": str(t.get("product") or "")[:12]}
+              for t in (raw.get("trades") or [])[-60:]
+              if isinstance(t, dict) and t.get("side") in ("buy", "sell") and isinstance(t.get("t"), str)
+              and _STAMP.fullmatch(t["t"])]
+    products = []
+    for m in (raw.get("products") or [])[:6]:
+        if isinstance(m, dict) and re.fullmatch(r"[A-Z0-9]{2,10}-[A-Z]{3,5}", str(m.get("product") or "")):
+            products.append({"product": m["product"], "price": _num(m.get("price"), 0),
+                             "change_24h_pct": _num(m.get("change_24h_pct"), -1000, 1000),
+                             "rsi": _num(m.get("rsi"), 0, 100),
+                             "trend": m.get("trend") if m.get("trend") in ("alcista", "bajista", "lateral") else None,
+                             "open": bool(m.get("open"))})
+    raw_sum = raw.get("summary") if isinstance(raw.get("summary"), dict) else {}
+    keys = ("equity", "pnl_total", "pnl_pct", "win_rate_pct", "vs_buy_and_hold", "closed_trades", "max_drawdown_pct",
+            "drawdown_now_pct", "profit_factor", "expectancy", "fees_share_pct")
+    summary = {k: _num(raw_sum.get(k)) for k in keys}
+    summary["sample_ok"] = bool(raw_sum.get("sample_ok"))
+    paused = raw.get("paused") if raw.get("paused") in ("drawdown", "daily_loss") else None
+    return {"mode": "practice", "start": _num(raw.get("start"), 0), "equity": equity, "trades": trades,
+            "products": products, "summary": summary, "paused": paused}
+
+
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_JOB_STATUS = ("quote", "confirmed", "in_progress", "delivered", "invoiced")
+
+
+def clean_jobs(raw):
+    """Trabajos abiertos para las barras del HUD: texto corto, etapa conocida, avance 0-100 y fechas con forma de fecha."""
+    out = []
+    for j in (raw if isinstance(raw, list) else [])[:10]:
+        if not isinstance(j, dict) or j.get("status") not in _JOB_STATUS:
+            continue
+        p = _num(j.get("progress"), 0, 100)
+        out.append({"id": int(_num(j.get("id"), 0, 1e9) or 0), "title": str(j.get("title") or "")[:80],
+                    "status": j["status"], "stage": str(j.get("stage") or "")[:20], "progress": int(p or 0),
+                    "start": j["start"] if isinstance(j.get("start"), str) and _DATE.fullmatch(j["start"]) else None,
+                    "due": j["due"] if isinstance(j.get("due"), str) and _DATE.fullmatch(j["due"]) else None,
+                    "overdue": bool(j.get("overdue")), "due_date": j.get("due_date"), "created": j.get("created")})
+    return out
+
+
+def _demo_jobs():
+    import datetime as _dt
+    t = _dt.date.today()
+    d = lambda n: (t + _dt.timedelta(days=n)).isoformat()
+    rows = [("Cliente Ejemplo — Baño", "in_progress", "En progreso", 50, -6, -1, True),
+            ("Cliente Ejemplo — Cocina", "delivered", "Entregado", 75, -10, 2, False),
+            ("Oficina Ejemplo — Pintura", "confirmed", "Confirmado", 25, -2, 6, False),
+            ("Local Ejemplo — Gabinetes", "quote", "Cotización", 10, 0, 11, False),
+            ("Cliente Ejemplo — Losa", "invoiced", "Facturado", 90, -14, 1, False)]
+    return [{"id": i, "title": r[0] + " (ejemplo)", "status": r[1], "stage": r[2], "progress": r[3],
+             "start": d(r[4]), "due": d(r[5]), "overdue": r[6]} for i, r in enumerate(rows, 1)]
+
+
+DEMO_JOBS = _demo_jobs()
+
+
+def _demo_dd(values):
+    peak, worst = values[0], 0.0
+    for v in values:
+        peak = max(peak, v); worst = max(worst, (peak - v) / peak * 100)
+    return round(worst, 2), round((peak - values[-1]) / peak * 100, 2)
+
+
+def _demo_chart():
+    """Curva de EJEMPLO para el modo demo. No son datos de nadie."""
+    import math as _m
+    pts, v = [], 1000.0
+    for i in range(168):
+        v *= 1 + 0.0016 * _m.sin(i / 9) + 0.0009 * _m.cos(i / 4.3) - 0.0004
+        day, hour = 1 + i // 24, i % 24
+        pts.append({"t": f"2026-10-{day:02d}T{hour:02d}:00", "v": round(v, 2)})
+    return {"mode": "practice", "start": 1000.0, "equity": pts,
+            "trades": [{"t": pts[30]["t"], "side": "buy", "product": "BTC-USD"},
+                       {"t": pts[71]["t"], "side": "sell", "product": "BTC-USD"},
+                       {"t": pts[118]["t"], "side": "buy", "product": "ETH-USD"}],
+            "products": [{"product": "BTC-USD", "price": None, "change_24h_pct": None, "rsi": 58.0, "trend": "alcista", "open": False},
+                         {"product": "ETH-USD", "price": None, "change_24h_pct": None, "rsi": 49.0, "trend": "lateral", "open": True},
+                         {"product": "SOL-USD", "price": None, "change_24h_pct": None, "rsi": 37.0, "trend": "bajista", "open": False}],
+            "summary": {"equity": pts[-1]["v"], "pnl_total": round(pts[-1]["v"] - 1000, 2),
+                        "max_drawdown_pct": _demo_dd([p["v"] for p in pts])[0],
+                        "drawdown_now_pct": _demo_dd([p["v"] for p in pts])[1],
+                        "pnl_pct": round((pts[-1]["v"] / 1000 - 1) * 100, 2), "win_rate_pct": 50.0,
+                        "vs_buy_and_hold": None, "closed_trades": 2,
+                        "profit_factor": 0.6, "expectancy": -4.2, "fees_share_pct": None, "sample_ok": False},
+            "paused": None}
 
 
 def truthy(v):
@@ -151,7 +264,8 @@ class Companion:
         self.prefs = {"rate": 1.0, "discreet": False, "review": False, "mic": True}
         self._load_prefs()
         # 4.0.5 (3.1-3.3): server health for the top bar, HUD cache and alerts shown once
-        self.health = {"state": "demo" if self.demo else "unknown", "latency_ms": None, "last_ok": None, "info": {}}
+        self.health = {"state": "demo" if self.demo else "unknown", "latency_ms": None, "last_ok": None,
+                       "info": dict(DEMO_STATUS) if self.demo else {}}       # la demo muestra su estado de ejemplo desde el inicio
         self.hud_cache = []
         self.last_alert = None
         self.alerts_seen = self._load_seen()
@@ -276,21 +390,17 @@ class Companion:
 
     # --- HUD for the second monitor (read-only) ---
     def hud(self):
-        jobs = None; jobs_count = None; as_of = None
+        raw_jobs = None; jobs_count = None; as_of = None
         if self.demo:
             cards = [dict(c, as_of="", stale=c.get("stale", False), sensitive=False, demo=True) for c in DEMO_HUD]
         elif not self.client.url or not self._token():
             cards = []  # Missing connection is not permission to fabricate business data.
         else:
-            payload = self.client.hud()
-            raw = payload.get("cards") or []
-            if isinstance(payload.get("jobs"), list):
-                jobs = [{k: (str(row[k])[:300] if row.get(k) is not None else None)
-                         for k in ("id", "title", "client_name", "status", "created", "updated", "due_date")}
-                        for row in payload["jobs"][:20] if isinstance(row, dict)]
-                count = payload.get("jobs_count")
-                jobs_count = count if type(count) is int and count >= len(jobs) else None
-            as_of = str(payload.get("as_of") or "")[:40] or None
+            got = self.client.hud()
+            raw = got.get("cards") or []
+            raw_jobs = got.get("jobs")
+            jobs_count = got.get("jobs_count")
+            as_of = got.get("as_of")
             cards = []
             for c in raw:
                 if not isinstance(c, dict) or c.get("id") not in HUD_IDS:
@@ -299,10 +409,10 @@ class Companion:
                               "lines": [str(x)[:200] for x in (c.get("lines") or [])][:8], "as_of": str(c.get("as_of") or ""),
                               "stale": bool(c.get("stale")), "sensitive": bool(c.get("sensitive")),
                               "detail": c.get("detail") if c.get("detail") in PANELS else None, "demo": False})
+        jobs = DEMO_JOBS if self.demo else clean_jobs(raw_jobs) if isinstance(raw_jobs, list) else None
         with self.lock:
             self.hud_cache = cards
-        return {"cards": cards, "demo": bool(cards and cards[0].get("demo")),
-                "jobs": jobs, "jobs_count": jobs_count, "as_of": as_of}
+        return {"cards": cards, "jobs": jobs, "jobs_count": len(DEMO_JOBS) if self.demo else jobs_count, "as_of": as_of, "demo": bool(cards and cards[0].get("demo"))}
 
     def open_detail(self, target):
         """A card or panel clicked on any monitor opens in the main window. Only shows; never writes."""
@@ -479,6 +589,8 @@ class Companion:
             raise ServerError(404, "panel desconocido")
         if self.demo:
             p = dict(DEMO_PANELS.get(name, {"title": name, "lines": ["DEMO: sin datos reales"], "speak": "Este panel está en demostración.", "sensitive": True})); p.update(panel=name, demo=True)
+            if name == "practica":
+                p["chart"] = _demo_chart()
             return p
         if not self.client.url or not self._token():
             raise ServerError(503, "Sin datos reales: configura y empareja el equipo")
@@ -486,7 +598,8 @@ class Companion:
         lines = [str(x)[:500] for x in (p.get("lines") or [])][:80]
         return {"panel": name, "title": str(p.get("title", name))[:80], "lines": lines,
                 "speak": engines.speakable(p.get("speak", "")), "sensitive": bool(p.get("sensitive")),
-                "as_of": p.get("as_of"), "demo": False}
+                "as_of": p.get("as_of"), "demo": False,
+                **({"chart": clean_chart(p.get("chart"))} if name == "practica" else {})}
 
     # --- speech ---
     def transcribe(self, wav):
@@ -716,10 +829,11 @@ def make_handler(app, host, port):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(303, b"", headers={"Location": "/", "Set-Cookie":
                                   f"jd_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}"})
-            if u.path in ("/", "/hud", "/avatar", "/torre"):             # /hud = second monitor (4.0.5, 3.2)
+            if u.path in ("/", "/hud", "/avatar", "/torre", "/mercado"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html"}[u.path]
+                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html",
+                        "/mercado": "mercado.html"}[u.path]
                 return self._send(200, (HERE / "ui" / page).read_bytes(), "text/html; charset=utf-8")
             if not self._guard():
                 return

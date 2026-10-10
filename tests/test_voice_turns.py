@@ -190,6 +190,18 @@ class ServerDisplays(DesktopBase):
         self.assertTrue(all(row["due_date"] is None and row["created"] is None for row in projection["jobs"]))
         self.assertTrue(all(row["status"] == "new-stage" for row in projection["jobs"]))
 
+    def test_hud_jobs_use_real_stage_and_stay_read_only(self):
+        token, _ = self.pair(); self.seed()
+        c = j.add_client("Luis"); j.add_job(c["id"], "Baño", price=500, status="paid")
+        h = self.client.post("/desktop/v1/hud", headers=self.hdr(token)).json()
+        self.assertEqual(len(h["jobs"]), 1)                                  # el trabajo pagado no sale
+        job = h["jobs"][0]
+        self.assertEqual((job["status"], job["stage"], job["progress"]), ("confirmed", "Confirmado", 25))
+        self.assertEqual(job["due"], "2026-01-01"); self.assertTrue(job["overdue"])
+        self.assertIn("Ana", job["title"])
+        after = self.client.post("/desktop/v1/hud", headers=self.hdr(token)).json()
+        self.assertEqual(after["jobs"], h["jobs"])                         # leer dos veces no cambia nada
+
     def test_pulse_alerts_read_only_and_heartbeat_not_audited(self):
         token, _ = self.pair(); self.seed(); before = self.snapshot()
         n_audit = len(j.kv_get(D.AUDIT_KEY, []))
