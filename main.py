@@ -2930,9 +2930,35 @@ async def run_market_brief():
               "no des órdenes de compra/venta ni sugieras apalancamiento. No conoces cartera, "
               "historial, saldos ni resultados privados del dueño. Concluye: Observación informativa; "
               "Jarvis permanece en simulación y este informe no ejecuta operaciones.")
-    text, live = await _claude_research(prompt, max_tokens=2200, need_live=True)
-    if not text:
-        return None
+    try:
+        text, live = await asyncio.wait_for(
+            _claude_research(prompt, max_tokens=2200, need_live=True), timeout=35)
+    except asyncio.TimeoutError:
+        text, live = None, False
+    if not text or not live:
+        async def public_quote(symbol):
+            try:
+                return await asyncio.wait_for(paper_market(symbol), timeout=10)
+            except Exception:
+                return None
+        quotes = await asyncio.gather(*(public_quote(s) for s in ("BTC-USD", "ETH-USD", "SOL-USD")))
+        lines = [f"📊 Observación pública · {_now().isoformat(timespec='minutes')}",
+                 "Búsqueda web no disponible; informe parcial sin noticias verificadas.",
+                 "CRIPTO · Coinbase, datos públicos recientes:"]
+        found = False
+        for symbol, quote in zip(("BTC-USD", "ETH-USD", "SOL-USD"), quotes):
+            if quote:
+                found = True
+                lines.append(f"• {symbol}: ${quote['price']:,.2f} · {quote['trend']} · RSI {quote['rsi']} · {quote['at']}")
+            else:
+                lines.append(f"• {symbol}: sin dato verificado")
+        if not found:
+            return None
+        lines += ["Fuente: https://api.exchange.coinbase.com/products/BTC-USD/ticker (y ETH-USD/SOL-USD).",
+                  "ACCIONES: sin dato verificado. No hay cotizaciones ni noticias confirmadas.",
+                  "NEGOCIO ISLAFIX: sin dato verificado de materiales o economía local.",
+                  "Observación informativa; Jarvis permanece en simulación. No ejecuta operaciones."]
+        text = "\n".join(lines)
     def _save():
         with _data_lock:
             d = _rload()

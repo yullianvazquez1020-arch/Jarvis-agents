@@ -19,10 +19,23 @@ class MarketScope(unittest.TestCase):
 
     def test_missing_live_data_does_not_overwrite_cached_report(self):
         original=j._rload(); original['last_brief']='anterior'; j._rsave(original)
-        with patch.object(j,'_claude_research',new=AsyncMock(return_value=(None,False))):
+        with patch.object(j,'_claude_research',new=AsyncMock(return_value=(None,False))), patch.object(j,'paper_market',new=AsyncMock(side_effect=ValueError('no data'))):
             self.assertIsNone(asyncio.run(j.run_market_brief()))
         self.assertEqual(j._rload()['last_brief'],'anterior')
 
     def test_report_prompt_does_not_read_owner_books(self):
         with patch.object(j,'_bload',side_effect=AssertionError('private books')),patch.object(j,'_cload',side_effect=AssertionError('private clients')),patch.object(j,'_claude_research',new=AsyncMock(return_value=('público',True))):
             self.assertEqual(asyncio.run(j.run_market_brief()),'público')
+
+    def test_fallback_is_public_partial_and_identifies_unavailable_stocks(self):
+        quote={'price':100.,'trend':'lateral','rsi':50,'at':'2026-10-11T09:00-04:00'}
+        with patch.object(j,'_claude_research',new=AsyncMock(return_value=(None,False))), patch.object(j,'paper_market',new=AsyncMock(return_value=quote)):
+            result=asyncio.run(j.run_market_brief())
+        self.assertIn('informe parcial',result)
+        self.assertIn('ACCIONES: sin dato verificado',result)
+        self.assertIn('BTC-USD: $100.00',result)
+
+    def test_timeout_uses_public_fallback(self):
+        quote={'price':100.,'trend':'lateral','rsi':50,'at':'2026-10-11T09:00-04:00'}
+        with patch.object(j,'_claude_research',new=AsyncMock(side_effect=asyncio.TimeoutError)), patch.object(j,'paper_market',new=AsyncMock(return_value=quote)):
+            self.assertIn('informe parcial',asyncio.run(j.run_market_brief()))
