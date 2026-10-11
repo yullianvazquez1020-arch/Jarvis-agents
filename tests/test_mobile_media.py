@@ -68,6 +68,12 @@ class MobileMedia(unittest.TestCase):
             asyncio.run(m.analyze(j, '123', {'file_id': 'demo'}))
             self.assertNotIn('secret-exception-payload', str(logs.output) + str(send.call_args))
 
+    def test_low_memory_rejects_image_before_download(self):
+        import jarvis_media_budget as budget
+        with patch.object(j, 'AI_READY', True), patch.object(budget, 'memory_state', return_value=(350 * budget.MIB, 512 * budget.MIB)), patch.object(j, '_tg_file', AsyncMock()) as download, patch.object(j, '_tg_safe_send', AsyncMock()):
+            asyncio.run(m.analyze(j, '123', {'file_id': 'demo'}))
+            download.assert_not_awaited()
+
     def test_routing_private_and_receipt(self):
         def route(message):
             tasks = j._Tasks()

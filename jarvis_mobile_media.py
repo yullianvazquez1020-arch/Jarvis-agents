@@ -88,6 +88,9 @@ async def analyze(core, chat_id, media, caption='', *, video=False):
                 await heavy.acquire()
             try:
                 budget.check_start()
+                state = budget.memory_state()
+                if not video and state and state[1] - state[0] < 256 * budget.MIB:
+                    raise budget.MediaMemoryError('insufficient image decoding headroom')
                 raw = await core._tg_file(media['file_id'])
                 frames = await video_frames(raw) if video else [await asyncio.to_thread(image_bytes, raw)]
             finally:
