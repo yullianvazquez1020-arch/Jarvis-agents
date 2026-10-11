@@ -1,29 +1,49 @@
-# Estado de las fases — 8 de octubre de 2026
+# Estado de las fases — 11 de octubre de 2026
 
-## Disponible
+Este documento distingue implementación, configuración y operación comprobada.
+Un conector preparado no equivale a un envío recibido ni a un pago conciliado.
 
-- Voz Telegram local: Whisper tiny CPU/int8 y Piper, sin fallback a OpenAI/TTS externo.
-- Preguntas por voz en solo lectura; acciones mediante revisión y `/dictado ID`.
-- Memoria breve persistente: cuarenta mensajes, hasta diez turnos completos por sesión.
-- Respuestas por reglas locales para saludos, agradecimientos, despedidas, hora, fecha y ayuda. No llaman a Claude. Solo coinciden con el mensaje completo; las acciones y aprobaciones no son atajos de conversación.
-- Clientes, trabajos, inventario, cobros, libros, importación bancaria y práctica cripto ya existen; no se necesita activar trading real para usarlos.
-- Límites $100 por operación/$300 por día, aprobación del dueño y `/confirmar` fuera de la cola.
+## Estado observado en producción
 
-## Requiere conexión o una decisión concreta
+Consulta de `/health` a las 16:43 PR del 11 de octubre: versión 4.2.4, Upstash
+permanente, protección de escrituras activa, scheduler activo y sin último error.
+Render confirmó el despliegue `2713a282` (PR71) como `live`.
 
-| Fase | Requisito para completarla | Estado actual |
+| Fase | Implementado y comprobado | Requisito que sigue abierto |
 |---|---|---|
-| Chat libre local sin tokens | Equipo/servidor disponible, modelo medido y endpoint local autorizado | Las reglas reducen llamadas; las preguntas libres aún pueden llamar a Claude. No se instaló un LLM en los 512 MB de Render. |
-| Historial cifrado | Clave AES-256 generada y respaldada por el dueño (docs/CIFRADO_HISTORIAL.md), puesta en Render y `/cifrado migrar` verificado | Código de migración, respaldo, recuperación y reversión preparado (parche 4.2, sin desplegar). Sin clave en Render el historial sigue en claro; no afirmar que está cifrado hasta que `/cifrado` lo muestre. |
-| SMS, WhatsApp, llamadas y correo | Cuentas/número/permisos del proveedor, costos aceptados, prueba con destinatario autorizado | Conectores o borradores existentes no equivalen a una cuenta conectada. Los envíos requieren aprobación. |
-| Calendario | Cuenta y permisos autorizados y calendario destino | No afirmar que funciona solo por configurar una URL. |
-| Alertas de flujo de caja | Libros y vencimientos completos, reglas de aviso y periodo de prueba | Reporte local y aviso con deduplicación preparados en el corte de Grok, sin desplegar. Distingue saldo observado, libros y proyección; bloquea datos incompletos. Pendiente periodo de prueba real. |
-| Amazon y publicación en redes | Cuenta del vendedor/página y permisos, lectura antes de publicación | Investigación pública acotada y margen con costos del dueño preparados; no activan cuentas, compras ni publicaciones automáticas. Tarifas y métricas privadas requieren autorización. |
-| Página del negocio | Nombre/oficio/zona confirmados, revisión y alojamiento; solicitudes habilitadas explícitamente | HTML estático y receptor opcional preparados. BUSINESS_REQUESTS_ENABLED=false por defecto; no se compró dominio ni se publicó. |
-| IA local 24/7 con visión/agentes | Inventario real del hardware, capacidad y modelo medidos | Proyecto distinto del bot de Render; requiere instalación en equipo accesible. |
+| 1. Registros personales y libros | Editar/borrar, completar pagos/recordatorios, recurrencias; pruebas locales aprobadas | Validar los datos reales que introduzca el dueño |
+| 2. Clientes y trabajos | Precio/costo, pagos parciales, saldo, documentos y borradores con aprobación; pruebas aprobadas | Cliente piloto y oferta vigente; comprobante antes de registrar cobros |
+| 2. Mensajes y correo | Borradores y conectores con aprobación; en producción `sms=false`, `email=false` | Proveedor/remitente configurado y entrega de prueba autorizada; no hubo envío real |
+| 3. Organización | Calendario local, inventario y alertas de stock; pruebas aprobadas | Calendario externo sin conectar; no confundirlo con la agenda local |
+| 4. Avisos proactivos | Scheduler activo; resumen bancario semanal habilitado, lunes 08:00 PR; reglas de caja probadas | Importación bancaria reciente y vencimientos completos; no existe conexión bancaria privada verificada |
+| 5. Análisis de mercados | Informe separado de cripto, acciones y negocio; programado cada seis horas | Fuentes disponibles en cada ejecución; noticias/precios privados no garantizados, usar sin dato cuando falten |
+| 6. Trading | Plan simulado habilitado, órdenes reales apagadas; evaluación de minuto documentada | Muestra prospectiva y validación histórica suficiente; −2,02% en siete días no acredita rentabilidad |
+| Oportunidades de productos | Cálculo de margen con costos explícitos y candidatos documentados | Cotización puesta en PR, calidad, demanda y aprobación de cada compra |
+| Voz, display y manos | Cambios en el otro hilo del dueño; voz automática Telegram habilitada según salud | `device_delivery_verified=false`; prueba en la Mac y recepción de voz aún no certificadas aquí |
 
-OpenAI, TTS externo, trading real y ampliaciones de recursos no se activan por estas fases.
-Las respuestas locales de esta entrega no convierten todo el chat en gratuito.
-## Corte 4.2.0 (rama feature/jarvis-4.2.0, sin merge)
+## Verificación de esta entrega
 
-Parche aditivo en `jarvis_v420.py`: reglas locales, historial con redacción y marca de reinicio, perfil, propuestas de cash flow con presupuesto, lockout reusado, borradores Twilio sin envío, alerta temprana. Cara, holograma, CarPlay, Ojo de Dios y mini Jarvises siguen en 4.3+ (`CAMBIOS_4_2_0.md`).
+255 pruebas locales aprobadas: registros, flujos del negocio, extensiones, fase A,
+brief, operaciones, aprendizaje, alcance del mercado, plan de práctica y evaluación.
+Incluyen siete pruebas nuevas de continuidad de velas, precios válidos, archivos
+dañados, calentamiento de indicadores y ausencia de uso del cierre de la hora actual.
+Proveedores y datos de negocio de prueba simulados: no son ventas, cobros ni mensajes reales.
+
+La suite completa local se interrumpió con `Bus error` al cargar dependencias nativas
+de voz. No se presenta como aprobada ni se eliminaron esas pruebas: GitHub Actions
+es la puerta de integración completa, con dependencias reales y Redis sin omisiones.
+
+El parche de evaluación valida también las cachés, carga sus propias horas previas
+si faltan y registra hashes de ambas fuentes. No modifica las reglas del plan,
+el capital simulado, VERSION ni la producción de trading. No recalcula ni sustituye
+las cifras históricas publicadas.
+
+## Para cerrar la operación real
+
+Ver `PENDIENTES_OPERATIVOS.md`: cuentas/remitentes, oferta y cliente piloto, datos de
+cobro, cotizaciones y evidencia de entrega. Las claves se ponen en el proveedor,
+nunca en Git ni en el chat. El envío exacto conserva aprobación del dueño.
+
+Los límites siguen en $100 por operación y $300 por día. Comprar, pagar, publicar
+o activar dinero real no se autoriza por completar estas fases. IA local 24/7
+requiere hardware accesible y mediciones; no se declara instalada por tener código.
