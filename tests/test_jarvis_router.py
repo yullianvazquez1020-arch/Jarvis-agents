@@ -288,7 +288,7 @@ class VeniceDirect(unittest.TestCase):
         sent = []
         def fake(url, payload, headers, timeout, use_proxy):
             sent.append((url, payload)); return {"choices": [{"message": {"content": "hola"}}], "usage": {}}
-        with patch.dict(os.environ, {"VENICE_API_KEY": "k", "VENICE_MODEL": ""}), patch.object(jr, "_post", fake):
+        with patch.dict(os.environ, {"VENICE_API_KEY": "k", "VENICE_MODEL": "", "VENICE_ENABLED": "1"}), patch.object(jr, "_post", fake):
             self.assertEqual(jr.ask_venice("Hola")["text"], "hola")
             self.assertEqual(sent[0][0], "https://api.venice.ai/api/v1/chat/completions")
             self.assertEqual(sent[0][1]["model"], "venice-uncensored")

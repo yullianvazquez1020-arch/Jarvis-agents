@@ -21,6 +21,7 @@ SEALED_KEYS = {
     "jarvis:profile",
     "jarvis:bio",
     "jarvis:diary",
+    "jarvis:venice_history",
 }
 
 

@@ -17,6 +17,7 @@ class PrivateBackup(fixtures.Base):
         j.kv_set('jarvis:profile', {'metas': ['private goal']})
         j.kv_set('jarvis:bio', {'text': 'private biography'})
         j.kv_set('jarvis:diary', ['private diary'])
+        j.kv_set('jarvis:venice_history', {'session': [{'role': 'user', 'content': 'private Venice question'}]})
         j.add_income(50)
 
     def test_full_roundtrip_in_fresh_storage(self):
@@ -24,7 +25,7 @@ class PrivateBackup(fixtures.Base):
         original = {key: j.kv_get(key, None) for key in private.KEYS.values()}
         snap = json.loads(json.dumps(j.snapshot()))
         encoded = json.dumps(snap)
-        for secret in ('private question', 'private goal', 'private biography', 'private diary', self.key_a):
+        for secret in ('private question', 'private goal', 'private biography', 'private diary', 'private Venice question', self.key_a):
             self.assertNotIn(secret, encoded)
         self.restart()
         import tempfile

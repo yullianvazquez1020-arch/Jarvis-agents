@@ -122,7 +122,8 @@ _SECRET_ENVS = ("ANTHROPIC_API_KEY", "AGENT_API_KEY", "EXTERNAL_AGENT_KEY", "INC
                 "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "UPSTASH_REDIS_REST_TOKEN",
                 "COINBASE_API_PRIVATE_KEY", "COINBASE_API_KEY_NAME", "TWILIO_AUTH_TOKEN", "RESEND_API_KEY",
                 "OPENAI_API_KEY", "STT_AGENT_API_KEY", "TTS_AGENT_API_KEY", "AMAZON_CLIENT_SECRET",
-                "AMAZON_REFRESH_TOKEN", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN", "YOUTUBE_API_KEY")
+                "AMAZON_REFRESH_TOKEN", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN", "YOUTUBE_API_KEY", "VENICE_API_KEY", "DATA_ENCRYPTION_KEY",
+                "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "MOONSHOT_API_KEY")
 _SECRET_PATTERNS = [
     ("clave privada", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S)),
     ("clave Anthropic", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{16,}")),
@@ -290,38 +291,68 @@ async def llm_text(system: str, prompt: str, max_tokens: int = 1200, model: str 
     return LLMText(text, "anthropic", model, tokens, getattr(r, "stop_reason", None) == "max_tokens")
 API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 OWNER = os.getenv("OWNER_NAME", "the boss")
-# Venice (opt-in by VENICE_API_KEY). Direct text chat: /venice in Telegram, provider="venice" in /chat.
-# No tools, no actions, no money: it only talks. Sensitive data is refused before anything leaves.
-VENICE_SYSTEM = ("Eres Jarvis, la asistente de {owner} en Puerto Rico, hablando por el motor Venice. "
-                 "Responde en español, breve y directa. No puedes ejecutar acciones, pagos ni mensajes; "
-                 "si te piden eso, di que lo pidan a Jarvis normal.")
+# Venice is an external text provider. Explicit opt-in; never reads business data.
+VENICE_SYSTEM = "Responde en español, breve y directa. Solo texto: no ejecutas acciones, pagos ni mensajes."
 VENICE_HIST_MAX = 20
+VENICE_STORE = "jarvis:venice_history"
+_venice_lock = asyncio.Lock()
 
 def _venice_hist_key(session: str) -> str:
     return "jarvis:venice:" + hashlib.sha256(str(session).encode()).hexdigest()[:16]
 
+def _venice_load():
+    seal = _seal_module()
+    if seal is None or seal.key_state() != "ok" or _seal_paused["on"]:
+        raise ValueError("Venice requiere cifrado disponible")
+    raw = _kv_raw(VENICE_STORE, None)
+    if raw is None:
+        return {}
+    # Never silently replace unreadable history or accept unexpected plaintext.
+    if not seal.is_sealed(raw):
+        raise ValueError("Historial Venice sin cifrar; revisa /cifrado")
+    value = seal.open_seal(raw)
+    if not isinstance(value, dict):
+        raise ValueError("Historial Venice inválido")
+    return value
+
 async def venice_chat(session: str, text: str) -> str:
-    if not jarvis_router or not jarvis_router.venice_ready():
-        return "🔌 Venice no está conectado: falta VENICE_API_KEY en Render."
     t = (text or "").strip()
-    if t.lower() in ("reset", "borrar", "nuevo", "limpiar"):
-        await asyncio.to_thread(kv_set, _venice_hist_key(session), [])
-        return "🧹 Conversación con Venice borrada."
+    reset = t.lower() in ("reset", "borrar", "nuevo", "limpiar")
+    if not reset and (not jarvis_router or not jarvis_router.venice_ready()):
+        return "🔌 Venice no está habilitado: requiere VENICE_ENABLED y VENICE_API_KEY."
     if not t:
-        return "Uso: /venice tu pregunta  ·  /venice reset para empezar de cero"
-    hist = await asyncio.to_thread(kv_get, _venice_hist_key(session), [])
-    hist = hist if isinstance(hist, list) else []
-    try:
-        r = await asyncio.to_thread(jarvis_router.ask_venice, t, VENICE_SYSTEM.format(owner=OWNER), hist, 1200)
-    except jarvis_router.RouterError as e:
-        return f"⚠️ Venice: {e}"
-    except Exception as e:
-        logger.warning("venice failed (%s)", type(e).__name__)
-        return f"⚠️ Venice no respondió ({type(e).__name__}). Revisa la clave o intenta otra vez."
-    reply = r["text"] or "(sin respuesta)"
-    hist = (hist + [{"role": "user", "content": t}, {"role": "assistant", "content": reply}])[-VENICE_HIST_MAX:]
-    await asyncio.to_thread(kv_set, _venice_hist_key(session), hist)
-    return reply
+        return "Uso: /venice pregunta pública · /venice reset. Proveedor externo; no incluyas datos privados."
+    async with _venice_lock:
+        try:
+            await asyncio.to_thread(_require_leader)
+            data = await asyncio.to_thread(_venice_load)
+            key = _venice_hist_key(session)
+            legacy = await asyncio.to_thread(_kv_raw, key, None)
+            if reset:
+                data.pop(key, None)
+                await asyncio.to_thread(kv_set, VENICE_STORE, data)
+                if legacy is not None:
+                    await asyncio.to_thread(kv_set, key, [])
+                return "🧹 Conversación con Venice borrada."
+            if legacy:
+                return "🔒 Existe historial Venice antiguo sin cifrar. Usa /venice reset antes de continuar."
+            clean, found = _redact_secrets(t)
+            if found:
+                return "🔒 No envié el mensaje: contiene secretos."
+            if key not in data and len(data) >= 100:
+                return "Límite de conversaciones Venice; borra una conversación antes de continuar."
+            hist = data.get(key, [])
+            r = await asyncio.to_thread(jarvis_router.ask_venice, clean, VENICE_SYSTEM, hist, 1200)
+            reply = r["text"]
+            _, found = _redact_secrets(reply)
+            if found or jarvis_router.is_sensitive(reply):
+                return "🔒 Respuesta descartada por contener información sensible."
+            data[key] = (hist + [{"role": "user", "content": clean}, {"role": "assistant", "content": reply}])[-VENICE_HIST_MAX:]
+            await asyncio.to_thread(kv_set, VENICE_STORE, data)
+            return reply
+        except Exception as e:
+            logger.warning("venice failed (%s)", type(e).__name__)
+            return "⚠️ Venice no completó la consulta. Revisa configuración, cifrado y contenido público."
 
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TG_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
@@ -400,7 +431,7 @@ def _kv_raw(key, default):
 
 # Fase A (revisada): keys that jarvis_seal.py seals. Kept here too so that, if that file is missing from a
 # deploy, Jarvis still refuses to overwrite sealed data in clear (every other key is never affected).
-_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary"})
+_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history"})
 _seal_warned = set()
 
 def _seal_module():
@@ -7055,6 +7086,8 @@ async def _tg_route(msg, background):
     if cmd in ("/banco", "/movimientos"):
         # v3.4: bank balances / last movements without Claude (zero tokens). /movimientos 20
         background.add_task(_tg_bank_cmd, chat_id, cmd, arg.strip())
+        return {"ok": True}
+    if cmd == "/ayuda" and not is_owner_private(msg):
         return {"ok": True}
     if cmd in ("/mensajes", "/enviar", "/noenviar", "/cobros", "/practica", "/ayuda"):
         # v3.8: client messages (/enviar is the ONLY way one goes out), collections, paper trading, help
