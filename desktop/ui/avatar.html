@@ -6,7 +6,7 @@
       <div class="observatory-controls"><button id="atlas-motion" aria-pressed="false">Pausar universo</button><label>Detalle <select id="atlas-quality"><option value="eco">Ligero · Mac 2015</option><option value="rich">Más detalle</option></select></label><span>ESCENA LOCAL · SIN MÉTRICAS INVENTADAS</span></div><div class="atlas-tabs" aria-label="Vistas del portafolio"><button data-atlas="tower" aria-pressed="true">01 / Ciudad orbital</button><button data-atlas="galaxy" aria-pressed="false">02 / Galaxia</button><button data-atlas="cell" aria-pressed="false">03 / Membrana</button><button id="hand-navigation" aria-pressed="false">Navegar con la mano</button><button id="atlas-reset-zoom" type="button">Restablecer zoom</button></div>
       <div class="atlas-layout">
       <aside class="science-rail" aria-label="Sensores y arquitectura visual">
-        <section class="fui-module"><small>01 / PERCEPCIÓN</small><h2>Visión y gestos</h2><p id="observatory-hand">Cámara apagada</p><p class="module-note">Puntos reales de la cámara · procesamiento local</p></section>
+        <section class="fui-module"><small>01 / PERCEPCIÓN</small><h2>Visión y gestos</h2><p id="observatory-hand">Cámara apagada</p><p id="observatory-face">Rostro: apagado</p><p class="module-note">Puntos reales de la cámara · procesamiento local</p></section>
         <section class="fui-module"><small>02 / MEMBRANA</small><h2>Límites del sistema</h2><canvas id="membrane-mini" width="300" height="180" aria-label="Membrana celular decorativa"></canvas><p class="module-note">Representación artística · no mide seguridad</p></section>
         <section class="fui-module"><small>03 / CAMPO NEURONAL</small><h2>Arquitectura visual</h2><canvas id="brain-mini" width="300" height="180" aria-label="Red neuronal decorativa"></canvas><p class="module-note">Geometría animada · no actividad cerebral real</p></section>
       </aside>
@@ -17,6 +17,7 @@
     <div class="stage">
       <canvas id="c" width="960" height="540" aria-label="Avatar visual de Jarvis; el núcleo sigue la amplitud del audio que suena en la ventana de conversación"></canvas>
       <video id="hand-video" muted playsinline aria-hidden="true"></video>
+      <video id="face-video" muted playsinline aria-hidden="true"></video>
     </div>
     <div>
       <button id="speak" type="button">Probar pulso (sin audio)</button>
@@ -24,14 +25,18 @@
       <button id="style" type="button" aria-pressed="false">Ver anillos</button>
       <button id="motion" type="button" aria-pressed="false">Pausar animación</button>
       <button id="hands" type="button" aria-pressed="false">Activar mano</button>
+      <button id="face" type="button" aria-pressed="false">Activar rostro</button>
+      <button id="face-enroll" type="button">Enrolar dueño</button>
     </div>
     <p id="hand-status" role="status">Mano apagada.</p>
+    <p id="face-status" role="status">Rostro apagado.</p>
     <p id="animation-status" role="status"></p>
     <p id="voice-status" role="status">Núcleo: sin audio sonando.</p>
     <p id="status" role="status">Sin conexión comprobada.</p><label for="phrase">Frase de prueba</label><input maxlength="1000" id="phrase" value="Hola, soy Jarvis">
   </div>
 <script src="/ui/lipsync.js"></script>
 <script src="/ui/hands.js"></script>
+<script src="/ui/face.js"></script>
 <script src="/ui/gestures.js"></script>
 <script src="/ui/atlas.js"></script>
 <script src="/ui/hand-mouse.js"></script>
