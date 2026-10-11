@@ -413,6 +413,8 @@ async def extension_tick(now,can_send):
                 for stored in d.get('incoming',[]):
                     if stored['event_id']==e['event_id'] and stored['kind']==e['kind']:stored['notified']=True
                 save(d)
+            import jarvis_mobile_media
+            await jarvis_mobile_media.spoken_notice(core, 'Tienes un mensaje nuevo. Revisa su contenido en Telegram.')
     for w in watches:
         due=not w['last_at'] or (now-dt.datetime.fromisoformat(w['last_at'])).total_seconds()>=w['every_hours']*3600
         if due:
