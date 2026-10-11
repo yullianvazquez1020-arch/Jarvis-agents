@@ -5,7 +5,7 @@ Qué hace
   Si Ollama no responde: RouterError. Nunca se envía a la nube.
 - Tareas simples -> Ollama local; si falla, APIs compatibles con OpenAI en el orden de JARVIS_API_ORDER.
 - Tareas complejas -> APIs (Venice, DeepSeek, Qwen DashScope intl., Kimi); si todas fallan, Ollama como último recurso.
-- /venice: chat directo con Venice (solo texto, sin herramientas). Datos sensibles nunca salen.
+- /venice: chat directo con Venice (solo texto, sin herramientas). Rechaza patrones sensibles conocidos; no garantiza detectar todo dato personal.
 
 Qué NO hace
 - No ejecuta herramientas ni acciones. Devuelve texto y nada más: pagos, mensajes, /confirmar y aprobaciones
@@ -34,7 +34,7 @@ log = logging.getLogger("jarvis.router")
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_LOCAL_MODEL = "qwen3:4b-instruct"
-DEFAULT_ORDER = "venice,deepseek,qwen,kimi"
+DEFAULT_ORDER = "deepseek,qwen,kimi"
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 60_000
 
@@ -150,7 +150,15 @@ def status() -> dict:
 
 
 def is_sensitive(text: str | None) -> bool:
-    return bool(text) and bool(SENSITIVE.search(text))
+    if not text:
+        return False
+    if not isinstance(text, str):
+        return True
+    # Exact configured secrets supplement format detection, including opaque keys.
+    for name, value in os.environ.items():
+        if any(part in name.upper() for part in ("KEY", "TOKEN", "SECRET", "PASSWORD")) and len(value) >= 8 and value in text:
+            return True
+    return bool(SENSITIVE.search(text))
 
 
 def classify(text: str) -> str:
@@ -214,6 +222,8 @@ def ask_ollama(messages: list, max_tokens: int | None = None, timeout: float | N
 
 
 def ask_api(name: str, messages: list, max_tokens: int | None = None, timeout: float | None = None) -> tuple[str, int]:
+    if name == "venice" and not venice_ready():
+        raise RouterError("Venice no habilitado")
     p = provider(name)
     key = _env(p.key_env)
     if not key:
@@ -280,24 +290,31 @@ def route(prompt: str, system: str | None = None, force: str | None = None,
 
 
 def venice_ready() -> bool:
-    return bool(_env("VENICE_API_KEY"))
+    return _env("VENICE_ENABLED", "0").lower() in ("1", "true", "yes", "on") and bool(_env("VENICE_API_KEY"))
 
 
 def ask_venice(prompt: str, system: str | None = None, history: list | None = None,
                max_tokens: int | None = None) -> dict:
-    """Direct chat with Venice (/venice). Text only. Sensitive data never leaves: RouterError instead."""
+    """Direct chat with Venice (/venice). Text only. Reject detected sensitive data in every outbound message."""
     if not isinstance(prompt, str) or not prompt.strip():
         raise RouterError("Prompt vacío")
     if len(prompt) > MAX_PROMPT_CHARS:
         raise RouterError("Prompt demasiado largo")
-    if is_sensitive(prompt):
+    if is_sensitive(prompt) or is_sensitive(system):
         raise RouterError("Eso parece tener datos sensibles (clientes, teléfonos, cuentas, claves); "
                           "no lo mando a Venice. Pregúntaselo a Jarvis normal.")
     msgs = [{"role": "system", "content": system}] if system else []
+    if history is not None and not isinstance(history, list):
+        raise RouterError("Historial inválido")
     for m in (history or [])[-20:]:
-        if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str):
-            msgs.append({"role": m["role"], "content": m["content"]})
+        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") or not isinstance(m.get("content"), str):
+            raise RouterError("Historial inválido")
+        if is_sensitive(m["content"]):
+            raise RouterError("Historial sensible: no se envía a Venice")
+        msgs.append({"role": m["role"], "content": m["content"]})
     msgs.append({"role": "user", "content": prompt})
+    if sum(len(m["content"]) for m in msgs) > MAX_PROMPT_CHARS:
+        raise RouterError("Conversación demasiado larga")
     text, tokens = ask_api("venice", msgs, max_tokens)
     return {"text": text, "backend": f"venice:{provider('venice').model}", "tokens": tokens}
 

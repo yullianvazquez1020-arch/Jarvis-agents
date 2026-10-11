@@ -3,7 +3,7 @@ import json
 import logging
 import os
 
-KEYS = {name: 'jarvis:' + name for name in ('history', 'profile', 'bio', 'diary')}
+KEYS = {name: 'jarvis:' + name for name in ('history', 'profile', 'bio', 'diary', 'venice_history')}
 
 
 def export(core):
@@ -25,12 +25,12 @@ def restore_values(core, section):
     if not isinstance(section, dict) or section.get('format') != 1:
         raise ValueError('Formato de respaldo privado inválido')
     values = section.get('values')
-    if not isinstance(values, dict) or set(values) != set(KEYS):
+    if not isinstance(values, dict) or set(values) not in (set(KEYS), set(KEYS) - {"venice_history"}):
         raise ValueError('El respaldo privado debe incluir historial, perfil, bio y diario')
     seal = core._seal_module()
     writes = {}
     for name, key in KEYS.items():
-        value = values[name]
+        value = values.get(name)
         if isinstance(value, str) and value.startswith('sealed:'):
             if seal is None or seal.key_state() != 'ok':
                 raise ValueError('Se requiere la clave original para recuperar el respaldo privado')
@@ -41,7 +41,7 @@ def restore_values(core, section):
         if value is not None:
             if name == 'history' and (not isinstance(value, list) or not all(isinstance(r, dict) for r in value)):
                 raise ValueError('Historial del respaldo inválido')
-            if name == 'profile' and not isinstance(value, dict):
+            if name in ('profile', 'venice_history') and not isinstance(value, dict):
                 raise ValueError('Perfil del respaldo inválido')
             # No executable objects; reject NaN/Infinity before any write.
             json.dumps(value, allow_nan=False)
