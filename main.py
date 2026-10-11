@@ -7554,6 +7554,14 @@ _business_workflows.install(_sys.modules[__name__])
 
 import jarvis_specialists as _specialists
 _specialists.install(_sys.modules[__name__])
+# alibaba_research: lectura pública de proveedores, solo lectura y apagada por defecto (ALIBABA_RESEARCH_ENABLED=0).
+# Si el módulo falla, el resto de Jarvis arranca igual.
+try:
+    import jarvis_alibaba as _alibaba
+    _alibaba.install(_sys.modules[__name__])
+    ALIBABA_STATUS = "activa" if _alibaba.enabled() else "instalada, apagada"
+except Exception as _alibaba_exc:
+    ALIBABA_STATUS = f"no cargada ({type(_alibaba_exc).__name__})"
 
 # Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
 # 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its
