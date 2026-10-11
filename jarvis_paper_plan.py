@@ -203,7 +203,32 @@ def status():
     expectancy = None
     if win_rate is not None and avg_win is not None and avg_loss is not None:
         expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
-    return {'simulated': True, 'enabled': enabled(), 'wealth': round(wealth(d), 2),
+    total = wealth(d)
+    peak = p.get('peak', 1000.)
+    current_dd = max(0, 1 - total / peak) if peak > 0 else 0
+    max_dd = p['max_drawdown']
+    recovery = None
+    if max_dd > 0 and d['realized'] > 0:
+        recovery = d['realized'] / (max_dd * peak)
+    # Simple risk-of-ruin approximation (fixed fraction, assumes average RR).
+    ror = None
+    if win_rate is not None and avg_win is not None and avg_loss is not None and avg_loss > 0:
+        rr = avg_win / avg_loss
+        edge = (win_rate * (rr + 1) - 1) / rr if rr > 0 else -1
+        if edge > 0 and win_rate < 1:
+            ror = ((1 - edge) / (1 + edge)) ** (100 / 2)  # rough for 2% risk units
+        elif edge <= 0:
+            ror = 1.0
+    # Equity curve volatility (std of recent changes).
+    eq = d.get('equity') or []
+    vol = None
+    if len(eq) >= 10:
+        vals = [x['v'] for x in eq[-100:] if isinstance(x.get('v'), (int, float))]
+        if len(vals) >= 5:
+            mean = sum(vals) / len(vals)
+            var = sum((v - mean) ** 2 for v in vals) / len(vals)
+            vol = math.sqrt(var) / mean if mean else None
+    return {'simulated': True, 'enabled': enabled(), 'wealth': round(total, 2),
             'trading_cash': round(d['cash'], 2), 'realized_net': round(d['realized'], 2),
             'funds': {k: v / 100 for k, v in p['funds_cents'].items()},
             'closed_positions': closed, 'win_rate': 100 * win_rate if win_rate is not None else None,
@@ -211,7 +236,12 @@ def status():
             'avg_loss': round(avg_loss, 2) if avg_loss is not None else None,
             'profit_factor': round(profit_factor, 2) if profit_factor is not None else None,
             'expectancy': round(expectancy, 2) if expectancy is not None else None,
-            'max_drawdown_pct': round(p['max_drawdown'] * 100, 2), 'halted': p['halted'],
+            'max_drawdown_pct': round(max_dd * 100, 2),
+            'current_drawdown_pct': round(current_dd * 100, 2),
+            'recovery_factor': round(recovery, 2) if recovery is not None else None,
+            'risk_of_ruin_approx': round(ror, 3) if ror is not None else None,
+            'equity_vol_pct': round(vol * 100, 2) if vol is not None else None,
+            'halted': p['halted'],
             'positions': d['positions'], 'last_run': d['last_run'], 'real_transfers': False,
             'sample_sufficient': closed >= 30}
 
@@ -223,6 +253,11 @@ def text():
     avg_l = f"${s['avg_loss']:.2f}" if s['avg_loss'] is not None else '—'
     pf = f"{s['profit_factor']:.2f}" if s['profit_factor'] is not None else '—'
     exp = f"${s['expectancy']:.2f}" if s['expectancy'] is not None else '—'
+    cdd = f"{s['current_drawdown_pct']:.1f}%"
+    mdd = f"{s['max_drawdown_pct']:.1f}%"
+    rec = f"{s['recovery_factor']:.2f}" if s['recovery_factor'] is not None else '—'
+    ror = f"{s['risk_of_ruin_approx']:.1%}" if s['risk_of_ruin_approx'] is not None else '—'
+    vol = f"{s['equity_vol_pct']:.1f}%" if s['equity_vol_pct'] is not None else '—'
     sample = 'muestra suficiente (≥30)' if s['sample_sufficient'] else 'muestra insuficiente (<30 cierres)'
     return (f"🧪 Plan nuevo · SIMULADO · separado del historial anterior\n"
             f"Estado: {'activo' if s['enabled'] else 'apagado'} · capital inicial $1,000\n"
@@ -232,7 +267,8 @@ def text():
             f"suscripciones ${s['funds']['subscriptions']:.2f}; personal ${s['funds']['personal']:.2f}\n"
             f"Cierres {s['closed_positions']} · aciertos {win} (meta >55%) · {sample}\n"
             f"Ganancia media {avg_w} · pérdida media {avg_l} · profit factor {pf} · expectancy {exp}\n"
-            f"Caída máxima observada {s['max_drawdown_pct']}% · pausa por riesgo: {s['halted']}\n"
+            f"Riesgo: DD actual {cdd} · DD máx {mdd} · recovery {rec} · RoR aprox. {ror} · vol equity {vol}\n"
+            f"Pausa por riesgo: {s['halted']}\n"
             f"Riesgo previsto ≤2% por entrada; objetivos netos 2R/3R. Los saltos de precio pueden superar el stop.\n"
             f"Reserva 35/15/10/40: solo ganancias realizadas recuperadas, nunca transferencias reales. "
             f"35% es provisional para CPA, no una tasa fiscal. Última revisión: {s['last_run'] or 'pendiente'}. "
