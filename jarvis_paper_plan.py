@@ -193,29 +193,50 @@ def apply(d, markets):
 def status():
     d = load()
     p = d['plan']
+    closed = p['closed']
+    wins = p['wins']
+    losses = closed - wins
+    avg_win = p['sum_wins'] / wins if wins else None
+    avg_loss = p['sum_losses'] / losses if losses else None
+    profit_factor = p['sum_wins'] / p['sum_losses'] if p['sum_losses'] > 0 else None
+    win_rate = wins / closed if closed else None
+    expectancy = None
+    if win_rate is not None and avg_win is not None and avg_loss is not None:
+        expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
     return {'simulated': True, 'enabled': enabled(), 'wealth': round(wealth(d), 2),
             'trading_cash': round(d['cash'], 2), 'realized_net': round(d['realized'], 2),
             'funds': {k: v / 100 for k, v in p['funds_cents'].items()},
-            'closed_positions': p['closed'], 'win_rate': 100 * p['wins'] / p['closed'] if p['closed'] else None,
+            'closed_positions': closed, 'win_rate': 100 * win_rate if win_rate is not None else None,
+            'avg_win': round(avg_win, 2) if avg_win is not None else None,
+            'avg_loss': round(avg_loss, 2) if avg_loss is not None else None,
+            'profit_factor': round(profit_factor, 2) if profit_factor is not None else None,
+            'expectancy': round(expectancy, 2) if expectancy is not None else None,
             'max_drawdown_pct': round(p['max_drawdown'] * 100, 2), 'halted': p['halted'],
-            'positions': d['positions'], 'last_run': d['last_run'], 'real_transfers': False}
+            'positions': d['positions'], 'last_run': d['last_run'], 'real_transfers': False,
+            'sample_sufficient': closed >= 30}
 
 
 def text():
     s = status()
     win = f"{s['win_rate']:.1f}%" if s['win_rate'] is not None else 'sin muestra'
+    avg_w = f"${s['avg_win']:.2f}" if s['avg_win'] is not None else '—'
+    avg_l = f"${s['avg_loss']:.2f}" if s['avg_loss'] is not None else '—'
+    pf = f"{s['profit_factor']:.2f}" if s['profit_factor'] is not None else '—'
+    exp = f"${s['expectancy']:.2f}" if s['expectancy'] is not None else '—'
+    sample = 'muestra suficiente (≥30)' if s['sample_sufficient'] else 'muestra insuficiente (<30 cierres)'
     return (f"🧪 Plan nuevo · SIMULADO · separado del historial anterior\n"
             f"Estado: {'activo' if s['enabled'] else 'apagado'} · capital inicial $1,000\n"
             f"Patrimonio ${s['wealth']:.2f} · efectivo para operar ${s['trading_cash']:.2f}\n"
             f"P&L realizado neto ${s['realized_net']:.2f}\n"
             f"Fondos simulados: impuestos ${s['funds']['tax_reserve']:.2f}; operación ${s['funds']['operations']:.2f}; "
             f"suscripciones ${s['funds']['subscriptions']:.2f}; personal ${s['funds']['personal']:.2f}\n"
-            f"Posiciones cerradas {s['closed_positions']} · aciertos {win} (meta >55%, no garantizada)\n"
+            f"Cierres {s['closed_positions']} · aciertos {win} (meta >55%) · {sample}\n"
+            f"Ganancia media {avg_w} · pérdida media {avg_l} · profit factor {pf} · expectancy {exp}\n"
             f"Caída máxima observada {s['max_drawdown_pct']}% · pausa por riesgo: {s['halted']}\n"
             f"Riesgo previsto ≤2% por entrada; objetivos netos 2R/3R. Los saltos de precio pueden superar el stop.\n"
             f"Reserva 35/15/10/40: solo ganancias realizadas recuperadas, nunca transferencias reales. "
             f"35% es provisional para CPA, no una tasa fiscal. Última revisión: {s['last_run'] or 'pendiente'}. "
-            f"Menos de 30 cierres: muestra insuficiente. No habilita dinero real.")
+            f"No habilita dinero real.")
 
 
 async def tick(now):
