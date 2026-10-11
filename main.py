@@ -290,6 +290,39 @@ async def llm_text(system: str, prompt: str, max_tokens: int = 1200, model: str 
     return LLMText(text, "anthropic", model, tokens, getattr(r, "stop_reason", None) == "max_tokens")
 API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 OWNER = os.getenv("OWNER_NAME", "the boss")
+# Venice (opt-in by VENICE_API_KEY). Direct text chat: /venice in Telegram, provider="venice" in /chat.
+# No tools, no actions, no money: it only talks. Sensitive data is refused before anything leaves.
+VENICE_SYSTEM = ("Eres Jarvis, la asistente de {owner} en Puerto Rico, hablando por el motor Venice. "
+                 "Responde en español, breve y directa. No puedes ejecutar acciones, pagos ni mensajes; "
+                 "si te piden eso, di que lo pidan a Jarvis normal.")
+VENICE_HIST_MAX = 20
+
+def _venice_hist_key(session: str) -> str:
+    return "jarvis:venice:" + hashlib.sha256(str(session).encode()).hexdigest()[:16]
+
+async def venice_chat(session: str, text: str) -> str:
+    if not jarvis_router or not jarvis_router.venice_ready():
+        return "🔌 Venice no está conectado: falta VENICE_API_KEY en Render."
+    t = (text or "").strip()
+    if t.lower() in ("reset", "borrar", "nuevo", "limpiar"):
+        await asyncio.to_thread(kv_set, _venice_hist_key(session), [])
+        return "🧹 Conversación con Venice borrada."
+    if not t:
+        return "Uso: /venice tu pregunta  ·  /venice reset para empezar de cero"
+    hist = await asyncio.to_thread(kv_get, _venice_hist_key(session), [])
+    hist = hist if isinstance(hist, list) else []
+    try:
+        r = await asyncio.to_thread(jarvis_router.ask_venice, t, VENICE_SYSTEM.format(owner=OWNER), hist, 1200)
+    except jarvis_router.RouterError as e:
+        return f"⚠️ Venice: {e}"
+    except Exception as e:
+        logger.warning("venice failed (%s)", type(e).__name__)
+        return f"⚠️ Venice no respondió ({type(e).__name__}). Revisa la clave o intenta otra vez."
+    reply = r["text"] or "(sin respuesta)"
+    hist = (hist + [{"role": "user", "content": t}, {"role": "assistant", "content": reply}])[-VENICE_HIST_MAX:]
+    await asyncio.to_thread(kv_set, _venice_hist_key(session), hist)
+    return reply
+
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TG_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 TG_OWNER = os.getenv("TELEGRAM_OWNER_ID", "").strip()
@@ -6275,6 +6308,7 @@ def _fail_text(e):
 class Chat(BaseModel):
     message: str = Field(min_length=1, max_length=20000)
     session: str = Field(default="default", min_length=1, max_length=128)
+    provider: str = Field(default="jarvis", max_length=16)   # "venice" = direct Venice chat (text only)
 
 def _key_ok(given, expected):
     return bool(expected) and secrets.compare_digest((given or "").encode(), expected.encode())
@@ -6306,7 +6340,10 @@ async def chat(req: Chat, x_api_key: str = Header(...)):
     if not _rate_ok("chat:" + hashlib.sha256(x_api_key.encode()).hexdigest()[:16]):
         raise HTTPException(429, f"Más de {RATE_PER_MIN} mensajes por minuto; espera un momento")
     try:
-        reply = await run(req.session, req.message)
+        if req.provider.strip().lower() == "venice":
+            reply = await venice_chat("chat:" + req.session, req.message)
+        else:
+            reply = await run(req.session, req.message)
     except Exception as e:
         logger.exception("chat failed")
         reply = _fail_text(e)
@@ -6805,6 +6842,7 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
              "/mercado · /seguridad · /diagnostico · /cifrado\n"
+             "/venice pregunta — chat directo con Venice (solo texto) · /venice reset\n"
              "/perfil · /flujo · /monetizar · /canal · /urgente — 4.2.0, sin ejecutar\n"
              "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
              "Para lo demás, escríbeme normal. El deploy lo controlas tú.")
@@ -6954,6 +6992,14 @@ async def _tg_route(msg, background):
                 g = _gload(); gate_audit(g, cmd, "-", "rechazado", "no es chat privado del dueño"); _gsave(g)
         await asyncio.to_thread(_deny)
         background.add_task(_tg_safe_send, chat_id, "⛔ Eso solo se aprueba en tu chat privado con Jarvis.")
+        return {"ok": True}
+    if cmd == "/venice":
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        async def _send_venice(chat_id=chat_id, q=arg.strip()):
+            await _tg_send(chat_id, await venice_chat(f"tg:{chat_id}", q))
+        background.add_task(_send_venice)
         return {"ok": True}
     if cmd in ("/diagnostico", "/diagnóstico", "/estado", "/version", "/versión"):
         # v4.0.1: live diagnostics (zero tokens)
