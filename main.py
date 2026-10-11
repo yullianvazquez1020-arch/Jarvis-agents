@@ -7213,6 +7213,8 @@ async def health():
             "paper_trading": {"enabled": PAPER_ON, "products": PAPER_PRODUCTS, "start_usd": PAPER_START,
                               "every_hours": PAPER_EVERY, "report_hour": PAPER_REPORT_HOUR or "off",
                               "real_money": False},
+            "paper_plan": {"enabled": os.getenv("PAPER_PLAN_ENABLED", "false").lower() in ("1", "true", "yes"),
+                           "module": globals().get("PAPER_PLAN_STATUS", "no cargado"), "real_money": False},
             "scheduler": {"enabled": SCHED_ON, "every_seconds": SCHED_EVERY,
                           "brief_hour": BRIEF_HOUR or "off", "bill_notice_days": BILL_NOTICE_DAYS,
                           "market_brief": f"every {MARKET_EVERY}h" if MARKET_ON else "off",
@@ -7349,3 +7351,13 @@ try:
 except Exception as _e:
     PRACTICA_STATUS = f"apagada ({type(_e).__name__})"
     logger.warning("practica off: %s", type(_e).__name__)
+
+# Separate simulated experiment requested by the owner; never replaces prior paper history.
+PAPER_PLAN_STATUS = "no cargado"
+try:
+    import jarvis_paper_plan as _paper_plan
+    _paper_plan.install(__import__("sys").modules[__name__])
+    PAPER_PLAN_STATUS = "listo"
+except Exception as _e:
+    PAPER_PLAN_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("paper plan off: %s", type(_e).__name__)
