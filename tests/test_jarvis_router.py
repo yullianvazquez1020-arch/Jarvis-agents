@@ -50,7 +50,7 @@ class RouterBase(unittest.TestCase):
 
     def setUp(self):
         CALLS.clear(); FAIL.clear(); REPLY.clear()
-        env = {"OLLAMA_URL": self.url, "DEEPSEEK_API_KEY": FAKE_KEY, "DASHSCOPE_API_KEY": "", "MOONSHOT_API_KEY": "",
+        env = {"OLLAMA_URL": self.url, "DEEPSEEK_API_KEY": FAKE_KEY, "DASHSCOPE_API_KEY": "", "MOONSHOT_API_KEY": "", "VENICE_API_KEY": "",
                "JARVIS_API_ORDER": "deepseek,qwen,kimi", "JARVIS_LOCAL_MODEL": "", "JARVIS_ROUTER_ENABLED": "0"}
         for p in (patch.dict(os.environ, env),
                   patch.dict(jr.BASE_URLS, {n: f"{self.url}/{n}" for n in ("deepseek", "qwen", "kimi")})):
@@ -198,7 +198,7 @@ class Safety(RouterBase):
 
     def test_status_has_no_values(self):
         s = jr.status()
-        self.assertEqual(s["keys_present"], {"deepseek": True, "qwen": False, "kimi": False})
+        self.assertEqual(s["keys_present"], {"venice": False, "deepseek": True, "qwen": False, "kimi": False})
         self.assertNotIn(FAKE_KEY, json.dumps(s))
 
     def test_stdlib_only(self):
@@ -281,3 +281,17 @@ class SingleGate(RouterBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VeniceDirect(unittest.TestCase):
+    def test_venice_endpoint_and_sensitive_block(self):
+        sent = []
+        def fake(url, payload, headers, timeout, use_proxy):
+            sent.append((url, payload)); return {"choices": [{"message": {"content": "hola"}}], "usage": {}}
+        with patch.dict(os.environ, {"VENICE_API_KEY": "k", "VENICE_MODEL": ""}), patch.object(jr, "_post", fake):
+            self.assertEqual(jr.ask_venice("Hola")["text"], "hola")
+            self.assertEqual(sent[0][0], "https://api.venice.ai/api/v1/chat/completions")
+            self.assertEqual(sent[0][1]["model"], "venice-uncensored")
+            with self.assertRaises(jr.RouterError):
+                jr.ask_venice("mi password es abc")
+            self.assertEqual(len(sent), 1)

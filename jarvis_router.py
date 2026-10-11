@@ -4,14 +4,15 @@ Qué hace
 - Texto sensible (clientes, facturas, teléfonos, correos, direcciones, credenciales) -> SOLO Ollama local.
   Si Ollama no responde: RouterError. Nunca se envía a la nube.
 - Tareas simples -> Ollama local; si falla, APIs compatibles con OpenAI en el orden de JARVIS_API_ORDER.
-- Tareas complejas -> APIs (DeepSeek, Qwen DashScope intl., Kimi); si todas fallan, Ollama como último recurso.
+- Tareas complejas -> APIs (Venice, DeepSeek, Qwen DashScope intl., Kimi); si todas fallan, Ollama como último recurso.
+- /venice: chat directo con Venice (solo texto, sin herramientas). Datos sensibles nunca salen.
 
 Qué NO hace
 - No ejecuta herramientas ni acciones. Devuelve texto y nada más: pagos, mensajes, /confirmar y aprobaciones
   siguen pasando por los controles de Jarvis. Se activa solo con JARVIS_ROUTER_ENABLED=1 (lo decide el dueño).
 
 Secretos
-- Claves solo por variables de entorno (DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, MOONSHOT_API_KEY).
+- Claves solo por variables de entorno (VENICE_API_KEY, DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, MOONSHOT_API_KEY).
 - Los logs y errores llevan nombres de backend, tipos de error y nombres de variables; nunca claves ni prompts.
 - No sigue redirecciones (una redirección podría reenviar la cabecera Authorization a otro host).
 - Ollama tiene que estar en loopback (127.0.0.1, localhost o ::1) y se llama sin proxy.
@@ -33,7 +34,7 @@ log = logging.getLogger("jarvis.router")
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_LOCAL_MODEL = "qwen3:4b-instruct"
-DEFAULT_ORDER = "deepseek,qwen,kimi"
+DEFAULT_ORDER = "venice,deepseek,qwen,kimi"
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 60_000
 
@@ -48,16 +49,18 @@ class Provider:
 
 # Fixed endpoints (requirement 3). The model names can be configured; the URLs cannot.
 BASE_URLS = {
+    "venice": "https://api.venice.ai/api/v1",
     "deepseek": "https://api.deepseek.com",
     "qwen": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "kimi": "https://api.moonshot.ai/v1",
 }
 _MODEL_ENV = {
+    "venice": ("VENICE_MODEL", "venice-uncensored"),
     "deepseek": ("DEEPSEEK_MODEL", "deepseek-flash"),
     "qwen": ("QWEN_MODEL", "qwen-flash"),
     "kimi": ("KIMI_MODEL", "kimi-k2-0711-preview"),  # confirm the exact name with Moonshot before enabling
 }
-_KEY_ENV = {"deepseek": "DEEPSEEK_API_KEY", "qwen": "DASHSCOPE_API_KEY", "kimi": "MOONSHOT_API_KEY"}
+_KEY_ENV = {"venice": "VENICE_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "qwen": "DASHSCOPE_API_KEY", "kimi": "MOONSHOT_API_KEY"}
 
 SENSITIVE = re.compile(
     r"("
@@ -274,6 +277,29 @@ def route(prompt: str, system: str | None = None, force: str | None = None,
             log.warning("router: ollama falló (%s)", type(e).__name__)
             failures.append(f"ollama:{_why(e)}")
     raise RouterError("Ningún backend disponible: " + "; ".join(failures))
+
+
+def venice_ready() -> bool:
+    return bool(_env("VENICE_API_KEY"))
+
+
+def ask_venice(prompt: str, system: str | None = None, history: list | None = None,
+               max_tokens: int | None = None) -> dict:
+    """Direct chat with Venice (/venice). Text only. Sensitive data never leaves: RouterError instead."""
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise RouterError("Prompt vacío")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise RouterError("Prompt demasiado largo")
+    if is_sensitive(prompt):
+        raise RouterError("Eso parece tener datos sensibles (clientes, teléfonos, cuentas, claves); "
+                          "no lo mando a Venice. Pregúntaselo a Jarvis normal.")
+    msgs = [{"role": "system", "content": system}] if system else []
+    for m in (history or [])[-20:]:
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str):
+            msgs.append({"role": m["role"], "content": m["content"]})
+    msgs.append({"role": "user", "content": prompt})
+    text, tokens = ask_api("venice", msgs, max_tokens)
+    return {"text": text, "backend": f"venice:{provider('venice').model}", "tokens": tokens}
 
 
 if __name__ == "__main__":
