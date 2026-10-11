@@ -9,8 +9,10 @@ WEB_SEARCH_ENABLED=true. Usa el cliente Anthropic existente y consume tokens y
 búsquedas según su cuenta. No usa Venice ni añade proveedores de voz.
 
 El scheduler intenta una vez por bloque de seis horas y envía al dueño por
-Telegram si existe respuesta con búsqueda web. Sin búsqueda no inventa informe;
-registra error y espera el siguiente bloque. La exclusión entre instancias evita
+Telegram si existe respuesta con búsqueda web. La búsqueda tiene límite de 35 segundos.
+Sin búsqueda, intenta precios públicos recientes de BTC/ETH/SOL, con límite de 10
+segundos por consulta en paralelo. Marca acciones y negocio sin dato verificado.
+Si tampoco consigue precios recientes, registra error y espera el siguiente bloque. La exclusión entre instancias evita
 repeticiones. No garantiza entrega exactamente cada seis horas ante caída del
 servicio o errores del proveedor. /mercado muestra el último informe y su edad.
 
