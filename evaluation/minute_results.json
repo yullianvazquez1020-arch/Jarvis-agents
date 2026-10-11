@@ -1,0 +1,49 @@
+{
+  "start": "2026-10-03T00:00Z",
+  "end_exclusive": "2026-10-10T00:00Z",
+  "samples_per_symbol": 10080,
+  "data_sha256": "773bf840875547a20b1dbdceb1b0734aff6cdc3c3a2dc5e163e8788da9be6c7b",
+  "engine_sha256": "b21b5c77b3359ee98e735357652c8b67d948e2b843ba4626edd1f4976da99b5a",
+  "minute": {
+    "liquidation_value": 979.8,
+    "net_return_pct": -2.02,
+    "realized_net": -18.86,
+    "closed": 3,
+    "wins": 0,
+    "win_rate_pct": 0.0,
+    "max_observed_drawdown_pct": 2.165,
+    "open_positions": 1,
+    "halted": false
+  },
+  "hourly_same_week": {
+    "start": "2026-10-03T00:00:00+00:00",
+    "end_exclusive": "2026-10-10T00:00:00+00:00",
+    "fee_pct": 0.6,
+    "slippage_pct": 0.1,
+    "marked_wealth": 979.81,
+    "liquidation_value": 979.81,
+    "net_return_pct": -2.02,
+    "realized_net": -20.19,
+    "fees": 3.49,
+    "closed": 3,
+    "wins": 0,
+    "win_rate_pct": 0.0,
+    "profit_factor": 0.0,
+    "max_observed_hourly_drawdown_pct": 2.02,
+    "halted": false,
+    "open_positions": 0,
+    "funds_cents": {
+      "tax_reserve": 0,
+      "operations": 0,
+      "subscriptions": 0,
+      "personal": 0
+    },
+    "buy_hold_liquidation": 929.74
+  },
+  "limitations": [
+    "Only seven days; insufficient sample",
+    "Minute opens, not full tick path or actual fills",
+    "Historical not prospective out-of-sample",
+    "No real order or production state access"
+  ]
+}

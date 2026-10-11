@@ -23,12 +23,12 @@ def make_core():
     exec(compile(ast.Module(body=body,type_ignores=[]), 'main.py:pure_functions', 'exec'), core.__dict__)
     return core
 
-def download(symbol, start, end):
+def download(symbol, start, end, granularity=3600):
     rows = {}
-    for a in range(start, end, 299*3600):
-        b = min(end,a+299*3600)
+    for a in range(start, end, 299*granularity):
+        b = min(end,a+299*granularity)
         iso=lambda t: dt.datetime.fromtimestamp(t,dt.timezone.utc).isoformat().replace('+00:00','Z')
-        url=f'https://api.exchange.coinbase.com/products/{symbol}/candles?granularity=3600&start={iso(a)}&end={iso(b)}'
+        url=f'https://api.exchange.coinbase.com/products/{symbol}/candles?granularity={granularity}&start={iso(a)}&end={iso(b)}'
         data=json.loads(subprocess.run(["curl","-fsS","--retry","2","--max-time","30",url],capture_output=True,text=True,check=True).stdout)
         if not isinstance(data,list): raise ValueError('invalid candles')
         for row in data:
@@ -38,7 +38,7 @@ def download(symbol, start, end):
                 if min(row[1:5])<=0: raise ValueError('nonpositive candle')
                 if t in rows and rows[t]!=row: raise ValueError('conflicting candle')
                 rows[t]=row
-    expected=set(range(start,end,3600))
+    expected=set(range(start,end,granularity))
     if set(rows)!=expected: raise ValueError(f'{symbol}: missing {len(expected-set(rows))} candles')
     return [rows[t] for t in sorted(rows)]
 
