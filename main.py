@@ -2915,13 +2915,22 @@ async def _claude_research(prompt: str, max_tokens: int = 1200, need_live: bool 
         return f"⚠️ La investigación falló ({type(e).__name__}).", False
 
 async def run_market_brief():
-    """Market / business climate brief from live web data, cached for /mercado. None if no live data."""
+    """Separate public investment watch and PR business climate; never orders."""
     today = _today().isoformat()
-    prompt = (f"Hoy es {today}. Busca en internet y resume en máximo 12 líneas el clima de mercado relevante "
-              "para un negocio pequeño de construcción en Puerto Rico: inflación y tasas en EE.UU., precio de "
-              "materiales/commodities clave (acero, madera, cemento, combustible), y noticias económicas que "
-              "afecten a PR o a pymes. Pon la fecha de cada dato. Formato: 📊 Mercado (fecha) + bullets.")
-    text, live = await _claude_research(prompt, max_tokens=1500, need_live=True)
+    prompt = (f"Hoy es {today}, zona America/Puerto_Rico. Investiga información pública actual "
+              "y redacta tres secciones separadas, máximo 24 líneas en total: "
+              "1. CRIPTO EN OBSERVACIÓN: BTC, ETH y SOL; tendencia, volatilidad y riesgos. "
+              "2. ACCIONES EN OBSERVACIÓN: panorama amplio de la bolsa estadounidense, "
+              "indicadores y noticias; indica si el mercado está cerrado y la fecha del último cierre. "
+              "3. NEGOCIO ISLAFIX PRO EN PUERTO RICO: acero, madera, cemento, combustible "
+              "y economía local. No mezcles rendimientos de trading con ingresos del negocio. "
+              "Usa fuentes primarias y enlaza cada dato con fecha y hora cuando estén disponibles. "
+              "Nunca presentes una cotización atrasada como precio en vivo. Si un dato no está "
+              "verificado, escribe sin dato verificado; no lo inventes. No prometas ganancias, "
+              "no des órdenes de compra/venta ni sugieras apalancamiento. No conoces cartera, "
+              "historial, saldos ni resultados privados del dueño. Concluye: Observación informativa; "
+              "Jarvis permanece en simulación y este informe no ejecuta operaciones.")
+    text, live = await _claude_research(prompt, max_tokens=2200, need_live=True)
     if not text:
         return None
     def _save():
@@ -5776,7 +5785,7 @@ async def _tick():
                 else:
                     _sched_state["last_error"] = "market: web search not available; brief not sent"
             except Exception as e:
-                _sched_state["last_error"] = f"market: {type(e).__name__}: {e}"
+                _sched_state["last_error"] = f"market: {type(e).__name__}"
     await _tick_v38(now, can_send)
     _sched_state["last_tick"] = now.isoformat()
 
