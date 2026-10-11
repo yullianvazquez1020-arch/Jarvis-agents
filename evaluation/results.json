@@ -1,0 +1,110 @@
+{
+  "source": "Coinbase Exchange public hourly candles",
+  "data_sha256": "0898be8695c369c25bf0f0795c35914a0cad6b70e64a540b148bea854425b5aa",
+  "engine_sha256": "b21b5c77b3359ee98e735357652c8b67d948e2b843ba4626edd1f4976da99b5a",
+  "tuned": false,
+  "true_out_of_sample": false,
+  "minute_execution_reproduced": false,
+  "results": [
+    {
+      "start": "2026-07-11T00:00:00+00:00",
+      "end_exclusive": "2026-10-10T00:00:00+00:00",
+      "fee_pct": 0.6,
+      "slippage_pct": 0.1,
+      "marked_wealth": 1082.37,
+      "liquidation_value": 1081.63,
+      "net_return_pct": 8.16,
+      "realized_net": 76.39,
+      "fees": 13.1,
+      "closed": 10,
+      "wins": 6,
+      "win_rate_pct": 60.0,
+      "profit_factor": 3.951,
+      "max_observed_hourly_drawdown_pct": 2.38,
+      "halted": false,
+      "open_positions": 1,
+      "funds_cents": {
+        "tax_reserve": 3118,
+        "operations": 1336,
+        "subscriptions": 891,
+        "personal": 3566
+      },
+      "buy_hold_liquidation": 1337.75
+    },
+    {
+      "start": "2026-07-11T00:00:00+00:00",
+      "end_exclusive": "2026-08-25T00:00:00+00:00",
+      "fee_pct": 0.6,
+      "slippage_pct": 0.1,
+      "marked_wealth": 1062.47,
+      "liquidation_value": 1060.27,
+      "net_return_pct": 6.03,
+      "realized_net": 46.72,
+      "fees": 6.9,
+      "closed": 4,
+      "wins": 3,
+      "win_rate_pct": 75.0,
+      "profit_factor": 8.022,
+      "max_observed_hourly_drawdown_pct": 2.38,
+      "halted": false,
+      "open_positions": 3,
+      "funds_cents": {
+        "tax_reserve": 1634,
+        "operations": 700,
+        "subscriptions": 467,
+        "personal": 1870
+      },
+      "buy_hold_liquidation": 1266.69
+    },
+    {
+      "start": "2026-08-25T00:00:00+00:00",
+      "end_exclusive": "2026-10-10T00:00:00+00:00",
+      "fee_pct": 0.6,
+      "slippage_pct": 0.1,
+      "marked_wealth": 1000.33,
+      "liquidation_value": 998.9,
+      "net_return_pct": -0.11,
+      "realized_net": -2.97,
+      "fees": 6.0,
+      "closed": 4,
+      "wins": 1,
+      "win_rate_pct": 25.0,
+      "profit_factor": 0.844,
+      "max_observed_hourly_drawdown_pct": 2.98,
+      "halted": false,
+      "open_positions": 2,
+      "funds_cents": {
+        "tax_reserve": 114,
+        "operations": 48,
+        "subscriptions": 32,
+        "personal": 132
+      },
+      "buy_hold_liquidation": 1035.2
+    },
+    {
+      "start": "2026-07-11T00:00:00+00:00",
+      "end_exclusive": "2026-10-10T00:00:00+00:00",
+      "fee_pct": 1.2,
+      "slippage_pct": 0.2,
+      "marked_wealth": 1078.16,
+      "liquidation_value": 1075.97,
+      "net_return_pct": 7.6,
+      "realized_net": 71.59,
+      "fees": 18.36,
+      "closed": 6,
+      "wins": 4,
+      "win_rate_pct": 66.67,
+      "profit_factor": 5.093,
+      "max_observed_hourly_drawdown_pct": 2.5,
+      "halted": false,
+      "open_positions": 2,
+      "funds_cents": {
+        "tax_reserve": 2771,
+        "operations": 1187,
+        "subscriptions": 791,
+        "personal": 3170
+      },
+      "buy_hold_liquidation": 1319.0
+    }
+  ]
+}
