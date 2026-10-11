@@ -5744,6 +5744,8 @@ async def _tick():
                 continue   # not marked -> retried next tick
             await asyncio.to_thread(mark_alert_sent, a)
             _sched_state["alerts_sent"] += 1
+            import jarvis_mobile_media
+            await jarvis_mobile_media.spoken_notice(_sys.modules[__name__], a["text"])
         if BRIEF_HOUR.isdigit() and now.hour == int(BRIEF_HOUR):
             bkey = f"jarvis:brief:{now.date().isoformat()}"
             if await asyncio.to_thread(_claim, bkey, 2 * 86400):
@@ -5752,6 +5754,9 @@ async def _tick():
                 except Exception as e:
                     await asyncio.to_thread(_unclaim, bkey)
                     _sched_state["last_error"] = f"brief: {type(e).__name__}"
+                else:
+                    import jarvis_mobile_media
+                    await jarvis_mobile_media.spoken_notice(_sys.modules[__name__], 'Tu resumen del día está disponible en Telegram.')
     ckey = f"jarvis:backupclaim:{now.date().isoformat()}"
     if await asyncio.to_thread(_claim, ckey, 2 * 86400):
         try:
@@ -6873,6 +6878,7 @@ HELP_TEXT = ("🤖 Atajos de Jarvis (sin gastar tokens):\n"
              "/cripto · /cripto movimientos · /aprobar N · /confirmar N CÓDIGO · /rechazar N\n"
              "/cripto modo — práctica o real (real pide código; cada orden sigue pidiendo /aprobar)\n"
              "/mercado · /seguridad · /diagnostico · /cifrado\n"
+             "/movil — fotos, clips y voz · /movil prueba · pie /recibo para gastos\n"
              "/venice pregunta — chat directo con Venice (solo texto) · /venice reset\n"
              "/perfil · /flujo · /monetizar · /canal · /urgente — 4.2.0, sin ejecutar\n"
              "/exportar movimientos · /exportar libros · /exportar trabajos — CSV\n"
@@ -6932,7 +6938,8 @@ async def telegram(request: Request, background: BackgroundTasks,
         doc = None
     photos = msg.get("photo") if isinstance(msg.get("photo"), list) else []
     voice = msg.get("voice") if isinstance(msg.get("voice"), dict) else None
-    if not chat_id or not (text or doc or photos or voice) or not TG_OWNER or chat_id != TG_OWNER:
+    video = msg.get("video") if isinstance(msg.get("video"), dict) else None
+    if not chat_id or not (text or doc or photos or voice or video) or not TG_OWNER or chat_id != TG_OWNER:
         return {"ok": True}
     frm = msg.get("from") or {}
     if not isinstance(frm, dict):
@@ -6989,6 +6996,26 @@ def _tg_fields(msg):
 async def _tg_route(msg, background):
     """Owner message -> the zero-token command or the AI (unchanged routing from 4.0.0)."""
     chat_id, text, doc, photos, voice = _tg_fields(msg)
+    import jarvis_mobile_media as mobile
+    video = msg.get("video") if isinstance(msg.get("video"), dict) else None
+    caption = msg.get("caption") if isinstance(msg.get("caption"), str) else ""
+    if text.strip().lower().split(" ")[0].split("@")[0] == "/movil":
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para el diagnóstico móvil.")
+        else:
+            reply = ("✅ Prueba de Telegram recibida. Esta respuesta confirma el recorrido de texto; "
+                     "no confirma sonido ni entrega con el teléfono bloqueado.") if text.strip().lower().endswith(" prueba") else mobile.status(_sys.modules[__name__])
+            background.add_task(_tg_safe_send, chat_id, reply)
+        return {"ok": True}
+    visual_doc = doc and str(doc.get("mime_type", "")) in ("image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime")
+    if video or visual_doc:
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para imágenes y videos.")
+        else:
+            media = video or doc
+            background.add_task(mobile.analyze, _sys.modules[__name__], chat_id, media, caption,
+                                video=bool(video) or str(media.get("mime_type", "")).startswith("video/"))
+        return {"ok": True}
     if photos or voice:
         if not is_owner_private(msg):
             background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para recibos y voz.")
@@ -6996,7 +7023,10 @@ async def _tg_route(msg, background):
         if photos:
             photo = photos[-1]
             if isinstance(photo, dict) and isinstance(photo.get("file_id"), str):
-                background.add_task(_extensions.receipt_photo, chat_id, photo["file_id"])
+                if caption.strip().lower().split(" ")[0] == "/recibo" or not mobile.enabled():
+                    background.add_task(_extensions.receipt_photo, chat_id, photo["file_id"])
+                else:
+                    background.add_task(mobile.analyze, _sys.modules[__name__], chat_id, photo, caption)
         elif voice and isinstance(voice.get("file_id"), str):
             background.add_task(_extensions.voice_message, chat_id, voice)
         return {"ok": True}
@@ -7157,7 +7187,13 @@ async def restore(req: RestoreReq, x_api_key: str = Header(...)):
 @app.get("/health")
 @app.get("/")
 async def health():
+    import jarvis_mobile_media as mobile
+    import jarvis_chat_voice as voice
     return {"jarvis": "online", "version": VERSION, "storage": storage_mode(),
+            "mobile": {"visual_enabled": mobile.enabled(), "local_voice_enabled": voice.enabled(),
+                       "voice_auto_reply": voice.auto_reply_enabled(),
+                       "notice_voice": os.getenv("TELEGRAM_NOTICE_VOICE", "false").lower() in ("1", "true", "yes"),
+                       "video_audio": False, "device_delivery_verified": False},
             "ai": {"configured": AI_READY, "model": MODEL, "model_format_ok": MODEL_FORMAT_OK,
                    "model_checked": "use /diagnostico (zero tokens)"},
             "instance": {"write_fencing": _fence["mode"], "leader": _fence["leader"]},
