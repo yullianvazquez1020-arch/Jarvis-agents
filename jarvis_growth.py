@@ -536,7 +536,7 @@ def improve_video_plan(id):
                 ('Tres iguanas: ¡uno, dos, tres!','Las iguanas descansan cerca del jardín. Mira y cuenta conmigo: uno, dos, tres. ¡Tres iguanas!','iguana',3),
                 ('Ayudar también es aprender','Los tres amigos se reúnen. El coquí saluda, el juey comparte y la iguana escucha. Cuando nos ayudamos, todos aprendemos.','friends',3),
                 ('Hoy contamos: uno, dos y tres','Recordemos: un coquí, dos jueyes y tres iguanas. ¡Lo hiciste muy bien! Cuenta con alguien de tu familia y comparte lo que aprendiste.','friends',3)]
-            p=validate_plan({'title':source['title'],'description':'Cuento original para aprender a contar y compartir. Ilustraciones originales y narración generada por inteligencia artificial. Voz: Piper sharvard F, corpus Sharvard, University of Edinburgh, CC BY 3.0. https://datashare.ed.ac.uk/handle/10283/574','language':'es','scenes':[
+            p=validate_plan({'title':source['title'],'description':'Cuento original para aprender a contar y compartir. Ilustraciones originales y narración generada por inteligencia artificial. Voz: Piper ald, español latinoamericano, locutor masculino. Dataset Ald, Unlicense. https://huggingface.co/datasets/rmcpantoja/Ald_Mexican_Spanish_speech_dataset','language':'es','scenes':[
                 {'text':text,'narration':narration,'character':character,'color':'#58C77E','shape':'circle','count':count,'seconds':8}
                 for text,narration,character,count in rows]})
         else:p=validate_plan(source)
