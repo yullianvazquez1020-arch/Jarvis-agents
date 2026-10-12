@@ -11,3 +11,6 @@ jarvis_*.json
 *.key
 piper_models/
 whisper_models/
+
+# Datos locales (memoria de conocimiento, bases SQLite). Nunca a Git.
+data/
