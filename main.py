@@ -6369,8 +6369,17 @@ def _fail_text(e):
     if isinstance(e, StaleInstance):
         return "🔄 Jarvis se acaba de actualizar y esta copia ya no guarda datos. Repíteme el mensaje en un minuto."
     if isinstance(e, AIModelError):
-        return ("⚠️ La IA rechazó la solicitud por configuración (" + _redact_secrets(str(e))[0][:160] +
-                "). Tu historial se conservó. Revisa CLAUDE_MODEL o escribe /diagnostico.")
+        detail = _redact_secrets(str(e))[0]
+        low = detail.lower()
+        if "credit balance" in low or ("credit" in low and "too low" in low):
+            return ("⚠️ La cuenta de Claude se quedó sin saldo. Tu historial se conservó. "
+                    "Hay que recargar los créditos de la API. Cambiar el modelo no lo arregla. "
+                    "/diagnostico no gasta saldo.")
+        if low.startswith("notfound") or "not_found_error" in low:
+            return ("⚠️ Ese modelo no está disponible para esta cuenta (" + detail[:140] +
+                    "). Tu historial se conservó. Revisa CLAUDE_MODEL en Render o escribe /diagnostico.")
+        return ("⚠️ La IA rechazó la solicitud (" + detail[:140] +
+                "). Tu historial se conservó. Escribe /diagnostico.")
     return _FAIL_MSG
 
 # ---------------------------------------------------------------------------
@@ -6830,7 +6839,11 @@ async def diagnostics_text():
         except NotFoundError:
             lines.append(f"• IA: ❌ el modelo '{MODEL}' no existe o tu cuenta no tiene acceso (CLAUDE_MODEL)")
         except Exception as e:
-            lines.append(f"• IA: ⚠️ no pude comprobar el modelo ({type(e).__name__})")
+            msg = str(getattr(e, "message", e)).lower()
+            if "credit balance" in msg or ("credit" in msg and "too low" in msg):
+                lines.append("• IA: ⚠️ la cuenta de Claude no tiene saldo. El modelo sigue siendo el configurado.")
+            else:
+                lines.append(f"• IA: ⚠️ no pude comprobar el modelo ({type(e).__name__})")
     if _ai_state["last_error"]:
         lines.append(f"  Último error IA: {_redact_secrets(_ai_state['last_error'])[0][:120]}")
     if TG_TOKEN:
