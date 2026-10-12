@@ -440,7 +440,8 @@ class Companion:
         voice = (f"reconocimiento {'listo' if not self.stt.problem() else 'no configurado'}, "
                  f"voz {'lista' if not self.tts.problem() else 'no configurada'}")
         return (f"Servidor: {server}. Voz: {voice}. Micrófono: {'encendido' if self.prefs['mic'] else 'apagado'}. "
-                f"Ventanas abiertas: {wins}" + (", una por monitor si las moviste." if wins > 1 else "."))
+                f"Ventanas abiertas: {wins}" + (", una por monitor si las moviste." if wins > 1 else ".")
+                + " Enfoque: negocios externos. No compro, no llamo y no publico.")
 
     # --- browser sessions ---
     def new_launch(self):
@@ -709,6 +710,10 @@ class Companion:
                                     else "Modo discreto desactivado.")
             if kind == "health":
                 return self._finish(tid, "done", self.local_health_text())
+            if kind == "business":
+                return self._finish(tid, "done",
+                    "Enfoque: negocios externos. Te leo caja, cobros, agenda y el resumen comercial. "
+                    "No compro, no llamo, no publico y no muevo dinero.")
             if kind == "repeat":
                 with self.lock:
                     aid, last = self.last["audio"], self.last["text"]
@@ -970,8 +975,8 @@ def check_mac():
     """Measure before choosing models: no installs, no network."""
     def run(cmd):
         try:
-            return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
-                                  check=False).stdout.decode(errors="replace").strip()
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=False)
+            return (proc.stdout.decode(errors="replace") + "\n" + proc.stderr.decode(errors="replace")).strip()
         except (OSError, subprocess.TimeoutExpired):
             return ""
     cfg = load_config()
@@ -1017,6 +1022,22 @@ def bench(path):
     print(f"Texto: {out['text']}")
 
 
+def _announce_focus(cfg):
+    """One calm Latin-American greeting when the panel starts. Never on --check or --bench."""
+    if cfg.get("VOICE_TTS_BACKEND") != "macos_say" or not shutil.which("say"):
+        return
+    voice = (cfg.get("VOICE_TTS_VOICE") or "Juan").strip()
+    if voice in ("", "auto-latino", "Monica", "Jorge"):
+        voice = "Juan"
+    line = ("Para servirle. Sistemas en línea. El enfoque son sus negocios externos. "
+            "No compro, no llamo y no publico.")
+    try:
+        subprocess.Popen(["say", "-v", voice, "-r", "142", line],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        return
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Jarvis desktop companion")
     ap.add_argument("--config"); ap.add_argument("--check", action="store_true")
@@ -1026,6 +1047,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if a.check:
         return check_mac()
+    if not a.bench:
+        _announce_focus(load_config(a.config))
     if a.bench:
         return bench(a.bench)
     cfg = load_config(a.config)
