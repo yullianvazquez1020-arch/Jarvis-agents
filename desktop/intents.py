@@ -36,6 +36,7 @@ _LOCAL = (
     ("discreet_off", re.compile(r"\b(desactiva|apaga|quita|sal del?) (el )?modo discreto\b")),
     ("discreet_on", re.compile(r"\b(modo discreto)\b")),
     ("health", re.compile(r"^(como estas|como andas|estado del sistema|estado de jarvis|diagnostico)$")),
+    ("business", re.compile(r"\b(negocios? externos?|proveedores externos?|enfoque de negocio)\b")),
     ("repeat", re.compile(r"^(repite|repitelo|repitemelo|otra vez|que dijiste|puedes repetir)( eso| por favor)?$")),
     ("slower", re.compile(r"\b(mas despacio|mas lento|habla (mas )?despacio|baja la velocidad)\b")),
     ("faster", re.compile(r"\b(mas rapido|habla (mas )?rapido|sube la velocidad)\b")),
