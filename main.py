@@ -7422,3 +7422,7 @@ _browser.install(__import__("sys").modules[__name__])
 # Persistent first-store plan; no transactions or publication.
 import jarvis_store as _store
 _store.install(__import__("sys").modules[__name__])
+
+# Commercial opportunities stay separate from simulated crypto.
+import jarvis_income as _income
+_income.install(__import__('sys').modules[__name__])
