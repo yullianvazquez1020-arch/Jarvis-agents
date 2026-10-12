@@ -6375,7 +6375,7 @@ def _fail_text(e):
             return ("⚠️ La cuenta de Claude se quedó sin saldo. Tu historial se conservó. "
                     "Hay que recargar los créditos de la API. Cambiar el modelo no lo arregla. "
                     "Si ya recargaste, comprueba que la clave configurada en Render pertenezca a la organización con saldo. "
-                    "Para retomar los negocios guardados sin usar IA: /ingresosplan · /tienda · /seguimientos. "
+                    "Para retomar los negocios sin usar IA: /negocios · /ingresosplan · /tienda. "
                     "/diagnostico no gasta saldo.")
         if low.startswith("notfound") or "not_found_error" in low:
             return ("⚠️ Ese modelo no está disponible para esta cuenta (" + detail[:140] +
@@ -7434,3 +7434,6 @@ _store.install(__import__("sys").modules[__name__])
 # Commercial opportunities stay separate from simulated crypto.
 import jarvis_income as _income
 _income.install(__import__('sys').modules[__name__])
+
+import jarvis_business as _business
+_business.install(__import__('sys').modules[__name__])
