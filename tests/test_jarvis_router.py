@@ -202,12 +202,15 @@ class Safety(RouterBase):
         self.assertNotIn(FAKE_KEY, json.dumps(s))
 
     def test_stdlib_only(self):
+        # jarvis_knowledge (memoria local) is the only local import allowed, and it must be stdlib-only too.
         import ast, sys
-        with open(jr.__file__, encoding="utf-8") as f:
-            tree = ast.parse(f.read())
-        mods = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
-        mods |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-        self.assertTrue(mods <= set(sys.stdlib_module_names) | {"__future__"}, mods)
+        import jarvis_knowledge
+        for path, local in ((jr.__file__, {"jarvis_knowledge"}), (jarvis_knowledge.__file__, set())):
+            with open(path, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            mods = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            mods |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+            self.assertTrue(mods <= set(sys.stdlib_module_names) | {"__future__"} | local, mods)
 
 
 class SingleGate(RouterBase):
