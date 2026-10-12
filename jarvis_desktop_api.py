@@ -487,7 +487,7 @@ def status_info(dev):
 
 
 # --- HUD (4.0.5, 3.2): second-monitor cards, read-only, each with the time of its data --------------
-HUD_CARDS = ("cobros", "vencidos", "agenda", "balances", "stock", "mensajes", "practica")
+HUD_CARDS = ("cobros", "vencidos", "agenda", "balances", "stock", "mensajes", "practica", "caja")
 BANK_STALE_DAYS = 3
 
 def _card(cid, title, lines, as_of, value="", stale=False, sensitive=False, detail=None):
@@ -535,6 +535,10 @@ def _hud_cards():
                        [f"Capital simulado {core._bank_usd(ps['equity'])} ({ps['pnl_pct']:+.2f}%)",
                         f"Modo activo: {'PRÁCTICA' if ms['effective'] == 'practice' else 'REAL'}"],
                        ps.get("last_run") or ps.get("started") or now, core._bank_usd(ps["equity"]), detail="practica"))
+    if getattr(core, "_store", None):
+        store = core._store.status()
+        cards.append(_card("caja", "Primera tienda", core._store.summary(store).splitlines()[1:],
+                           store["updated"] or now, store["name"] or "Sin nombre", sensitive=True, detail="caja"))
     return cards
 
 # Etapas reales del trabajo (v3.6): el avance de la barra es la etapa, no un porcentaje inventado.

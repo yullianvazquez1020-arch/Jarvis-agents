@@ -6378,6 +6378,9 @@ def _fail_text(e):
         if low.startswith("notfound") or "not_found_error" in low:
             return ("⚠️ Ese modelo no está disponible para esta cuenta (" + detail[:140] +
                     "). Tu historial se conservó. Revisa CLAUDE_MODEL en Render o escribe /diagnostico.")
+        if _CONFIG_ERR.search(detail):
+            return ("⚠️ Revisa la configuración de la IA (" + detail[:140] +
+                    "). Tu historial se conservó. Escribe /diagnostico.")
         return ("⚠️ La IA rechazó la solicitud (" + detail[:140] +
                 "). Tu historial se conservó. Escribe /diagnostico.")
     return _FAIL_MSG
@@ -7415,3 +7418,7 @@ except Exception as _e:
 # Browser proposals are text only; the paired Mac requires local approval for execution.
 import jarvis_browser as _browser
 _browser.install(__import__("sys").modules[__name__])
+
+# Persistent first-store plan; no transactions or publication.
+import jarvis_store as _store
+_store.install(__import__("sys").modules[__name__])
