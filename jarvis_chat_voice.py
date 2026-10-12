@@ -25,6 +25,7 @@ import re
 import shutil
 import sys
 import tempfile
+import unicodedata
 import wave
 from pathlib import Path
 
@@ -242,20 +243,56 @@ def speech_chunks(text: str) -> list[str]:
     return chunks
 
 
+def spoken_text(text: str) -> str:
+    """Prepare display formatting for speech without rewriting factual prose."""
+    text = re.sub(r"```[\s\S]*?(?:```|$)", " Los detalles del código están en el texto. ", text)
+    text = re.sub(r"`[^`\n]+`", " detalle en el texto ", text)
+    text = re.sub(r"\[([^]\n]+)\]\(https?://[^)\s]+\)", r"\1", text)
+    text = re.sub(r"https?://\S+", " enlace en el texto ", text)
+    lines = []
+    in_table = False
+    for line in text.splitlines():
+        if line.count('|') >= 2:
+            if not in_table:
+                lines.append('La tabla completa está en el texto.')
+            in_table = True
+            continue
+        in_table = False
+        line = re.sub(r"^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", '', line)
+        line = re.sub(r"\*{1,3}|_{2,3}", '', line)
+        # Keep accents, currency, digits and punctuation. Discard emoji pictograms.
+        line = ''.join(ch for ch in line if unicodedata.category(ch) not in ('So', 'Cf')
+                       and ch not in ('\ufe0f', '\u20e3'))
+        if line.strip():
+            lines.append(line.strip())
+    return ' '.join(' '.join(lines).split())
+
+
+def spoken_preview(text: str) -> str:
+    """Bound CPU time, ending on a sentence rather than an arbitrary word."""
+    if len(text) <= MAX_SPOKEN_REPLY:
+        return text
+    # Only sentence ends followed by whitespace count; decimal points do not.
+    ends = [m.end() for m in re.finditer(r'[.!?](?=\s|$)', text)
+            if m.end() <= MAX_SPOKEN_REPLY]
+    if ends:
+        return text[:ends[-1]]
+    # Do not speak an incomplete claim, amount or qualification.
+    return 'Te dejé la respuesta completa por escrito. Es larga para esta nota de voz.'
+
+
 async def send_spoken_reply(core, chat_id, text: str) -> bool:
     """Speak only an already-sent response; never rerun the chat or its tools."""
     if not enabled():
         return False
     text = core._redact_secrets(str(text))[0]
-    normalized = " ".join(text.split())
-    preview = normalized[:MAX_SPOKEN_REPLY]
-    if len(normalized) > MAX_SPOKEN_REPLY and ' ' in preview:
-        preview = preview.rsplit(' ', 1)[0]
+    normalized = spoken_text(text)
+    preview = spoken_preview(normalized)
     chunks = speech_chunks(preview)
     if not chunks:
         return False
     spoken = " ".join(chunks)
-    caption = "Respuesta con voz femenina local."
+    caption = "Respuesta con voz local."
     if spoken != normalized:
         caption = "Audio parcial por límite de longitud; la respuesta completa está en el texto."
     stage = "lock"
@@ -305,7 +342,7 @@ async def to_opus(wav: bytes) -> bytes:
 
 async def reply_voice() -> bytes:
     """La frase fija se genera una vez y queda en caché (no carga Piper en cada nota)."""
-    cache = model_dir() / "respuesta-nota-ald.ogg"
+    cache = model_dir() / "respuesta-nota-ald-fluida-v2.ogg"
     if cache.exists() and cache.stat().st_size > 0:
         return cache.read_bytes()
     ogg = await to_opus(await speak_local(REPLY_TEXT))

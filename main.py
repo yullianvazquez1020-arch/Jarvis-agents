@@ -6703,7 +6703,13 @@ async def _handle_tg(chat_id, text, *, read_only=False):
             reply = await run(session, text, allowed_tools=READ_ONLY_TOOLS, read_only="voice",
                               extra_system="\nVOICE QUERY: read-only. Never change data, prepare or send actions, "
                               "or approve anything. If the request needs an action, explain it was not executed "
-                              "and ask the owner to review and process the numbered dictation explicitly.")
+                              "and ask the owner to review and process the numbered dictation explicitly. "
+                              "For spoken conversation, use warm, direct Latin American Spanish, with calm "
+                              "confidence and natural phrasing. Do not imitate an accent with misspellings. "
+                              "Start with one complete spoken sentence under 180 characters that keeps any "
+                              "essential qualification. Then add details only when useful. Avoid headings, "
+                              "tables, emoji, repeated greetings and theatrical filler. Never invent progress, "
+                              "capabilities, income or promises to sound reassuring.")
         else:
             reply = await run(session, text)
     except Exception as e:

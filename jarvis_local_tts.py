@@ -62,7 +62,7 @@ def synthesize(texts,destination,root):
     for i,text in enumerate(texts):
         path=dest/f'{i}.wav'
         with wave.open(str(path),'wb') as wav:
-            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=1.16))
+            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=1.0))
         with wave.open(str(path),'rb') as wav:
             seconds=wav.getnframes()/wav.getframerate()
             if not 0<seconds<=45:raise ValueError('Narración local demasiado larga')
