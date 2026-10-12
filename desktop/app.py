@@ -55,14 +55,24 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mercado.css": "text/css; charset=utf-8", "mercado.js": "text/javascript; charset=utf-8",   # gráfica holográfica
             "cielo.js": "text/javascript; charset=utf-8",                                         # fondo de galaxia
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
-            "hudx.js": "text/javascript; charset=utf-8"}                                          # HUD v2: barras y medidores
+            "hudx.js": "text/javascript; charset=utf-8",                                          # HUD v2: barras y medidores
+            "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
+            "aincrad.js": "text/javascript; charset=utf-8"}                                       # cien pisos: datos y cuentas
+# Three.js r180 copiado en desktop/ui/vendor/three (sin CDN). Lista cerrada: la ruta nunca se arma con
+# lo que pida el navegador, así que no hay forma de salir de esta carpeta.
+VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
+                "three/three.core.js": "text/javascript; charset=utf-8",
+                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8"}
+# El enlace al holograma se recorta de /avatar cuando la bandera está apagada.
+IRONMAN_LINK = re.compile(rb"<!--ironman-->.*?<!--/ironman-->", re.S)
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
             "VOICE_TTS_BACKEND": "none", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop")}
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
+            "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
 SLOW_MS = 1500
@@ -250,6 +260,9 @@ class Companion:
         self.home = Path(cfg["VOICE_HOME"])
         self.tokens = TokenStore(self.home)
         self.demo = truthy(cfg["VOICE_DEMO"])
+        # Holograma + Torre de Aincrad: vista aparte, apagada salvo que el dueño encienda la bandera.
+        # Solo dibuja: no toca dinero, aprobaciones, cifrado ni mensajes.
+        self.avatar_ironman = truthy(cfg.get("JARVIS_AVATAR_IRONMAN", "0"))
         url = cfg.get("JARVIS_SERVER_URL", "")
         self.client = JarvisClient(check_url(url) if url else "", self._token)
         self.stt, self.tts = engines.build(cfg)
@@ -513,7 +526,7 @@ class Companion:
                     "wake_word": False, "retain_audio": self.retain, "prefs": dict(self.prefs),
                     "pairing": None if not p else {"code": p.get("code"), "status": p.get("status"),
                                                    "error": p.get("error")},
-                    "panels": list(PANELS), "server": self.health_view(),
+                    "panels": list(PANELS), "server": self.health_view(), "avatar_ironman": self.avatar_ironman,
                     "windows": sum(1 for t in self.windows.values() if time.time() - t < WINDOW_STALE)}
 
     def refresh_status(self):
@@ -829,16 +842,29 @@ def make_handler(app, host, port):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(303, b"", headers={"Location": "/", "Set-Cookie":
                                   f"jd_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}"})
+            if u.path == "/avatar/ironman":         # holograma + Torre de Aincrad: solo con la bandera encendida
+                if not app.avatar_ironman:
+                    return self._send(404, {"error": "no existe"})
+                if not app.session_ok(self._cookie()):
+                    return self._send(401, INDEX_401, "text/html; charset=utf-8")
+                return self._send(200, (HERE / "ui" / "ironman.html").read_bytes(), "text/html; charset=utf-8")
             if u.path in ("/", "/hud", "/avatar", "/torre", "/mercado"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html",
                         "/mercado": "mercado.html"}[u.path]
-                return self._send(200, (HERE / "ui" / page).read_bytes(), "text/html; charset=utf-8")
+                body = (HERE / "ui" / page).read_bytes()
+                if u.path == "/avatar" and not app.avatar_ironman:
+                    body = IRONMAN_LINK.sub(b"", body)
+                return self._send(200, body, "text/html; charset=utf-8")
             if not self._guard():
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
                 return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+            if u.path.startswith("/ui/vendor/") and u.path[11:] in VENDOR_FILES:
+                if not app.avatar_ironman:
+                    return self._send(404, {"error": "no existe"})
+                return self._send(200, (HERE / "ui" / "vendor" / u.path[11:]).read_bytes(), VENDOR_FILES[u.path[11:]])
             if u.path == "/api/hand-mouse/status":
                 return self._send(200, app.hand_mouse.status())
             if u.path == "/api/state":
