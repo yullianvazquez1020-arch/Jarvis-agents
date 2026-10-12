@@ -24,6 +24,7 @@ class WebNavigation(unittest.TestCase):
         urls=['http://example.com','https://localhost/a','https://127.0.0.1/a',
               'https://[::1]/a','https://host.internal/a','https://example.com:8443/a',
               'https://user:pass@example.com/a','https://example.com/?token=abc',
+              'https://example.com/?%74oken=abc',
               'https://example.com/\nsecret','https://example.com/'+('x'*250)]
         with patch.object(c,'claude',new=AsyncMock()) as request:
             for url in urls:

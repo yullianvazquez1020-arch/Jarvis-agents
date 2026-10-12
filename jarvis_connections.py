@@ -2,7 +2,7 @@
 No credentials in state; no LLM tool can publish, buy, send or authorize spending.
 """
 import asyncio, datetime, hashlib, ipaddress, json, os, re, secrets
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 import httpx
 
 KEY = 'jarvis:connections'
@@ -135,7 +135,8 @@ def public_web_url(value):
         pass
     else:
         raise ValueError('Usa un dominio público, no una dirección IP')
-    if re.search(r'(?:token|key|secret|password|signature|credential|auth|session|code)=',u.query,re.I):
+    if any(re.search(r'token|key|secret|password|signature|credential|auth|session|code',key,re.I)
+           for key,_ in parse_qsl(u.query,keep_blank_values=True)):
         raise ValueError('El enlace contiene parámetros privados; usa la página pública')
     return u._replace(fragment='').geturl()
 
