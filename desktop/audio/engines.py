@@ -43,30 +43,6 @@ def speakable(text, limit=600):
     return re.sub(r"\s+", " ", t).strip()[:limit]
 
 
-def cli_help(binary):
-    """whisper-cli prints its options on stderr. Empty text means we could not read them."""
-    parts = []
-    for flag in ("--help", "-h"):
-        try:
-            proc = subprocess.run([binary, flag], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  timeout=8, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        parts.append(proc.stdout.decode(errors="replace"))
-        parts.append(proc.stderr.decode(errors="replace"))
-    return "\n".join(parts)
-
-
-_WHISPER_FLAGS = ("-nt", "-np", "-otxt", "-of", "-l", "-t")
-
-
-def whisper_flags(helptext):
-    """If help is empty, keep the flags the panel already sends. Otherwise use only those shown."""
-    if not (helptext or "").strip():
-        return set(_WHISPER_FLAGS)
-    return {flag for flag in _WHISPER_FLAGS if flag in helptext}
-
-
 def _run(cmd, timeout, stdin=None, cwd=None):
     try:
         p = subprocess.run(cmd, input=stdin, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -104,23 +80,10 @@ class WhisperCpp:
         with tempfile.TemporaryDirectory(prefix="jarvis-stt-") as tmp:   # per request, always deleted
             src = Path(tmp) / "in.wav"; src.write_bytes(wav_bytes)
             out = Path(tmp) / "out"
-            flags = whisper_flags(cli_help(self.binary))
-            cmd = [self.binary, "-m", self.model, "-f", str(src)]
-            if "-l" in flags:
-                cmd += ["-l", self.language]
-            if "-t" in flags:
-                cmd += ["-t", str(self.threads)]
-            for flag in ("-nt", "-np", "-otxt"):
-                if flag in flags:
-                    cmd.append(flag)
-            if "-of" in flags:
-                cmd += ["-of", str(out)]
-            proc = _run(cmd, timeout=max(30, int(seconds * 6)))
+            _run([self.binary, "-m", self.model, "-f", str(src), "-l", self.language, "-t", str(self.threads),
+                  "-nt", "-np", "-otxt", "-of", str(out)], timeout=max(30, int(seconds * 6)))
             txt = out.with_suffix(".txt")
-            if txt.is_file():
-                text = txt.read_text(encoding="utf-8", errors="replace")
-            else:
-                text = proc.stdout.decode(errors="replace")
+            text = txt.read_text(encoding="utf-8", errors="replace") if txt.is_file() else ""
             if retain_dir:
                 Path(retain_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
                 shutil.copy(src, Path(retain_dir) / f"{os.urandom(6).hex()}.wav")
