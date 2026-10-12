@@ -67,6 +67,13 @@ def brief():
     return ['FUENTES COMERCIALES · separadas de cripto',
             '100 ideas para validar; ' + str(len(active)) + ' pilotos seleccionados.',
             *[f"#{x['id']} {x['name']} — validar cliente, alcance y costos" for x in active],
+            *[f"#{row['id']} {row['name']} — " +
+              ('piloto activo' if item['active'] else 'piloto no activo') +
+              (f". Nota guardada: {item['note'][:300]}" if item['note'] else '') +
+              (f". Borrador guardado: /fuente {row['id']}" if item['draft'] else '')
+              for row in CATALOG
+              if (item := s['records'].get(str(row['id']))) and (item['note'] or item['draft'])][:6],
+            'Resumen de hasta 6 fuentes con notas o borradores; consulta cualquier registro completo con /fuente ID.',
             'Prioridad propuesta: #11 taller de IA, #2 lavado comercial, #1 mantenimiento.',
             'Revisar /seguimientos y /cobros para oportunidades ya registradas.',
             'Sin ingresos atribuidos a estas ideas. /fuentes · /fuente ID · /ingresosplan']

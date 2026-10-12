@@ -6374,6 +6374,8 @@ def _fail_text(e):
         if "credit balance" in low or ("credit" in low and "too low" in low):
             return ("⚠️ La cuenta de Claude se quedó sin saldo. Tu historial se conservó. "
                     "Hay que recargar los créditos de la API. Cambiar el modelo no lo arregla. "
+                    "Si ya recargaste, comprueba que la clave configurada en Render pertenezca a la organización con saldo. "
+                    "Para retomar los negocios guardados sin usar IA: /ingresosplan · /tienda · /seguimientos. "
                     "/diagnostico no gasta saldo.")
         if low.startswith("notfound") or "not_found_error" in low:
             return ("⚠️ Ese modelo no está disponible para esta cuenta (" + detail[:140] +
