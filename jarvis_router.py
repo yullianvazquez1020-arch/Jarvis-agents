@@ -6,6 +6,9 @@ Qué hace
 - Tareas simples -> Ollama local; si falla, APIs compatibles con OpenAI en el orden de JARVIS_API_ORDER.
 - Tareas complejas -> APIs (Venice, DeepSeek, Qwen DashScope intl., Kimi); si todas fallan, Ollama como último recurso.
 - /venice: chat directo con Venice (solo texto, sin herramientas). Rechaza patrones sensibles conocidos; no garantiza detectar todo dato personal.
+- Memoria local (jarvis_knowledge, JARVIS_KNOWLEDGE_ENABLED=0 por defecto): route() añade contexto justo antes de
+  ask_ollama/ask_api. Si el contexto trae un tema privado (p. ej. "jarvis", el código propio) el mensaje es sensible:
+  SOLO Ollama local y, si no responde, RouterError. /venice no recibe contexto de la memoria.
 
 Qué NO hace
 - No ejecuta herramientas ni acciones. Devuelve texto y nada más: pagos, mensajes, /confirmar y aprobaciones
@@ -29,6 +32,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from urllib.parse import urlsplit
+
+import jarvis_knowledge
 
 log = logging.getLogger("jarvis.router")
 
@@ -257,7 +262,13 @@ def route(prompt: str, system: str | None = None, force: str | None = None,
     if len(prompt) > MAX_PROMPT_CHARS:
         raise RouterError("Prompt demasiado largo")
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-    sensitive = is_sensitive(prompt) or is_sensitive(system)
+    # Memoria local: solo añade texto de contexto. Un tema privado (código de Jarvis) obliga a usar solo Ollama.
+    knowledge: dict = {}
+    messages = jarvis_knowledge.augment_messages(messages, meta=knowledge)
+    private_context = bool(knowledge.get("private"))
+    if private_context:
+        log.info("router: contexto privado de la memoria; solo modelo local")
+    sensitive = is_sensitive(prompt) or is_sensitive(system) or private_context
     target = "local" if sensitive else (force if force in ("local", "api") else classify(prompt))
     failures: list[str] = []
 
