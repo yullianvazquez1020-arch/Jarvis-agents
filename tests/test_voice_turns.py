@@ -143,7 +143,7 @@ class ServerDisplays(DesktopBase):
         j.import_statement("a.csv", b"Date,Description,Amount,Balance\n01/02/2026,X,-5.00,95.00\n", "negocio")
 
     def snapshot(self):
-        return json.dumps({k: j.kv_get(k, None) for k in (j.P_KEY, j.C_KEY, j.K_KEY, j.I_KEY, j.O_KEY, j.E_KEY)},
+        return json.dumps({k: j.kv_get(k, None) for k in (j.P_KEY, j.C_KEY, j.K_KEY, j.I_KEY, j.O_KEY, j.E_KEY, j._store.KEY)},
                           sort_keys=True, default=str)
 
     def test_status_has_top_bar_fields_without_amounts(self):
@@ -157,8 +157,10 @@ class ServerDisplays(DesktopBase):
         token, _ = self.pair(); self.seed(); before = self.snapshot()
         h = self.client.post("/desktop/v1/hud", headers=self.hdr(token)).json()
         ids = [c["id"] for c in h["cards"]]
-        self.assertEqual(ids, ["cobros", "vencidos", "agenda", "balances", "stock", "mensajes", "practica"])
+        self.assertEqual(ids, ["cobros", "vencidos", "agenda", "balances", "stock", "mensajes", "practica", "caja"])
         cards = {c["id"]: c for c in h["cards"]}
+        self.assertTrue(cards["caja"]["sensitive"])
+        self.assertEqual(cards["caja"]["value"], "Sin nombre")
         self.assertEqual(cards["cobros"]["value"], "$800.00"); self.assertTrue(cards["cobros"]["sensitive"])
         self.assertTrue(cards["balances"]["stale"]); self.assertIn("hace", cards["balances"]["lines"][0])
         self.assertEqual(cards["vencidos"]["value"], "1"); self.assertEqual(cards["stock"]["value"], "1")
