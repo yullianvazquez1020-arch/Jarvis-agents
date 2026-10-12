@@ -1,4 +1,4 @@
-"""Offline female Spanish speech. Public model download, no inference API."""
+"""Offline male Latin-American Spanish speech. Public model download, no inference API."""
 import asyncio
 import hashlib
 import json
@@ -9,9 +9,9 @@ import sys
 import tempfile
 import wave
 
-MODEL='es_ES-sharvard-medium.onnx'
-BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/'
-HASHES={MODEL:'40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1',MODEL+'.json':'7438c9b699c72b0c3388dae1b68d3f364dc66a2150fe554a1c11f03372957b2c'}
+MODEL='es_MX-ald-medium.onnx'
+BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/'
+HASHES={MODEL:'019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63',MODEL+'.json':'5a71498158e04afc8099bfd019c7e87c68eb9d042505a2b1a87e5c1ac2b1a61d'}
 
 def model_dir():
     return Path(os.getenv('PIPER_MODEL_DIR',str(Path(__file__).parent/'piper_models')))
@@ -62,7 +62,7 @@ def synthesize(texts,destination,root):
     for i,text in enumerate(texts):
         path=dest/f'{i}.wav'
         with wave.open(str(path),'wb') as wav:
-            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=1,length_scale=1.08))
+            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=1.16))
         with wave.open(str(path),'rb') as wav:
             seconds=wav.getnframes()/wav.getframerate()
             if not 0<seconds<=45:raise ValueError('Narración local demasiado larga')
