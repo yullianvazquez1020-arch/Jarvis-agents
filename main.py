@@ -7231,6 +7231,8 @@ async def health():
                        "video_audio": False, "device_delivery_verified": False},
             "ai": {"configured": AI_READY, "model": MODEL, "model_format_ok": MODEL_FORMAT_OK,
                    "model_checked": "use /diagnostico (zero tokens)"},
+            "browser_control": {"proposal_api": bool(_desktop.ENABLED),
+                                "local_execution_verified": False, "requires_local_approval": True},
             "instance": {"write_fencing": _fence["mode"], "leader": _fence["leader"]},
             "telegram_queue": dict(_tg_stats),
             "time": _now().isoformat(),
@@ -7396,3 +7398,7 @@ try:
 except Exception as _e:
     PAPER_PLAN_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("paper plan off: %s", type(_e).__name__)
+
+# Browser proposals are text only; the paired Mac requires local approval for execution.
+import jarvis_browser as _browser
+_browser.install(__import__("sys").modules[__name__])
