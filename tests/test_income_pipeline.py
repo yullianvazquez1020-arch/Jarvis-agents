@@ -49,6 +49,16 @@ class IncomeTests(unittest.TestCase):
             j.restore_snapshot(snap)
         self.assertFalse(m.load()['items']['11']['active'])
 
+    def test_resume_includes_paused_notes_and_draft_without_writes(self):
+        m.reply('/fuente', '21 nota Preparar plantilla para Gumroad; precio por validar')
+        m.reply('/fuente', '21 borrador')
+        before = m.load()
+        text = m.reply('/ingresosplan', '')
+        self.assertIn('Preparar plantilla para Gumroad', text)
+        self.assertIn('Borrador guardado: /fuente 21', text)
+        self.assertIn('piloto no activo', text)
+        self.assertEqual(m.load(), before)
+
     def test_owner_only_and_no_ai(self):
         with patch.object(j, '_tg_safe_send', new_callable=AsyncMock) as send, patch.object(j, '_ai_call', new_callable=AsyncMock) as ai:
             asyncio.run(j._extensions.command('999', '/fuente', '11 activar'))
