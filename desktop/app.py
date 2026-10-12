@@ -1005,7 +1005,8 @@ def check_mac():
     print(f"• STT ({cfg['VOICE_STT_BACKEND']}): " + (stt.problem() or "listo"))
     if cfg["VOICE_STT_BACKEND"] == "whisper_cpp" and not stt.problem():
         helptext = run([stt.binary, "--help"]) + run([stt.binary, "-h"])
-        missing = [f for f in ("-nt", "-np", "-otxt", "-of", "-l", "-t") if f not in helptext]
+        missing = [f for f in ("-nt", "-np", "-otxt", "-of", "-l", "-t")
+                   if re.search(r"(?<![\w-])" + re.escape(f) + r"(?![\w-])", helptext) is None]
         print("  Opciones de whisper-cli que usa el panel: " +
               ("todas presentes" if not missing else "⚠️ faltan " + ", ".join(missing) + " (versión distinta)"))
     print(f"• TTS ({cfg['VOICE_TTS_BACKEND']}): " + (tts.problem() or "listo"))
