@@ -355,7 +355,8 @@ class HandMouse:
                 # Continuous gain avoids a speed jump at a threshold; no prediction.
                 if error <= 2:
                     return
-                base_gain = 0.18 + 0.38 * min(1.0, error / 300.0)
+                # Higher floor so short corrections are not sticky. Long reaches stay capped.
+                base_gain = 0.34 + 0.34 * min(1.0, error / 220.0)
                 gain = 1 - (1 - base_gain) ** (dt / .020)
                 dx, dy = (tx - px) * gain, (ty - py) * gain
                 distance = math.hypot(dx, dy)

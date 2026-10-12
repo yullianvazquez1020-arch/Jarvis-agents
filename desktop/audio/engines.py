@@ -127,7 +127,15 @@ class MacSay:
             match = re.match(r"^(.+?)\s+(es_[A-Z]{2})\s+#", line)
             if match:
                 voices.append((match.group(1).strip(), match.group(2)))
-        for locale in ("es_PR", "es_MX", "es_CO", "es_AR", "es_CL", "es_ES"):
+        for name, loc in voices:
+            if loc == "es_PR":
+                self._resolved_voice = name
+                return name
+        for preferred in ("Juan", "Paulina", "Diego"):
+            if any(name == preferred and loc != "es_ES" for name, loc in voices):
+                self._resolved_voice = preferred
+                return preferred
+        for locale in ("es_MX", "es_CO", "es_AR", "es_CL", "es_ES"):
             chosen = next((name for name, loc in voices if loc == locale), None)
             if chosen:
                 self._resolved_voice = chosen

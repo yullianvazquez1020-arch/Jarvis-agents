@@ -269,7 +269,7 @@ class AdaptiveMovement(unittest.TestCase):
             c.tick()
             moved=p.pos[0]-start[0]
             if offset==1: self.assertEqual(moved,0)
-            elif offset==20: self.assertTrue(1<=moved<=5)
+            elif offset==20: self.assertTrue(4<=moved<=12)
             else: self.assertTrue(60<moved<=90)
             self.assertLessEqual(moved,offset)
 
