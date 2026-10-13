@@ -1,3 +1,4 @@
+import inspect
 import os
 import unittest
 
@@ -36,7 +37,13 @@ class EvolveTests(unittest.TestCase):
     def test_placeholder_env_is_ignored(self):
         os.environ['GUMROAD_PING_SECRET'] = 'una frase larga tuya'
         os.environ['GUMROAD_SELLER_ID'] = 'AINCRAD <avisos@tu-dominio.com>'
-        self.assertEqual(evolve.ping_secret(), evolve.PING_SECRET)
+        self.assertEqual(evolve.ping_secret(), '')
         self.assertEqual(evolve.seller_expected(), '')
         os.environ.pop('GUMROAD_PING_SECRET', None)
         os.environ.pop('GUMROAD_SELLER_ID', None)
+
+    def test_social_publish_waits_for_owner_code(self):
+        source = inspect.getsource(evolve.install)
+        self.assertNotIn('publish_post', source)
+        self.assertIn('/confirmarredes', evolve.HELP)
+        self.assertIn('publish_post', inspect.getsource(evolve.confirm_command))

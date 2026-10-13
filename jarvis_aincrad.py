@@ -343,12 +343,8 @@ def install(j):
             raise j.HTTPException(404, 'Ventas apagadas')
         raw = (await request.body()).decode('utf-8', 'replace')
         params = {k: v[-1] for k, v in parse_qs(raw, keep_blank_values=True).items()}
-        host = os.getenv('PUBLIC_HOST', '').strip().lower()
-        for prefix in ('https://', 'http://'):
-            if host.startswith(prefix):
-                host = host[len(prefix):]
-        host = host.strip('/')
-        if not host or '/' in host:
+        host = os.getenv('PUBLIC_HOST', '').strip()
+        if not host:
             raise j.HTTPException(400, 'Falta PUBLIC_HOST')
         url = f'https://{host}/ventas/whatsapp'
         given = request.headers.get('x-twilio-signature', '')

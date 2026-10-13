@@ -1,4 +1,5 @@
 import datetime as dt
+import inspect
 import unittest
 
 import jarvis_aincrad as a
@@ -28,6 +29,12 @@ class AincradTests(unittest.TestCase):
         self.assertEqual(len(a.OFFSETS), 5)
         self.assertEqual(len(a.MEDIUM), 10)
         self.assertEqual(len(a.QUORA), 5)
+
+    def test_whatsapp_remembers_the_number_only_after_send(self):
+        source = inspect.getsource(a.install)
+        self.assertLess(source.index('await j._send_sms(phone, body)'), source.index("d['replies'][key]"))
+        self.assertNotIn('startswith(prefix)', source)
+        self.assertNotIn(".strip('/')", source)
 
     def test_sales_reply_names_the_price_and_the_hub(self):
         text = a.sales_reply('cuál es el precio', 'https://ejemplo.com/hub')

@@ -202,16 +202,15 @@ def render_video(plan,output,audio_paths=None):
             try:
                 intro=brand_card(plan['title'],'Empieza aquí')
                 outro=brand_card(plan['title'],'El enlace está en la descripción')
-                for card, frames in ((intro, 18), (outro, 0)):
-                    if card is intro:
-                        for _ in range(frames):
-                            proc.stdin.write(card.tobytes())
+                pad_frames=18
+                for _ in range(pad_frames):
+                    proc.stdin.write(intro.tobytes())
                 for i,s in enumerate(scenes):
                     frames=math.ceil(s['duration']*fps);s['duration']=frames/fps
                     for f in range(frames):
                         if time.monotonic()-start>240:raise TimeoutError('Render agotó tiempo disponible')
                         proc.stdin.write(frame(s,plan['title'],i,len(scenes),f/fps).tobytes())
-                for _ in range(18):
+                for _ in range(pad_frames):
                     proc.stdin.write(outro.tobytes())
                 proc.stdin.close();code=proc.wait(timeout=60)
                 if code:raise ValueError('Falló el codificador de video')
@@ -222,15 +221,19 @@ def render_video(plan,output,audio_paths=None):
             joined=Path(tmp)/'narration.wav'
             with wave.open(str(joined),'wb') as dest:
                 dest.setparams((1,2,44100,0,'NONE','not compressed'))
+                pad=b'\x00\x00'*int(44100*pad_frames/fps)
+                dest.writeframes(pad)
                 for i,s in enumerate(scenes):
                     part=Path(tmp)/f'audio-{i}.wav'
                     result=subprocess.run([ffmpeg,'-y','-v','error','-i',audio_paths[i],'-af','apad','-t',str(s['duration']),'-ar','44100','-ac','1','-c:a','pcm_s16le',str(part)],capture_output=True,timeout=60)
                     if result.returncode:raise ValueError('No pude preparar narración')
                     with wave.open(str(part),'rb') as src:dest.writeframes(src.readframes(src.getnframes()))
+                dest.writeframes(pad)
             result=subprocess.run([ffmpeg,'-y','-v','error','-i',str(video),'-i',str(joined),'-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-metadata','comment='+plan.get('description','')[:3000],'-movflags','+faststart',str(destination)],capture_output=True,timeout=90)
             if result.returncode:raise ValueError('No pude unir narración')
         else:shutil.copyfile(video,destination)
         shutil.copyfile(destination,output)
     srt=Path(output).with_suffix('.srt')
-    srt.write_text(captions_srt(plan.get('title',''),scenes),encoding='utf-8')
-    return {'seconds':sum(s['duration'] for s in scenes),'narration':bool(audio_paths),'path':str(output),'captions':str(srt)}
+    pad=pad_frames/fps
+    srt.write_text(captions_srt(plan.get('title',''),scenes,intro=pad,outro=pad),encoding='utf-8')
+    return {'seconds':sum(s['duration'] for s in scenes)+2*pad,'narration':bool(audio_paths),'path':str(output),'captions':str(srt)}

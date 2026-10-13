@@ -13,7 +13,8 @@ import jarvis_aincrad
 
 KEY = 'jarvis:evolve'
 HELP = ('/precio · /precio alta NOMBRE URL · /precio quitar NOMBRE · '
-        '/redes · /redes x TEXTO · /redes pinterest IMAGEN | TEXTO · /redes tiktok VIDEO | TEXTO')
+        '/redes · /redes x TEXTO · /redes pinterest IMAGEN | TEXTO · /redes tiktok VIDEO | TEXTO · '
+        '/confirmarredes ID CODIGO')
 PRICE_HOSTS = ('amazon.com', 'amazon.es', 'amazon.com.mx', 'alibaba.com')
 PLATFORMS = ('x', 'pinterest', 'tiktok')
 
@@ -36,9 +37,6 @@ def save(d):
     core.kv_set(KEY, d)
 
 
-PING_SECRET = '1FDa6qmTlLj5OreqR8GZ_goV0tK4AOubhUVe9aNhrEI'
-
-
 def env(name):
     return os.getenv(name, '').strip()
 
@@ -49,7 +47,7 @@ def real_token(value):
 
 def ping_secret():
     raw = env('GUMROAD_PING_SECRET')
-    return raw if real_token(raw) else PING_SECRET
+    return raw if real_token(raw) else ''
 
 
 def seller_expected():
@@ -480,40 +478,6 @@ def install(j):
         if cmd not in ('/precio', '/redes'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
-            return
-        if cmd == '/redes' and (arg or '').strip():
-            post = None
-            try:
-                text = (arg or '').strip()
-                platform, _, rest = text.partition(' ')
-                platform = platform.lower()
-                if platform == 'x':
-                    post, _code = stage_post('x', rest)
-                else:
-                    media, _, caption = rest.partition('|')
-                    post, _code = stage_post(platform, caption, media.strip())
-                await publish_post(post)
-            except ValueError as e:
-                await j._tg_safe_send(chat_id, str(e))
-                return
-            except Exception as e:
-                if post:
-                    with j._data_lock:
-                        d = load()
-                        row = next((p for p in d['posts'] if p['id'] == post['id']), None)
-                        if row and row.get('status') != 'published':
-                            row['status'] = 'failed'
-                            save(d)
-                await j._tg_safe_send(chat_id, f'No se publicó ({type(e).__name__}).')
-                return
-            with j._data_lock:
-                d = load()
-                row = next((p for p in d['posts'] if p['id'] == post['id']), None)
-                if row:
-                    row['status'] = 'published'
-                    row.pop('approval_hash', None)
-                    save(d)
-            await j._tg_safe_send(chat_id, f"Publicado en {post['platform']} #{post['id']}.")
             return
         try:
             text = reply(arg, cmd)
