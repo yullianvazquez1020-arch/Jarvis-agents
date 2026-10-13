@@ -4,7 +4,7 @@ Micrófono -> VAD (webrtcvad) -> ASR (faster-whisper) -> Jarvis (POST /api/encar
 Barge-in: si hablas mientras Jarvis habla, se corta la voz al instante.
 Regla fija: NADA se aprueba por voz. Un dictado que empiece con '/', que nombre /confirmar, /aprobar o /enviar,
 o que contenga un código de confirmación (4-8 dígitos) se rechaza y no sale de la Mac.
-Uso: JARVIS_URL=https://jarvis-agents.onrender.com JARVIS_ENCARGO_SECRET=... python3 desktop/voz_loop.py
+Uso: JARVIS_URL=https://jarvis-agents.onrender.com JARVIS_ENCARGO_SECRET=... python3 desktop/voz_loop.py (secreto de 24+ caracteres)
 """
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def main() -> int:  # pragma: no cover - necesita micrófono
     from faster_whisper import WhisperModel
     url, secret = os.getenv("JARVIS_URL", ""), os.getenv("JARVIS_ENCARGO_SECRET", "")
     if not url or not secret:
-        print("Faltan JARVIS_URL y JARVIS_ENCARGO_SECRET (en tu Mac, nunca en Git)."); return 2
+        print("Faltan JARVIS_URL y JARVIS_ENCARGO_SECRET (24+ caracteres; en tu Mac, nunca en Git)."); return 2
     vad, asr, spk = webrtcvad.Vad(2), WhisperModel(os.getenv("WHISPER_SIZE", "base"), compute_type="int8"), Speaker()
     n = RATE * FRAME_MS // 1000
 
