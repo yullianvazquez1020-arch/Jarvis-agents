@@ -16,7 +16,10 @@ KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
         '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO · /producto rentables · /producto quitar NOMBRE · '
         '/monetizar · /monetizar medium N · /monetizar quora N · '
-        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO')
+        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO · /memoria HECHO · /olvidar ID')
+FACTS_KEY = 'jarvis:facts'
+DECISION_KEY = 'jarvis:decision'
+SECRET_RX = re.compile(r'(re_[A-Za-z0-9_\-]{8,}|sk-[A-Za-z0-9]|AC[0-9a-fA-F]{20,}|ghp_[A-Za-z0-9]|github_pat_)')
 PHONE_RE = re.compile(r'^\+[1-9]\d{7,14}$')
 OFFSETS = (0, 1, 2, 4, 7)
 COMMISSION = (('Gumroad', 30), ('Amazon', 25), ('Otros productos', 40))
@@ -226,6 +229,52 @@ def catalog_or_default():
     return rows or [default_product()]
 
 
+def clean_fact(text):
+    fact = ' '.join(str(text or '').split())[:500]
+    if len(fact) < 3:
+        raise ValueError('Escribe el hecho que no se puede olvidar.')
+    if SECRET_RX.search(fact):
+        raise ValueError('No guardo claves en la memoria.')
+    return fact
+
+
+def decision_text(rows, email_on, whatsapp_on):
+    best = profitable(rows)
+    if best:
+        profit, percent, product = best[0]
+        choice = f"Ofrezco {product['name']}. Margen ${money(profit)} ({percent}%)."
+    else:
+        choice = 'No ofrezco un producto como rentable: falta un costo con margen positivo.'
+    mail = 'activo' if email_on else 'apagado'
+    wa = 'activo' if whatsapp_on else 'apagado'
+    return f'{choice} Correo {mail}. WhatsApp {wa}. No autoricé ningún pago.'
+
+
+def remember_fact(text):
+    fact = clean_fact(text)
+    with core._data_lock:
+        rows = core.kv_get(FACTS_KEY, [])
+        if not isinstance(rows, list):
+            rows = []
+        last = rows[-1]['id'] if rows and isinstance(rows[-1], dict) else 0
+        row = {'id': int(last) + 1, 'text': fact, 'at': core._now().isoformat(timespec='seconds')}
+        rows.append(row)
+        core.kv_set(FACTS_KEY, rows[-200:])
+    return row
+
+
+def forget_fact(number):
+    with core._data_lock:
+        rows = core.kv_get(FACTS_KEY, [])
+        if not isinstance(rows, list):
+            rows = []
+        kept = [row for row in rows if not isinstance(row, dict) or row.get('id') != int(number)]
+        if len(kept) == len(rows):
+            raise ValueError('Ese recuerdo no está.')
+        core.kv_set(FACTS_KEY, kept)
+    return f'Olvidado: {number}'
+
+
 def product_margin(product):
     raw = product.get('cost')
     if raw is None or raw == '':
@@ -432,7 +481,20 @@ def reply(arg, cmd):
             if len(d['products']) == before:
                 return 'Ese producto no está.'
             return f'Quitado: {name}'
-        raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO')
+        raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO')
+    if cmd == '/memoria':
+        fact = (arg or '').strip()
+        if not fact:
+            rows = core.kv_get(FACTS_KEY, [])
+            if not isinstance(rows, list) or not rows:
+                return 'Memoria vacía. /memoria HECHO'
+            return '\n'.join(f"#{row['id']} {row['text']}" for row in rows if isinstance(row, dict))
+        row = remember_fact(fact)
+        return f"Guardado #{row['id']}. El chat puede recortarse. Esto no."
+    if cmd == '/olvidar':
+        if not str(arg or '').strip().isdigit():
+            raise ValueError('/olvidar ID')
+        return forget_fact(arg.strip())
     if cmd == '/llamar':
         phone, text = parse_call(arg)
         call, code = stage_call(phone, text)
@@ -627,12 +689,27 @@ def install(j):
             await send_due(now)
         except Exception as e:
             j._sched_state['last_error'] = 'aincrad: ' + type(e).__name__
+        if now.hour < 9:
+            return
+        day = now.date().isoformat()
+        with j._data_lock:
+            d = load()
+            if d.get('decision_day') == day:
+                return
+            d['decision_day'] = day
+            save(d)
+        note = decision_text(catalog_or_default(), j.EMAIL_ON, sales_enabled())
+        j.kv_set(DECISION_KEY, {'at': now.isoformat(timespec='seconds'), 'text': note})
+        try:
+            await j._tg_send(j.TG_OWNER, note)
+        except Exception as e:
+            j._sched_state['last_error'] = 'decision: ' + type(e).__name__
 
     j._tick_v38 = tick
     old = j._extensions.command
 
     async def command(chat_id, cmd, arg):
-        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada'):
+        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
             return
@@ -657,6 +734,6 @@ def install(j):
         await j._tg_safe_send(chat_id, text)
 
     j._extensions.command = command
-    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada'})
+    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar'})
     j.HELP_TEXT += '\n' + HELP
     j._aincrad = __import__(__name__)
