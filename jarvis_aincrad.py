@@ -82,13 +82,15 @@ def hub_url():
     return f'https://{host}/hub' if host else '/hub'
 
 
+PRODUCT_URL = 'https://yullian.gumroad.com/l/ketec'
+
+
 def kit_html():
     offer = jarvis_business.OFFERS['gumroad']
     name = escape(offer['name'])
     scope = escape(offer['scope'])
     draft = escape(offer['draft'])
     price = int(offer['price_proposed_usd'])
-    cta = escape(hub_url())
     return f'''<!doctype html>
 <html lang="es">
 <meta charset="utf-8">
@@ -112,9 +114,9 @@ def kit_html():
   <p class="price">${price} USD</p>
   <div class="card">{draft}</div>
   <div class="card">{scope}</div>
-  <a class="buy" href="/kit/archivo.pdf">Descargar el kit</a>
+  <a class="buy" href="{PRODUCT_URL}">Comprar el kit</a>
   <p style="height:12px"></p>
-  <a class="buy" href="{cta}" style="background:transparent;color:#d6b25e;border:1px solid #d6b25e">Todos los enlaces</a>
+  <a class="buy" href="/kit/archivo.pdf" style="background:transparent;color:#d6b25e;border:1px solid #d6b25e">Ver el contenido</a>
 </main>
 <a class="wa" href="/hub/go/whatsapp">WhatsApp</a>
 '''
@@ -136,7 +138,7 @@ def email_for(step, hub):
         'Si tienes dos propuestas, ponlas juntas. El precio más bajo no cuenta si le falta una parte del trabajo.',
         'Revisa pendientes, fotos finales y lo que quedó fuera. Si quieres el siguiente paso, está en el mismo enlace.',
     )[n]
-    return sub, body + '\n\n' + hub + '\n\nAINCRAD'
+    return sub, body + '\n\nCompra: ' + PRODUCT_URL + '\n' + hub + '\n\nAINCRAD'
 
 
 def pending_step(sub, today):
@@ -157,11 +159,11 @@ def sales_reply(text, hub=None):
     offer = jarvis_business.OFFERS['gumroad']
     price = int(offer['price_proposed_usd'])
     if any(w in q for w in ('precio', 'cuesta', 'costo', 'cuánto', 'cuanto')):
-        return f'El kit está en ${price} USD. Enlace: {hub}'
+        return f'El kit está en ${price} USD. Compra: {PRODUCT_URL}\n{hub}'
     if any(w in q for w in ('kit', 'compra', 'comprar', 'gumroad', 'link', 'enlace')):
-        return f'{offer["name"]}. Enlace: {hub}'
+        return f'{offer["name"]}. Compra: {PRODUCT_URL}\n{hub}'
     return ('Organizo el alcance de una remodelación en un kit corto, en español. '
-            f'No incluye inspección ni planos. Enlace: {hub}')
+            f'No incluye inspección ni planos. Compra: {PRODUCT_URL}\n{hub}')
 
 
 def monetizar(kind, number=None):
