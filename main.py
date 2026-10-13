@@ -6119,9 +6119,14 @@ def _pinned_memory():
         return 'Pinned memory unavailable. Do not invent facts. Do not roleplay consciousness.'
     if not isinstance(facts, list):
         facts = []
-    lines = [str(row.get('text') or '')[:160] for row in facts[-12:] if isinstance(row, dict) and row.get('text')]
+    lines = []
+    try:
+        import jarvis_aincrad
+        lines = jarvis_aincrad.select_facts(facts)
+    except Exception:
+        lines = [str(row.get('text') or '')[:160] for row in facts[-12:] if isinstance(row, dict) and row.get('text')]
     note = decision.get('text') if isinstance(decision, dict) else ''
-    body = 'Pinned facts, do not drop these: ' + ' | '.join(lines) if lines else 'No pinned facts.'
+    body = 'Pinned facts, do not forget these: ' + ' | '.join(lines) if lines else 'No pinned facts.'
     if note:
         body += ' Last autonomous note: ' + str(note)[:400]
     return (body + ' This is stored memory and one daily decision. It is not consciousness and not a hidden agent. '
@@ -6134,7 +6139,7 @@ MEMORY_PROMPT = (
     "Known facts: kit https://yullian.gumroad.com/l/ketec at $9; "
     "hub https://jarvis-agents.onrender.com/hub; WhatsApp https://wa.me/17874465095. "
     "No Fiverr store is on record. Never ask again for the Gumroad user, a screenshot, or what was published. "
-    "When the boss says recuerda, that fact is already stored. Use pinned facts and the daily decision. "
+    "When the boss states a fact, it is stored and repeated here. Do not forget it.\n"
     "Do not invent memories that are not stored. Do not roleplay consciousness. "
     "Never claim you paid, bought, published, or messaged a client.\n"
 )
@@ -6317,19 +6322,19 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
     storage write made by the tools of this turn (see _WRITE_BLOCK)."""
-    remembered = re.match(r'(?i)^recuerda(?:\s+que)?\s+(.{3,500})$', str(message or '').strip())
-    if remembered:
-        try:
-            import jarvis_aincrad
-            if getattr(jarvis_aincrad, 'core', None) is not None:
-                jarvis_aincrad.remember_fact(remembered.group(1))
-        except Exception:
-            pass
-    if allowed_tools is not None:
-        allowed_tools = frozenset(allowed_tools)
-        scoped_tools = [t for t in TOOLS if t["name"] in allowed_tools]
-    await asyncio.to_thread(_require_leader)
     clean, found = _redact_secrets(message)
+    if not found:
+        fact = str(clean or '').strip()
+        explicit = re.match(r'(?i)^recuerda(?:\s+que)?\s+(.{3,500})$', fact)
+        if explicit:
+            fact = explicit.group(1)
+        if fact and not fact.startswith('/'):
+            try:
+                import jarvis_aincrad
+                if getattr(jarvis_aincrad, 'core', None) is not None:
+                    jarvis_aincrad.remember_fact(fact)
+            except Exception:
+                pass
     warn = ""
     if found:   # the secret never reaches Claude, the history, the books or the logs
         warn = ("🔒 Tu mensaje tenía datos secretos (" + ", ".join(found) + "). No los envié a la IA ni los "
@@ -6353,6 +6358,10 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
             return warn + hit + (saved or "")
     if not AI_READY:
         return warn + AI_OFF_MSG
+    if allowed_tools is not None:
+        allowed_tools = frozenset(allowed_tools)
+        scoped_tools = [t for t in TOOLS if t["name"] in allowed_tools]
+    await asyncio.to_thread(_require_leader)
     lock = _locks.setdefault(session, asyncio.Lock())
     async with lock:   # one message at a time per session
         if session not in conversations:

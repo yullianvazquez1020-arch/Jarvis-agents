@@ -238,6 +238,23 @@ def clean_fact(text):
     return fact
 
 
+def select_facts(facts, limit=2500):
+    rows = []
+    for row in facts or []:
+        if isinstance(row, dict) and row.get('text'):
+            rows.append(' '.join(str(row['text']).split())[:300])
+    sticky = [text for text in rows if re.search(r'https?://|\$\d', text)]
+    recent = [text for text in rows if text not in sticky][-30:]
+    chosen = []
+    used = 0
+    for line in sticky + recent:
+        if line in chosen or used + len(line) + 3 > limit:
+            continue
+        chosen.append(line)
+        used += len(line) + 3
+    return chosen
+
+
 def decision_text(rows, email_on, whatsapp_on):
     best = profitable(rows)
     if best:
@@ -256,6 +273,8 @@ def remember_fact(text):
         rows = core.kv_get(FACTS_KEY, [])
         if not isinstance(rows, list):
             rows = []
+        if any(isinstance(row, dict) and row.get('text') == fact for row in rows):
+            return next(row for row in rows if isinstance(row, dict) and row.get('text') == fact)
         last = rows[-1]['id'] if rows and isinstance(rows[-1], dict) else 0
         row = {'id': int(last) + 1, 'text': fact, 'at': core._now().isoformat(timespec='seconds')}
         rows.append(row)
