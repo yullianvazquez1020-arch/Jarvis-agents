@@ -72,6 +72,12 @@ class AincradTests(unittest.TestCase):
         self.assertIn('enlace de afiliado', a.merchant_move(catalog, 2))
         self.assertEqual(len(a.RULES), 7)
 
+    def test_the_page_and_the_pitch_say_the_wedge(self):
+        self.assertIn(a.WEDGE, a.kit_html())
+        self.assertIn(a.WEDGE, a.sales_reply('precio', 'https://ejemplo.com/hub'))
+        self.assertIn('ShiftFlow', a.competencia())
+        self.assertIn('No abras un software', a.competencia())
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
