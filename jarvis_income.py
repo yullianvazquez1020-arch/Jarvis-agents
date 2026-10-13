@@ -37,15 +37,11 @@ def empty():
 def validate(d):
     if not isinstance(d, dict) or set(d) != {'items'} or not isinstance(d['items'], dict):
         raise ValueError('Plan inválido')
-    active = 0
     for key, item in d['items'].items():
         if key not in {str(x['id']) for x in CATALOG} or not isinstance(item, dict) or set(item) != {'active', 'note', 'draft'}:
             raise ValueError('Fuente inválida')
         if type(item['active']) is not bool or any(not isinstance(item[k], str) or len(item[k]) > 2500 for k in ('note', 'draft')):
             raise ValueError('Datos inválidos')
-        active += item['active']
-    if active > 3:
-        raise ValueError('Máximo tres pilotos activos; pausa uno antes de añadir otro')
     return d
 
 
