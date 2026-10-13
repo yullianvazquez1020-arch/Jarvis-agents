@@ -316,7 +316,8 @@ async def send_due(now):
         subject, body = email_for(step, hub)
         try:
             await core._send_email(mail, subject, body, f'seq-{hashlib.sha256(mail.encode()).hexdigest()[:12]}-{step}')
-        except Exception:
+        except Exception as e:
+            await core._tg_send(core.TG_OWNER, f'No salió el correo {step + 1}/5 a {mail}. {type(e).__name__}. Se reintenta mañana.')
             continue
         with core._data_lock:
             d = load()
