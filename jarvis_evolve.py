@@ -442,7 +442,8 @@ def install(j):
         except ValueError as e:
             raise j.HTTPException(400, str(e))
         if not sale.get('duplicate') and not sale.get('test') and j.TG_OWNER:
-            await j._tg_send(j.TG_OWNER, f"Venta Gumroad ${sale['amount']:.2f} · {sale['product']} · {sale['email'] or 'sin email'}")
+            note = 'El correo entra en la secuencia.' if j.EMAIL_ON else 'El correo quedó guardado. No sale hasta que Resend tenga una clave real.'
+            await j._tg_send(j.TG_OWNER, f"Venta Gumroad ${sale['amount']:.2f} · {sale['product']} · {sale['email'] or 'sin email'}. {note}")
         return {'ok': True, 'duplicate': bool(sale.get('duplicate')), 'test': bool(sale.get('test'))}
 
     @j.app.get('/kit/archivo.pdf')
