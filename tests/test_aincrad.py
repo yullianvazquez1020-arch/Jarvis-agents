@@ -51,6 +51,16 @@ class AincradTests(unittest.TestCase):
         self.assertIn('Margen $15', text)
         self.assertNotIn('Barato', text)
 
+    def test_memory_rejects_secrets_and_a_decision_does_not_pay(self):
+        with self.assertRaises(ValueError):
+            a.clean_fact('la clave es re_123456789')
+        catalog = [
+            {'name': 'Bueno', 'price': 20, 'cost': 5, 'url': 'https://ejemplo.com/b', 'benefit': 'Deja margen.'},
+        ]
+        note = a.decision_text(catalog, False, False)
+        self.assertIn('Ofrezco Bueno', note)
+        self.assertIn('No autoricé ningún pago', note)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
