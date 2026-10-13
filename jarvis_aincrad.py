@@ -16,7 +16,7 @@ KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
         '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO · /producto rentables · /producto quitar NOMBRE · '
         '/monetizar · /monetizar medium N · /monetizar quora N · '
-        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO · /memoria HECHO · /olvidar ID · /dinero')
+        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO · /memoria HECHO · /olvidar ID · /dinero · /competencia')
 RULES = (
     'Costo primero: si el precio menos el costo no es positivo, no se vende.',
     'Una puerta: un producto, un precio y un enlace hasta que entre la primera venta.',
@@ -147,6 +147,7 @@ def hub_url():
 
 
 PRODUCT_URL = 'https://yullian.gumroad.com/l/ketec'
+WEDGE = 'El precio más bajo no cuenta si le falta una parte del trabajo.'
 
 
 def kit_html():
@@ -178,6 +179,7 @@ def kit_html():
   <p class="price">${price} USD</p>
   <div class="card">{draft}</div>
   <div class="card">{scope}</div>
+  <div class="card">{escape(WEDGE)} En español, para la familia, no para el contratista.</div>
   <a class="buy" href="{PRODUCT_URL}">Comprar el kit</a>
   <p style="height:12px"></p>
   <a class="buy" href="/kit/archivo.pdf" style="background:transparent;color:#d6b25e;border:1px solid #d6b25e">Ver el contenido</a>
@@ -352,6 +354,25 @@ def pick_product(text, rows):
     return best[0][2] if best else rows[0]
 
 
+def niche_line(product):
+    name = str(product.get('name') or '').lower()
+    url = str(product.get('url') or '')
+    if 'remodel' in name or url == PRODUCT_URL:
+        return WEDGE
+    return ''
+
+
+def competencia():
+    return (
+        'Nicho: la familia que remodela, en español. No el contratista.\n'
+        'Gratis y para el contratista: ShiftFlow, CotizaT, Carpicost, Motor de Presupuestos.\n'
+        'Parecido, en inglés, en Etsy: planificadores de unos $2 a $27.\n'
+        f'Tu precio: $9. La diferencia: {WEDGE}\n'
+        'No abras un software de cotización. Una puerta hasta la primera venta.\n'
+        + PRODUCT_URL
+    )
+
+
 def margin_line(product):
     margin = product_margin(product)
     if not margin:
@@ -371,19 +392,22 @@ def pitch(text, hub, product):
     limit = str(product.get('limit') or '').strip()
     cta = f'Compra aquí: {url}\n{hub}'
     note = margin_line(product)
+    line = niche_line(product)
     if any(w in q for w in ('caro', 'descuento', 'barato', 'duda')):
-        return f'{name} cuesta ${price} USD. {benefit} El precio es el publicado, sin descuento inventado. {note} {cta}'
+        return ' '.join(part for part in (f'{name} cuesta ${price} USD.', benefit, 'El precio es el publicado, sin descuento inventado.', line, note, cta) if part)
     if any(w in q for w in ('precio', 'cuesta', 'costo', 'cuanto', 'cuánto')):
-        return f'{name}: ${price} USD. {benefit} {note} {cta}'
+        return ' '.join(part for part in (f'{name}: ${price} USD.', benefit, line, note, cta) if part)
     if any(w in q for w in ('incluye', 'sirve', 'qué es', 'que es')):
-        return ' '.join(part for part in (f'{name}.', benefit, limit, note, cta) if part)
-    return ' '.join(part for part in (benefit, f'{name} está en ${price} USD.', limit, note, cta) if part)
+        return ' '.join(part for part in (f'{name}.', benefit, limit, line, note, cta) if part)
+    return ' '.join(part for part in (benefit, f'{name} está en ${price} USD.', limit, line, note, cta) if part)
 
 
 def sales_reply(text, hub=None, catalog=None):
     hub = hub or hub_url()
     rows = catalog or catalog_or_default()
     q = str(text or '').lower()
+    if any(w in q for w in ('competencia', 'nicho', 'rivales')):
+        return competencia()
     if any(w in q for w in ('catalogo', 'catálogo', 'que vendes', 'qué vendes', 'productos')):
         lines = []
         for profit, percent, product in profitable(rows):
@@ -549,6 +573,8 @@ def reply(arg, cmd):
                 buyers = 0
         rules = '\n'.join(f'{i}. {rule}' for i, rule in enumerate(RULES, 1))
         return rules + '\n\nHoy: ' + merchant_move(catalog_or_default(), buyers)
+    if cmd == '/competencia':
+        return competencia()
     if cmd == '/llamar':
         phone, text = parse_call(arg)
         call, code = stage_call(phone, text)
@@ -763,7 +789,7 @@ def install(j):
     old = j._extensions.command
 
     async def command(chat_id, cmd, arg):
-        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero'):
+        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero', '/competencia'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
             return
@@ -788,6 +814,6 @@ def install(j):
         await j._tg_safe_send(chat_id, text)
 
     j._extensions.command = command
-    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero'})
+    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero', '/competencia'})
     j.HELP_TEXT += '\n' + HELP
     j._aincrad = __import__(__name__)
