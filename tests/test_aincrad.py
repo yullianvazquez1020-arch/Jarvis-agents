@@ -42,3 +42,11 @@ class AincradTests(unittest.TestCase):
     def test_affiliate_code_is_stable(self):
         self.assertEqual(a.affiliate_code('Ana'), a.affiliate_code('ana'))
         self.assertEqual(len(a.affiliate_code('Ana')), 8)
+
+    def test_call_text_is_escaped_and_the_number_is_strict(self):
+        self.assertIn('&', a.call_twiml('A&B'))
+        phone, text = a.parse_call('+17874465095 | Hola')
+        self.assertEqual(phone, '+17874465095')
+        self.assertEqual(text, 'Hola')
+        with self.assertRaises(ValueError):
+            a.parse_call('7874465095 | Hola')

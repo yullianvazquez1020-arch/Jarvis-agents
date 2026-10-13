@@ -102,7 +102,7 @@ def install(core):
         if CASH_RX.fullmatch(t):
             return "Cash flow: revisa /banco semana y /cobros. Si falta para un gasto, te aviso. No muevo dinero."
         if CALL_RX.match(t) and not NOT_A_CALL_RX.search(t):
-            return "La llamada no está cableada a /enviar. No marqué ni guardé un borrador."
+            return "La llamada se marca con /llamar +NUMERO | MENSAJE y /confirmarllamada. Sin tu código no marco."
         return None
 
     core.phase_a_remember = remember
