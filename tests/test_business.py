@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,12 @@ class BusinessTests(unittest.TestCase):
         j.DATA_DIR = Path(tempfile.mkdtemp())
         j.USE_REDIS = False
         j._fence.update(mode='off', leader=True)
+
+    def test_british_reply_preference_preserves_marketing_language(self):
+        with patch.dict(os.environ,{'JARVIS_REPLY_LANGUAGE':'en-GB'}):
+            prompt=j.system_prompt()
+            self.assertIn('respond in British English',prompt)
+            self.assertIn('marketing drafts in their original language',prompt)
 
     def test_read_no_ai_no_write_and_owner_only(self):
         before = j._store.load()

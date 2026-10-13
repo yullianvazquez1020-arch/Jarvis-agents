@@ -95,6 +95,20 @@ class ChatVoice(unittest.TestCase):
     def voices(self):
         return E.load()["voices"]
 
+    def test_british_reply_uses_english_voice_and_english_short_preview(self):
+        import jarvis_local_tts
+        seen=[]
+        async def narration(plan,tmp):
+            seen.append(plan['language'])
+            path=Path(tmp)/'voice.wav'
+            with wave.open(str(path),'wb') as w:
+                w.setparams((1,2,16000,0,'NONE','not compressed'));w.writeframes(b'\0\0'*16000)
+            return [str(path)]
+        with patch.dict(os.environ,{'JARVIS_REPLY_LANGUAGE':'en-GB'}),patch.object(jarvis_local_tts,'local_narration',new=narration):
+            asyncio.run(REAL_SPEAK_LOCAL('Good morning, sir.'))
+            self.assertEqual(seen,['en-GB'])
+            self.assertTrue(cv.spoken_preview('word '*100).startswith('The full response'))
+
     def test_transcribes_locally_and_dictation_stays_pending(self):
         self.voice()
         v = self.voices()

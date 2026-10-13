@@ -27,5 +27,14 @@ class LocalVoiceTests(unittest.TestCase):
             for name in tts.HASHES:(root/name).write_bytes(b'fixture')
             with patch.object(tts,'digest',side_effect=lambda p:tts.HASHES[p.name]),patch('httpx.stream') as request:
                 self.assertEqual(tts.ensure_model(root),root/tts.MODEL);request.assert_not_called()
-    def test_english_not_silently_read_in_spanish(self):
-        with self.assertRaises(ValueError):asyncio.run(tts.local_narration({'language':'en','scenes':[]},'/tmp'))
+    def test_british_profile_is_distinct_and_unsupported_language_rejected(self):
+        self.assertEqual(tts.profile('en-GB')[0],tts.BRITISH_MODEL)
+        self.assertEqual(tts.profile('en')[0],tts.BRITISH_MODEL)
+        self.assertNotEqual(tts.profile('es')[0],tts.BRITISH_MODEL)
+        with self.assertRaises(ValueError):asyncio.run(tts.local_narration({'language':'fr','scenes':[]},'/tmp'))
+    def test_british_cached_model_stays_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            for name in tts.BRITISH_HASHES:(root/name).write_bytes(b'fixture')
+            with patch.object(tts,'digest',side_effect=lambda p:tts.BRITISH_HASHES[p.name]),patch('httpx.stream') as request:
+                self.assertEqual(tts.ensure_model(root,'en-GB'),root/tts.BRITISH_MODEL);request.assert_not_called()

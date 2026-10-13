@@ -201,6 +201,10 @@ async def transcribe_local(raw: bytes) -> str:
         return text[:4000]
 
 
+def reply_language():
+    return 'en-GB' if os.getenv('JARVIS_REPLY_LANGUAGE','es').lower() in ('en','en-gb','en_gb') else 'es'
+
+
 async def speak_local(text: str) -> bytes:
     """WAV con la voz local (Piper, jarvis_local_tts)."""
     text = " ".join(text.split())[:MAX_CHARS]
@@ -210,7 +214,7 @@ async def speak_local(text: str) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         chunks = speech_chunks(text)
         paths = await jarvis_local_tts.local_narration(
-            {"language": "es", "scenes": [{"narration": chunk} for chunk in chunks]}, tmp)
+            {"language": reply_language(), "scenes": [{"narration": chunk} for chunk in chunks]}, tmp)
         merged = io.BytesIO()
         with wave.open(merged, "wb") as dst:
             params = None
@@ -278,7 +282,7 @@ def spoken_preview(text: str) -> str:
     if ends:
         return text[:ends[-1]]
     # Do not speak an incomplete claim, amount or qualification.
-    return 'Te dejé la respuesta completa por escrito. Es larga para esta nota de voz.'
+    return ('The full response is in the written message. It is too long for this voice note.' if reply_language()=='en-GB' else 'Te dejé la respuesta completa por escrito. Es larga para esta nota de voz.')
 
 
 async def send_spoken_reply(core, chat_id, text: str) -> bool:
@@ -342,10 +346,11 @@ async def to_opus(wav: bytes) -> bytes:
 
 async def reply_voice() -> bytes:
     """La frase fija se genera una vez y queda en caché (no carga Piper en cada nota)."""
-    cache = model_dir() / "respuesta-nota-ald-fluida-v2.ogg"
+    language=reply_language()
+    cache = model_dir() / ('respuesta-nota-british-v1.ogg' if language=='en-GB' else 'respuesta-nota-ald-fluida-v2.ogg')
     if cache.exists() and cache.stat().st_size > 0:
         return cache.read_bytes()
-    ogg = await to_opus(await speak_local(REPLY_TEXT))
+    ogg = await to_opus(await speak_local('I have received your note. Please review the text before processing it.' if language=='en-GB' else REPLY_TEXT))
     model_dir().mkdir(parents=True, exist_ok=True)
     tmp = cache.with_suffix(".tmp")
     tmp.write_bytes(ogg)
