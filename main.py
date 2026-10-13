@@ -6152,12 +6152,24 @@ MEMORY_PROMPT = (
 )
 
 
+def _load_personality():
+    """PERSONALIDAD.md (repo root): tone only. It never overrides the fixed rules, which stay in code."""
+    try:
+        text = (Path(__file__).resolve().parent / "PERSONALIDAD.md").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return "\nPERSONALITY (tone and style; safety rules above and in code always win):\n" + text[:6000].strip() + "\n"
+
+
+PERSONALITY_PROMPT = _load_personality()
+
+
 def system_prompt():
     now = _now().strftime("%A %Y-%m-%d %H:%M (%Z)")
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
