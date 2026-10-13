@@ -32,3 +32,11 @@ class EvolveTests(unittest.TestCase):
         srt = video.captions_srt('Remodelar', [{'text': 'Cuatro fotos', 'duration': 4}])
         self.assertIn('00:00:01,500 --> 00:00:05,500', srt)
         self.assertIn('Cuatro fotos', srt)
+
+    def test_placeholder_env_is_ignored(self):
+        os.environ['GUMROAD_PING_SECRET'] = 'una frase larga tuya'
+        os.environ['GUMROAD_SELLER_ID'] = 'AINCRAD <avisos@tu-dominio.com>'
+        self.assertEqual(evolve.ping_secret(), evolve.PING_SECRET)
+        self.assertEqual(evolve.seller_expected(), '')
+        os.environ.pop('GUMROAD_PING_SECRET', None)
+        os.environ.pop('GUMROAD_SELLER_ID', None)
