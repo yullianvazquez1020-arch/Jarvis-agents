@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 from base64 import b64encode
 from urllib.parse import parse_qs
 from xml.sax.saxutils import escape
@@ -13,7 +14,9 @@ import jarvis_funnel
 
 KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
-        '/ventas · /monetizar · /monetizar medium N · /monetizar quora N')
+        '/ventas · /monetizar · /monetizar medium N · /monetizar quora N · '
+        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO')
+PHONE_RE = re.compile(r'^\+[1-9]\d{7,14}$')
 OFFSETS = (0, 1, 2, 4, 7)
 COMMISSION = (('Gumroad', 30), ('Amazon', 25), ('Otros productos', 40))
 EMAIL_RE = re.compile(r'[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}')
@@ -70,6 +73,54 @@ def load():
 
 def save(d):
     core.kv_set(KEY, d)
+
+
+def call_twiml(text):
+    return f'<Response><Say language="es-MX">{escape(text)}</Say></Response>'
+
+
+def parse_call(arg):
+    phone, _, text = str(arg or '').partition('|')
+    phone = phone.strip().replace(' ', '')
+    text = ' '.join(text.split())[:280] or 'Hola. Te llama AINCRAD.'
+    if not PHONE_RE.fullmatch(phone):
+        raise ValueError('Usa /llamar +1787XXXXXXX | mensaje')
+    return phone, text
+
+
+def stage_call(phone, text):
+    if not core.SMS_ON:
+        raise ValueError('Falta una clave real de Twilio. La llamada está cableada; falta la clave.')
+    code = f'{secrets.randbelow(1000000):06d}'
+    with core._data_lock:
+        d = load()
+        calls = d.setdefault('calls', [])
+        if not isinstance(calls, list):
+            calls = []
+        call = {'id': int(d.get('call_seq') or 0) + 1, 'to': phone, 'text': text, 'status': 'preview',
+                'hash': hashlib.sha256(code.encode()).hexdigest(),
+                'expires': (core._now() + dt.timedelta(minutes=10)).isoformat()}
+        d['call_seq'] = call['id']
+        calls.append(call)
+        d['calls'] = calls[-30:]
+        save(d)
+    return call, code
+
+
+async def dial(call):
+    import httpx
+    origin = str(core.TW_FROM).removeprefix('whatsapp:')
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f'https://api.twilio.com/2010-04-01/Accounts/{core.TW_SID}/Calls.json',
+            auth=(core.TW_SID, core.TW_TOKEN),
+            data={'From': origin, 'To': call['to'], 'Twiml': call_twiml(call['text'])})
+    if response.status_code >= 400:
+        raise ValueError('Twilio no marcó la llamada')
+    try:
+        return str(response.json().get('sid') or '')
+    except ValueError:
+        return ''
 
 
 def valid_email(value):
@@ -212,6 +263,7 @@ def status_text():
         f'GA4: {"en cada clic" if ga else "falta GA4_MEASUREMENT_ID"}',
         'Video: intro, outro, marca AINCRAD y texto de la escena en el cuadro',
         f'Ventas 24/7: {sales}',
+        'Llamada: /llamar +NUMERO | MENSAJE y después /confirmarllamada',
         'Afiliados: Gumroad 30% · Amazon 25% · otros 40%. /afiliado alta NOMBRE',
         'TikTok, Reddit, Medium y Quora: /monetizar',
         HELP,
@@ -234,6 +286,10 @@ def affiliate_code(name):
 
 
 def reply(arg, cmd):
+    if cmd == '/llamar':
+        phone, text = parse_call(arg)
+        call, code = stage_call(phone, text)
+        return f"Llamada #{call['id']} a {phone}. Confirma en 10 minutos: /confirmarllamada {call['id']} {code}"
     if cmd == '/aincrad':
         return status_text()
     if cmd == '/ventas':
@@ -328,6 +384,44 @@ async def send_due(now):
         await core._tg_send(core.TG_OWNER, f'Secuencia {step + 1}/5 enviada a {mail}')
 
 
+async def confirm_call(arg):
+    parts = (arg or '').split()
+    if len(parts) != 2 or not parts[0].isdigit():
+        raise ValueError('/confirmarllamada ID CODIGO')
+    with core._data_lock:
+        d = load()
+        call = next((c for c in d.get('calls') or [] if c.get('id') == int(parts[0])), None)
+        if not call or call.get('status') != 'preview':
+            raise ValueError('No hay una llamada pendiente')
+        if core._now() > dt.datetime.fromisoformat(call['expires']):
+            call['status'] = 'expired'
+            save(d)
+            raise ValueError('El código venció')
+        if not hmac.compare_digest(hashlib.sha256(parts[1].encode()).hexdigest(), call.get('hash', '')):
+            raise ValueError('Código incorrecto')
+        call['status'] = 'dialing'
+        snapshot = dict(call)
+        save(d)
+    try:
+        sid = await dial(snapshot)
+    except Exception:
+        with core._data_lock:
+            d = load()
+            row = next((c for c in d.get('calls') or [] if c.get('id') == snapshot['id']), None)
+            if row and row.get('status') == 'dialing':
+                row['status'] = 'failed'
+                save(d)
+        raise
+    with core._data_lock:
+        d = load()
+        row = next((c for c in d.get('calls') or [] if c.get('id') == snapshot['id']), None)
+        if row:
+            row['status'] = 'placed'
+            row['sid'] = sid
+            save(d)
+    return f"Llamada marcada a {snapshot['to']}."
+
+
 def install(j):
     global core
     core = j
@@ -391,9 +485,18 @@ def install(j):
     old = j._extensions.command
 
     async def command(chat_id, cmd, arg):
-        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar'):
+        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/llamar', '/confirmarllamada'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
+            return
+        if cmd == '/confirmarllamada':
+            try:
+                text = await confirm_call(arg)
+            except ValueError as e:
+                text = str(e)
+            except Exception as e:
+                text = f'No se marcó ({type(e).__name__}).'
+            await j._tg_safe_send(chat_id, text)
             return
         try:
             text = reply(arg, cmd)
@@ -407,6 +510,6 @@ def install(j):
         await j._tg_safe_send(chat_id, text)
 
     j._extensions.command = command
-    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar'})
+    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/llamar', '/confirmarllamada'})
     j.HELP_TEXT += '\n' + HELP
     j._aincrad = __import__(__name__)
