@@ -34,6 +34,13 @@ class AincradTests(unittest.TestCase):
         self.assertIn('$9', text)
         self.assertIn('https://ejemplo.com/hub', text)
 
+    def test_pitch_sells_any_product_without_a_fake_discount(self):
+        catalog = [{'name': 'Plantillas', 'price': 15, 'url': 'https://ejemplo.com/p', 'benefit': 'Las editas hoy.', 'limit': ''}]
+        text = a.sales_reply('está caro', 'https://ejemplo.com/hub', catalog)
+        self.assertIn('$15', text)
+        self.assertIn('https://ejemplo.com/p', text)
+        self.assertIn('sin descuento inventado', text)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
