@@ -110,7 +110,9 @@ def kit_html():
   <p class="price">${price} USD</p>
   <div class="card">{draft}</div>
   <div class="card">{scope}</div>
-  <a class="buy" href="{cta}">Ver el kit</a>
+  <a class="buy" href="/kit/archivo.pdf">Descargar el kit</a>
+  <p style="height:12px"></p>
+  <a class="buy" href="{cta}" style="background:transparent;color:#d6b25e;border:1px solid #d6b25e">Todos los enlaces</a>
 </main>
 '''
 
