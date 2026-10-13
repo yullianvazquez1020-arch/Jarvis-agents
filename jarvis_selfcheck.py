@@ -55,9 +55,9 @@ _ACTION_CLAIMS = [
 ]
 _CLAIM_RE = re.compile("|".join(_ACTION_CLAIMS))
 _NEGATION = re.compile(r"\b(?:no|nunca|ni|sin|jamas)\b")
-CLAIM_NOTE = ("🔎 Autocorrección: en esta respuesta dije que hice un pago, una compra, una publicación, una "
-              "aprobación o un mensaje a un cliente. Yo no tengo cómo hacer eso: solo lo preparo. Lo envías o lo "
-              "apruebas tú (/enviar N, /aprobar N). Revisa con /mensajes o /seguridad antes de dar algo por hecho.")
+CLAIM_NOTE = ("🔎 Autocorrección: esta respuesta afirma una acción externa. Comprueba su resultado o recibo "
+              "en /mensajes, /redes o /seguridad antes de darla por completada. "
+              "Un borrador no demuestra un envío, una publicación ni un pago.")
 
 
 def _sentences(text):
@@ -85,7 +85,7 @@ _MONEY_RE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?"
                        r"|(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dolares|usd)\b")
 _NUMBER_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 _HEDGE = re.compile(r"estimad|aprox|alrededor|cerca de|entre|~|supuesto|ejemplo|por ejemplo|podria|podrias|"
-                    r"meta|objetivo|si cobras|si vendes|tope|limite|maximo|minimo")
+                    r"meta|objetivo|si cobras|si vendes|tope|limite|maximo|minimo|precio propuesto|precio de prueba|propongo cobrar")
 MAX_GROUNDED = 150
 
 

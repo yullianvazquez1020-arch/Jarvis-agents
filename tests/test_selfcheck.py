@@ -58,7 +58,8 @@ class ActionClaims(Base):
              patch.object(j, "cb_approve_text", side_effect=AssertionError("aprobar")):
             reply = self.chat("avísale a Juan", [ai_text("Listo, le envié el SMS al cliente Juan.")])
         self.assertIn("Autocorrección", reply)
-        self.assertIn("solo lo preparo", reply)
+        self.assertIn("Comprueba su resultado", reply)
+        self.assertNotIn("no tengo cómo", reply)
         self.assertEqual(sc._stats().get("claims"), 1)
 
 
@@ -78,6 +79,11 @@ class Money(Base):
         self.assertEqual(sc.unbacked_money("Véndelo a $36.", sc.numbers_in("me cuesta 12")), [])
         self.assertEqual(sc.unbacked_money("Podría dejarte aprox. $900.", set()), [])
         self.assertEqual(sc.unbacked_money("Tu tope es $100 por operación.", sc._rule_numbers()), [])
+
+    def test_proposed_prices_are_not_reported_as_missing_income(self):
+        self.assertEqual(sc.unbacked_money('Precio propuesto: $35 USD.', set()), [])
+        self.assertEqual(sc.unbacked_money('Precio de prueba: $9 USD.', set()), [])
+        self.assertTrue(sc.unbacked_money('Ganaste $35 USD.', set()))
 
     def test_earlier_invented_amount_does_not_become_data(self):
         self.chat("¿cuánto gané?", [ai_text("Ganaste $4,870.")], session="s2")

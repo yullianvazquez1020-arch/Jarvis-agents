@@ -21,16 +21,14 @@ class IncomeTests(unittest.TestCase):
         self.assertEqual(m.load(), {'items': {}})
         self.assertIsNone(m.status()['verified_revenue'])
 
-    def test_select_limit_and_retry(self):
-        for n in (11, 2, 1, 11):
+    def test_select_more_than_three_without_spending(self):
+        before = (j._bload(), j._gload(), j._oload(), j._paperload())
+        for n in (11, 2, 1, 11, 21, 31):
             m.reply('/fuente', f'{n} activar')
-        before = m.load()
-        with self.assertRaises(ValueError):
-            m.reply('/fuente', '21 activar')
-        self.assertEqual(m.load(), before)
+        self.assertEqual(len(m.status()['active']), 5)
         m.reply('/fuente', '1 pausar')
-        m.reply('/fuente', '21 activar')
-        self.assertEqual(len(m.status()['active']), 3)
+        self.assertEqual(len(m.status()['active']), 4)
+        self.assertEqual((j._bload(), j._gload(), j._oload(), j._paperload()), before)
 
     def test_draft_persists_without_money_or_outbox_effects(self):
         before = (j._bload(), j._gload(), j._oload(), j._paperload())
