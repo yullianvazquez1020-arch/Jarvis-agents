@@ -16,7 +16,7 @@ Instalación (MacBook Pro 2015, Monterey, Python 3.9):
 ```bash
 pip3 install faster-whisper webrtcvad sounddevice numpy requests
 export JARVIS_URL=https://jarvis-agents.onrender.com
-export JARVIS_ENCARGO_SECRET=...   # el mismo valor que en Render; nunca en Git
+export JARVIS_ENCARGO_SECRET=...   # 24+ caracteres, el mismo valor que en Render; nunca en Git
 python3 desktop/voz_loop.py
 ```
 Opcional: `PIPER_MODEL=/ruta/es_MX-claude-high.onnx` (si tienes `piper`), `WHISPER_SIZE=tiny` si va lento, `JARVIS_SAY_VOICE=Paulina`.
