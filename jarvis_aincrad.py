@@ -103,6 +103,8 @@ def kit_html():
   .card {{ border:1px solid #3a3428; padding:18px; margin:0 0 18px; }}
   a.buy {{ display:block; text-align:center; background:#d6b25e; color:#1a1408; text-decoration:none;
            padding:16px; font-weight:700; letter-spacing:.04em; }}
+  a.wa {{ position:fixed; right:16px; bottom:16px; background:#25D366; color:#06210f;
+         text-decoration:none; font-weight:700; padding:14px 18px; border-radius:999px; }}
 </style>
 <main>
   <div class="mark">AINCRAD</div>
@@ -114,6 +116,7 @@ def kit_html():
   <p style="height:12px"></p>
   <a class="buy" href="{cta}" style="background:transparent;color:#d6b25e;border:1px solid #d6b25e">Todos los enlaces</a>
 </main>
+<a class="wa" href="/hub/go/whatsapp">WhatsApp</a>
 '''
 
 
