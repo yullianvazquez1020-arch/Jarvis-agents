@@ -225,10 +225,12 @@ async def _lifespan(app):
     task = asyncio.create_task(_scheduler_loop())
     import jarvis_brain as _brain   # 4.2.7: ciclo autónomo BRAIN (off unless BRAIN_ENABLED)
     brain_task = asyncio.create_task(_brain.loop(_sys.modules[__name__]))
+    google_task = asyncio.create_task(_google.loop(_sys.modules[__name__])) if GOOGLE_STATUS == "activo" else None
     try:
         yield
     finally:
         task.cancel(); recovery.cancel(); crypto_recovery.cancel(); brain_task.cancel()
+        if google_task: google_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await brain_task
         with contextlib.suppress(asyncio.CancelledError):
@@ -7551,6 +7553,16 @@ try:
 except Exception as _e:
     SELFCHECK_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("selfcheck off: %s", type(_e).__name__)
+
+# 4.2.9: Gmail y Google Calendar en solo lectura (/hoy y resumen matutino). Sin envío de correos.
+GOOGLE_STATUS = "no cargado"
+try:
+    import jarvis_google as _google
+    _google.install(__import__("sys").modules[__name__])
+    GOOGLE_STATUS = "activo"
+except Exception as _e:
+    GOOGLE_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("google off: %s", type(_e).__name__)
 
 # 4.2.6: práctica de trading más seria (riesgo y stop dinámico) y datos para la gráfica del escritorio.
 # Sigue siendo dinero simulado. No envía órdenes, no toca dinero real y no recomienda qué comprar.
