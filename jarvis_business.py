@@ -1,5 +1,6 @@
 """Owner's prepared commercial offers, usable even when the paid model is unavailable."""
 import copy
+import os
 
 HELP = '/negocios · /negocios gumroad · /negocios fiverr · /negocios preparar · /negocios desarrollar · /tienda'
 OFFERS = {
@@ -166,7 +167,11 @@ def install(j):
                                'Existing kit scope: 7-page PDF plus Markdown templates, $9; never add uncreated videos, supplier contacts, Google Docs, guarantees or proven savings. '
                                'Create concrete deliverables now with available tools; do not promise background work or income in 48-72 hours. '
                                'Missing email/WhatsApp keys block only sending through those channels, not research, drafting or preparation. '
-                               'Hands and mouse are currently being handled by Claude; focus this business conversation on the offers.\n')
+                               'Hands and mouse are currently being handled by Claude; focus this business conversation on the offers.\n') + (
+            'Owner language preference: respond in British English, even to Spanish questions. Use a calm, concise, formal assistant manner. '
+            'Keep command names, proper nouns and saved client/marketing drafts in their original language. '
+            'Use Spanish only when the owner explicitly requests it.\n'
+            if os.getenv('JARVIS_REPLY_LANGUAGE','es').lower() in ('en','en-gb','en_gb') else '')
     j.system_prompt = system_prompt
     old_command = j._extensions.command
     async def command(chat_id, cmd, arg):
