@@ -7285,7 +7285,8 @@ async def health():
                            "owner_user_set": bool(TG_OWNER_USER), "code_minutes": GATE_CODE_MIN},
             "external_agents": {a: bool(u) for a, u in AGENTS.items()},
             "external_agent_key_separate": bool(EXTERNAL_AGENT_KEY) and EXTERNAL_AGENT_KEY != API_KEY,
-            "desktop_api": {"enabled": bool(_desktop.ENABLED), "status": DESKTOP_STATUS}}
+            "desktop_api": {"enabled": bool(_desktop.ENABLED), "status": DESKTOP_STATUS},
+            "funnel": {"status": globals().get("FUNNEL_STATUS", "no cargado"), "path": "/hub"}}
 
 # Additive feature module; loaded after all core handlers and routes exist.
 import sys as _sys
@@ -7437,3 +7438,13 @@ _income.install(__import__('sys').modules[__name__])
 
 import jarvis_business as _business
 _business.install(__import__('sys').modules[__name__])
+
+# Hub propio en /hub. Si no carga, Jarvis arranca igual.
+FUNNEL_STATUS = "no cargado"
+try:
+    import jarvis_funnel as _funnel
+    _funnel.install(__import__('sys').modules[__name__])
+    FUNNEL_STATUS = "activo"
+except Exception as _e:
+    FUNNEL_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("funnel hub off: %s", type(_e).__name__)
