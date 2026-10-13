@@ -66,6 +66,12 @@ class AincradTests(unittest.TestCase):
         chosen = a.select_facts(facts, limit=90)
         self.assertIn('https://yullian.gumroad.com/l/ketec', chosen)
 
+    def test_no_ads_before_the_first_sale(self):
+        catalog = [{'name': 'Bueno', 'price': 20, 'cost': 5, 'url': 'https://ejemplo.com/b', 'benefit': 'Deja margen.'}]
+        self.assertIn('No pagues anuncios', a.merchant_move(catalog, 0))
+        self.assertIn('enlace de afiliado', a.merchant_move(catalog, 2))
+        self.assertEqual(len(a.RULES), 7)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)

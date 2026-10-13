@@ -16,7 +16,16 @@ KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
         '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO · /producto rentables · /producto quitar NOMBRE · '
         '/monetizar · /monetizar medium N · /monetizar quora N · '
-        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO · /memoria HECHO · /olvidar ID')
+        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO · /memoria HECHO · /olvidar ID · /dinero')
+RULES = (
+    'Costo primero: si el precio menos el costo no es positivo, no se vende.',
+    'Una puerta: un producto, un precio y un enlace hasta que entre la primera venta.',
+    'Muestra el trabajo: el PDF se mira gratis. El archivo pagado lo entrega Gumroad.',
+    'Quien ya pagó vale más que un extraño: al día 7 se le ofrece el de mayor margen.',
+    'Un referido antes que un anuncio: se pasa el enlace de afiliado, sin comprar tráfico.',
+    'Cobra antes de gastar: ningún anuncio hasta que haya una venta anotada.',
+    'Corta lo que no deja: el producto sin margen no se recomienda.',
+)
 FACTS_KEY = 'jarvis:facts'
 DECISION_KEY = 'jarvis:decision'
 SECRET_RX = re.compile(r'(re_[A-Za-z0-9_\-]{8,}|sk-[A-Za-z0-9]|AC[0-9a-fA-F]{20,}|ghp_[A-Za-z0-9]|github_pat_)')
@@ -193,7 +202,13 @@ def email_for(step, hub):
         'Si tienes dos propuestas, ponlas juntas. El precio más bajo no cuenta si le falta una parte del trabajo.',
         'Revisa pendientes, fotos finales y lo que quedó fuera. Si quieres el siguiente paso, está en el mismo enlace.',
     )[n]
-    return sub, body + '\n\nCompra: ' + PRODUCT_URL + '\n' + hub + '\n\nAINCRAD'
+    extra = ''
+    if n == 4:
+        best = profitable(catalog_or_default())
+        if best:
+            product = best[0][2]
+            extra = f"\nSiguiente, si te sirvió: {product['name']} por ${money(product['price'])}. {product['url']}"
+    return sub, body + '\n\nCompra: ' + PRODUCT_URL + '\n' + hub + extra + '\n\nAINCRAD'
 
 
 def pending_step(sub, today):
@@ -255,7 +270,18 @@ def select_facts(facts, limit=2500):
     return chosen
 
 
-def decision_text(rows, email_on, whatsapp_on):
+def merchant_move(rows, buyers=0):
+    best = profitable(rows)
+    if not best:
+        return 'Anota el costo. Sin costo no hay ganancia y no se ofrece.'
+    name = best[0][2]['name']
+    if int(buyers or 0) <= 0:
+        return f'Una sola oferta: {name}. No pagues anuncios ni abras otra tienda hasta la primera venta.'
+    return (f'Ya hay {int(buyers)} comprador(es). Vuelve a ofrecer {name} y pasa un enlace de afiliado. '
+            'No gastes hasta cobrar.')
+
+
+def decision_text(rows, email_on, whatsapp_on, buyers=0):
     best = profitable(rows)
     if best:
         profit, percent, product = best[0]
@@ -264,7 +290,7 @@ def decision_text(rows, email_on, whatsapp_on):
         choice = 'No ofrezco un producto como rentable: falta un costo con margen positivo.'
     mail = 'activo' if email_on else 'apagado'
     wa = 'activo' if whatsapp_on else 'apagado'
-    return f'{choice} Correo {mail}. WhatsApp {wa}. No autoricé ningún pago.'
+    return f'{choice} {merchant_move(rows, buyers)} Correo {mail}. WhatsApp {wa}. No autoricé ningún pago.'
 
 
 def remember_fact(text):
@@ -514,6 +540,15 @@ def reply(arg, cmd):
         if not str(arg or '').strip().isdigit():
             raise ValueError('/olvidar ID')
         return forget_fact(arg.strip())
+    if cmd == '/dinero':
+        buyers = 0
+        if 'core' in globals() and core is not None:
+            try:
+                buyers = len(load().get('subscribers') or [])
+            except Exception:
+                buyers = 0
+        rules = '\n'.join(f'{i}. {rule}' for i, rule in enumerate(RULES, 1))
+        return rules + '\n\nHoy: ' + merchant_move(catalog_or_default(), buyers)
     if cmd == '/llamar':
         phone, text = parse_call(arg)
         call, code = stage_call(phone, text)
@@ -717,7 +752,7 @@ def install(j):
                 return
             d['decision_day'] = day
             save(d)
-        note = decision_text(catalog_or_default(), j.EMAIL_ON, sales_enabled())
+        note = decision_text(catalog_or_default(), j.EMAIL_ON, sales_enabled(), len((load().get('subscribers') or [])))
         j.kv_set(DECISION_KEY, {'at': now.isoformat(timespec='seconds'), 'text': note})
         try:
             await j._tg_send(j.TG_OWNER, note)
@@ -728,7 +763,7 @@ def install(j):
     old = j._extensions.command
 
     async def command(chat_id, cmd, arg):
-        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar'):
+        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
             return
@@ -753,6 +788,6 @@ def install(j):
         await j._tg_safe_send(chat_id, text)
 
     j._extensions.command = command
-    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar'})
+    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada', '/memoria', '/olvidar', '/dinero'})
     j.HELP_TEXT += '\n' + HELP
     j._aincrad = __import__(__name__)
