@@ -48,13 +48,46 @@ class VideoUpgradeTests(base.GrowthTests):
         for data in (b'{"error":"private"}',b'',b'not audio'):
             self.assertIsNotNone(g.voice_response_error(httpx.Response(200,content=data,headers={'content-type':'application/octet-stream'})))
         self.assertIsNone(g.voice_response_error(httpx.Response(200,content=b'\xff\xfb\x90\x00',headers={'content-type':'application/octet-stream'})))
+    def test_missing_video_id_explains_usage_without_rendering(self):
+        with patch.object(g.core, '_tg_safe_send', new=AsyncMock()) as send, patch.object(g, 'render_plan', new=AsyncMock()) as render:
+            for arg in ('', 'abc', '-1', '0', '7 extra'):
+                asyncio.run(g.growth_command('owner', '/producirvideo', arg))
+            render.assert_not_awaited()
+            self.assertIn('/videos', send.call_args.args[1])
+
+    def test_memory_guard_keeps_preview_and_reports_no_voice(self):
+        from jarvis_media_budget import MediaMemoryError
+        p=g.validate_plan(base.plan());p.update(id=7,status='planned')
+        d=g.load();d['video_plans']=[p];g.save(d)
+        response=type('R',(),{'status_code':200,'json':lambda self:{'ok':True}})()
+        hc=AsyncMock();hc.post.return_value=response
+        def render(plan, output, audio):
+            self.assertEqual(audio, [])
+            Path(output).write_bytes(b'preview')
+        with tempfile.TemporaryDirectory() as temp, patch.object(g,'_video_path',return_value=Path(temp)/'video.mp4'), patch.object(g,'video_narration',new=AsyncMock(side_effect=MediaMemoryError('pressure'))), patch('jarvis_video.render_video',side_effect=render), patch.object(g.core.httpx,'AsyncClient') as client:
+            client.return_value.__aenter__.return_value=hc
+            result=asyncio.run(g.render_plan(7,'owner'))
+        self.assertFalse(result['narration'])
+        self.assertIn('memoria', result['narration_note'])
+        self.assertTrue(g._plan(7)['preview_sent'])
+        self.assertEqual(g._plan(7)['status'], 'rendered')
+        self.assertIn('Sin narración', hc.post.call_args.kwargs['data']['caption'])
+
+    def test_provider_failure_does_not_claim_rendered(self):
+        p=g.validate_plan(base.plan());p.update(id=7,status='planned')
+        d=g.load();d['video_plans']=[p];g.save(d)
+        with patch.object(g,'video_narration',new=AsyncMock(side_effect=ValueError('HTTP 401'))), patch('jarvis_video.render_video') as render:
+            with self.assertRaises(ValueError):asyncio.run(g.render_plan(7,'owner'))
+            render.assert_not_called()
+        self.assertEqual(g._plan(7)['status'], 'planned')
+
     def test_actual_video_contains_audio(self):
         p=base.plan()
         for s in p['scenes']:s.update(character='coqui',seconds=4)
         with tempfile.TemporaryDirectory() as temp:
             audio=Path(temp)/'voice.wav'
             with wave.open(str(audio),'wb') as w:
-                w.setparams((1,2,44100,0,'NONE','not compressed'));w.writeframes(b'\0\0'*44100)
+                w.setparams((1,2,44100,0,'NONE','not compressed'));w.writeframes(b'\xe8\x03'*44100)
             import subprocess, httpx
             from jarvis_video import _ffmpeg
             mp3=Path(temp)/'speech.mp3'
@@ -68,5 +101,10 @@ class VideoUpgradeTests(base.GrowthTests):
             self.assertTrue(r['narration']);self.assertGreater(out.stat().st_size,1000)
             info=subprocess.run([_ffmpeg(),'-i',str(out)],capture_output=True,text=True).stderr
             self.assertIn('Audio: aac',info);self.assertIn('Video: h264',info)
+            self.assertIn('Duration: 00:00:15.',info)
+            self.assertEqual(r['seconds'],15)
+            raw=subprocess.run([_ffmpeg(),'-v','error','-i',str(out),'-t','1','-f','s16le','-ac','1','pipe:1'],capture_output=True,check=True).stdout
+            self.assertTrue(raw);self.assertEqual(set(raw),{0})
+            self.assertIn('00:00:13,500 --> 00:00:15,000',Path(r['captions']).read_text())
 
 if __name__=='__main__':unittest.main()

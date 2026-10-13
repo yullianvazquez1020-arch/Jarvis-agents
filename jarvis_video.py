@@ -222,15 +222,21 @@ def render_video(plan,output,audio_paths=None):
             joined=Path(tmp)/'narration.wav'
             with wave.open(str(joined),'wb') as dest:
                 dest.setparams((1,2,44100,0,'NONE','not compressed'))
+                dest.writeframes(b'\0\0' * int(44100 * 1.5))  # match the intro card
                 for i,s in enumerate(scenes):
                     part=Path(tmp)/f'audio-{i}.wav'
                     result=subprocess.run([ffmpeg,'-y','-v','error','-i',audio_paths[i],'-af','apad','-t',str(s['duration']),'-ar','44100','-ac','1','-c:a','pcm_s16le',str(part)],capture_output=True,timeout=60)
                     if result.returncode:raise ValueError('No pude preparar narración')
-                    with wave.open(str(part),'rb') as src:dest.writeframes(src.readframes(src.getnframes()))
+                    with wave.open(str(part),'rb') as src:
+                        while True:
+                            block=src.readframes(8192)
+                            if not block:break
+                            dest.writeframes(block)
+                dest.writeframes(b'\0\0' * int(44100 * 1.5))  # preserve the outro
             result=subprocess.run([ffmpeg,'-y','-v','error','-i',str(video),'-i',str(joined),'-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-metadata','comment='+plan.get('description','')[:3000],'-movflags','+faststart',str(destination)],capture_output=True,timeout=90)
             if result.returncode:raise ValueError('No pude unir narración')
         else:shutil.copyfile(video,destination)
         shutil.copyfile(destination,output)
     srt=Path(output).with_suffix('.srt')
     srt.write_text(captions_srt(plan.get('title',''),scenes),encoding='utf-8')
-    return {'seconds':sum(s['duration'] for s in scenes),'narration':bool(audio_paths),'path':str(output),'captions':str(srt)}
+    return {'seconds':3+sum(s['duration'] for s in scenes),'narration':bool(audio_paths),'path':str(output),'captions':str(srt)}
