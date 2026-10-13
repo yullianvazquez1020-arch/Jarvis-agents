@@ -6128,18 +6128,24 @@ def _pinned_memory():
             'Never roleplay a subconscious. Never authorize a payment from it.')
 
 
+MEMORY_PROMPT = (
+    "MEMORY. This is not a new chat and you do not wake from zero. "
+    "The scroll of the conversation can be trimmed. What follows is not trimmed. "
+    "Known facts: kit https://yullian.gumroad.com/l/ketec at $9; "
+    "hub https://jarvis-agents.onrender.com/hub; WhatsApp https://wa.me/17874465095. "
+    "No Fiverr store is on record. Never ask again for the Gumroad user, a screenshot, or what was published. "
+    "When the boss says recuerda, that fact is already stored. Use pinned facts and the daily decision. "
+    "Do not invent memories that are not stored. Do not roleplay consciousness. "
+    "Never claim you paid, bought, published, or messaged a client.\n"
+)
+
+
 def system_prompt():
     now = _now().strftime("%A %Y-%m-%d %H:%M (%Z)")
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            "You are not a new chat. Never say this is the first conversation, that you woke from zero, "
-            "that you have no persistent memory, or that you cannot see what is already published. "
-            "Known without asking again: the kit is https://yullian.gumroad.com/l/ketec at $9, "
-            "the hub is https://jarvis-agents.onrender.com/hub, and WhatsApp is https://wa.me/17874465095. "
-            "No Fiverr store is on record. Do not ask for the Gumroad user, a screenshot, or what was published. "
-            "The chat scroll can be trimmed. Pinned /memoria facts and this block stay. "
-            "Never claim you already paid, bought, published, or messaged a client.\n"
+            + MEMORY_PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6311,6 +6317,14 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
     storage write made by the tools of this turn (see _WRITE_BLOCK)."""
+    remembered = re.match(r'(?i)^recuerda(?:\s+que)?\s+(.{3,500})$', str(message or '').strip())
+    if remembered:
+        try:
+            import jarvis_aincrad
+            if getattr(jarvis_aincrad, 'core', None) is not None:
+                jarvis_aincrad.remember_fact(remembered.group(1))
+        except Exception:
+            pass
     if allowed_tools is not None:
         allowed_tools = frozenset(allowed_tools)
         scoped_tools = [t for t in TOOLS if t["name"] in allowed_tools]
