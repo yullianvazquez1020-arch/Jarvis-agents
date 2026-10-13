@@ -552,18 +552,27 @@ async def render_plan(id,chat_id):
             if plan['status'] in ('uploading','uploaded_private','publishing','published','unknown_upload','unknown_publish'):raise ValueError('Este video ya está enviado o en publicación')
         from jarvis_video import render_video
         out=_video_path(id)
+        narration_note=''
+        from jarvis_media_budget import MediaMemoryError
         with tempfile.TemporaryDirectory(prefix='jarvis-voice-') as temp:
-            audio=await video_narration(plan,temp)
+            try:
+                audio=await video_narration(plan,temp)
+            except MediaMemoryError:
+                # The guard has already killed and reaped Piper. Keep its protection;
+                # continue only the lightweight preview, never switch to a paid API.
+                audio=[]
+                narration_note='Sin narración por límite de memoria; vista previa con texto y subtítulos.'
+                logging.getLogger(__name__).warning('video preview continuing without narration: memory budget')
             await asyncio.to_thread(render_video,plan,str(out),audio)
         if not out.exists() or out.stat().st_size>45*1024*1024:raise ValueError('Video demasiado grande para enviar por este flujo')
         sha=await asyncio.to_thread(lambda:hashlib.sha256(out.read_bytes()).hexdigest())
         with core._data_lock:
-            d=load();p=next(x for x in d['video_plans'] if x['id']==int(id));p.update(status='rendered',sha256=sha,rendered_at=stamp(),narration=bool(audio),preview_sent=False);save(d)
+            d=load();p=next(x for x in d['video_plans'] if x['id']==int(id));p.update(status='rendered',sha256=sha,rendered_at=stamp(),narration=bool(audio),narration_note=narration_note,preview_sent=False);save(d)
         async with core.httpx.AsyncClient(timeout=120) as hc:
-            with out.open('rb') as f:r=await hc.post(f'https://api.telegram.org/bot{core.TG_TOKEN}/sendVideo',data={'chat_id':chat_id,'caption':f"Vista previa #{id}. {'Con voz generada por IA.' if audio else 'Sin narración: conecta TTS para voz.'} Revisa contenido y calidad antes de subir. No publicado."},files={'video':('video.mp4',f,'video/mp4')})
+            with out.open('rb') as f:r=await hc.post(f'https://api.telegram.org/bot{core.TG_TOKEN}/sendVideo',data={'chat_id':chat_id,'caption':f"Vista previa #{id}. {narration_note or ('Con voz generada por IA.' if audio else 'Sin narración: TTS desactivado.')} Revisa contenido y calidad antes de subir. No publicado."},files={'video':('video.mp4',f,'video/mp4')})
         if r.status_code!=200 or r.json().get('ok') is not True:raise ValueError('Render listo, Telegram no confirmó la previsualización')
         with core._data_lock:d=load();next(x for x in d['video_plans'] if x['id']==int(id))['preview_sent']=True;save(d)
-        return {'status':'rendered','id':id,'narration':bool(audio),'note':'Animática original para revisión, no garantía de monetización ni publicación.'}
+        return {'status':'rendered','id':id,'narration':bool(audio),'narration_note':narration_note,'note':'Animática original para revisión, no garantía de monetización ni publicación.'}
 
 async def _youtube_token():
     values={k:os.getenv('YOUTUBE_'+k.upper(),'').strip() for k in ('client_id','client_secret','refresh_token')}
@@ -646,6 +655,10 @@ def _publish_error_text(err):
 
 async def growth_command(chat_id,cmd,arg):
     try:
+        if cmd in ('/producirvideo','/mejorarvideo','/video','/subiryoutube','/publicaryoutube'):
+            if not re.fullmatch(r'[1-9][0-9]{0,9}',str(arg).strip()):
+                await core._tg_safe_send(chat_id,f'Uso: {cmd} ID. Consulta /videos para elegir el número del plan.')
+                return
         if cmd=='/alibaba':value=await sourcing_research(arg) if arg else {'url':'https://www.alibaba.com/','usage':'/alibaba producto para investigar'}
         elif cmd=='/youtube':value=await youtube_research(arg)
         elif cmd=='/backtest':value=await paper_backtest(arg or 'BTC-USD')
