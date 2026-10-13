@@ -10,6 +10,7 @@ class AincradTests(unittest.TestCase):
         html = a.kit_html()
         self.assertIn('Organiza tu remodelación', html)
         self.assertIn('$9', html)
+        self.assertIn('https://yullian.gumroad.com/l/ketec', html)
         self.assertIn('class="wa"', html)
         self.assertNotIn('<script>', html.split('<style>')[0])
 
