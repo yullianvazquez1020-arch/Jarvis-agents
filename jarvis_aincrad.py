@@ -14,7 +14,7 @@ import jarvis_funnel
 
 KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
-        '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO · /producto quitar NOMBRE · '
+        '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO · /producto rentables · /producto quitar NOMBRE · '
         '/monetizar · /monetizar medium N · /monetizar quora N · '
         '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO')
 PHONE_RE = re.compile(r'^\+[1-9]\d{7,14}$')
@@ -226,12 +226,46 @@ def catalog_or_default():
     return rows or [default_product()]
 
 
+def product_margin(product):
+    raw = product.get('cost')
+    if raw is None or raw == '':
+        return None
+    price = float(product.get('price') or 0)
+    cost = float(raw)
+    if price <= 0:
+        return None
+    profit = round(price - cost, 2)
+    percent = round(100 * profit / price, 1)
+    return profit, percent
+
+
+def profitable(rows):
+    ranked = []
+    for row in rows:
+        margin = product_margin(row)
+        if margin and margin[0] > 0:
+            ranked.append((margin[0], margin[1], row))
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return ranked
+
+
 def pick_product(text, rows):
     q = str(text or '').lower()
     for row in rows:
         if str(row.get('name') or '').lower() in q and len(str(row.get('name') or '')) > 2:
             return row
-    return rows[0]
+    best = profitable(rows)
+    return best[0][2] if best else rows[0]
+
+
+def margin_line(product):
+    margin = product_margin(product)
+    if not margin:
+        return 'Sin costo anotado, así que no lo marco como rentable.'
+    profit, percent = margin
+    if profit <= 0:
+        return f'Margen ${money(profit)} ({percent}%). No es rentable con ese costo.'
+    return f'Margen ${money(profit)} ({percent}%) sobre el costo que anotaste.'
 
 
 def pitch(text, hub, product):
@@ -242,13 +276,14 @@ def pitch(text, hub, product):
     benefit = str(product.get('benefit') or 'Está listo para usarse.').strip()
     limit = str(product.get('limit') or '').strip()
     cta = f'Compra aquí: {url}\n{hub}'
+    note = margin_line(product)
     if any(w in q for w in ('caro', 'descuento', 'barato', 'duda')):
-        return f'{name} cuesta ${price} USD. {benefit} El precio es el publicado, sin descuento inventado. {cta}'
+        return f'{name} cuesta ${price} USD. {benefit} El precio es el publicado, sin descuento inventado. {note} {cta}'
     if any(w in q for w in ('precio', 'cuesta', 'costo', 'cuanto', 'cuánto')):
-        return f'{name}: ${price} USD. {benefit} {cta}'
+        return f'{name}: ${price} USD. {benefit} {note} {cta}'
     if any(w in q for w in ('incluye', 'sirve', 'qué es', 'que es')):
-        return ' '.join(part for part in (f'{name}.', benefit, limit, cta) if part)
-    return ' '.join(part for part in (benefit, f'{name} está en ${price} USD.', limit, cta) if part)
+        return ' '.join(part for part in (f'{name}.', benefit, limit, note, cta) if part)
+    return ' '.join(part for part in (benefit, f'{name} está en ${price} USD.', limit, note, cta) if part)
 
 
 def sales_reply(text, hub=None, catalog=None):
@@ -256,12 +291,16 @@ def sales_reply(text, hub=None, catalog=None):
     rows = catalog or catalog_or_default()
     q = str(text or '').lower()
     if any(w in q for w in ('catalogo', 'catálogo', 'que vendes', 'qué vendes', 'productos')):
-        lines = [f"{p['name']}: ${money(p['price'])} USD. {p['url']}" for p in rows]
-        return 'Esto está a la venta:\n' + '\n'.join(lines) + '\n' + hub
+        lines = []
+        for profit, percent, product in profitable(rows):
+            lines.append(f"{product['name']}: margen ${money(profit)} ({percent}%). {product['url']}")
+        if not lines:
+            return 'Ninguno tiene costo anotado y margen positivo. /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO'
+        return 'Primero el de mayor margen:\n' + '\n'.join(lines) + '\n' + hub
     return pitch(text, hub, pick_product(text, rows))
 
 
-def add_product(name, price, url, benefit=''):
+def add_product(name, price, url, benefit='', cost=None):
     name = ' '.join(str(name).split())[:80]
     if len(name) < 2:
         raise ValueError('Falta el nombre')
@@ -271,6 +310,14 @@ def add_product(name, price, url, benefit=''):
         raise ValueError('Precio inválido') from e
     if not 0 < amount <= 100000:
         raise ValueError('Precio inválido')
+    stored_cost = None
+    if cost not in (None, ''):
+        try:
+            stored_cost = round(float(str(cost).replace(',', '')), 2)
+        except ValueError as e:
+            raise ValueError('Costo inválido') from e
+        if stored_cost < 0:
+            raise ValueError('Costo inválido')
     link = jarvis_funnel.https_url(url)
     with core._data_lock:
         d = load()
@@ -278,7 +325,8 @@ def add_product(name, price, url, benefit=''):
         rows = [p for p in rows if str(p.get('name') or '').lower() != name.lower()]
         if len(rows) >= 20:
             raise ValueError('Tope de 20 productos')
-        rows.append({'name': name, 'price': amount, 'url': link, 'benefit': ' '.join(benefit.split())[:180], 'limit': ''})
+        rows.append({'name': name, 'price': amount, 'url': link,
+                     'benefit': ' '.join(benefit.split())[:180], 'limit': '', 'cost': stored_cost})
         d['products'] = rows
         save(d)
     return rows[-1]
@@ -357,14 +405,23 @@ def reply(arg, cmd):
         parts = [p.strip() for p in str(arg or '').split('|')]
         if not parts or not parts[0]:
             rows = catalog_or_default()
-            return '\n'.join(f"{p['name']} · ${money(p['price'])} · {p['url']}" for p in rows)
+            lines = []
+            for product in rows:
+                margin = product_margin(product)
+                note = f"margen ${money(margin[0])}" if margin else 'sin costo'
+                lines.append(f"{product['name']} · ${money(product['price'])} · {note} · {product['url']}")
+            return '\n'.join(lines)
         head, _, _rest = parts[0].partition(' ')
+        if head == 'rentables':
+            return sales_reply('qué vendes', hub_url())
         if head == 'alta':
             name = parts[0].split(' ', 1)[1] if ' ' in parts[0] else ''
             if len(parts) < 3:
-                raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO')
-            product = add_product(name, parts[1], parts[2], parts[3] if len(parts) > 3 else '')
-            return f"A la venta: {product['name']} por ${money(product['price'])}. {product['url']}"
+                raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO')
+            product = add_product(name, parts[1], parts[2], parts[3] if len(parts) > 3 else '', parts[4] if len(parts) > 4 else None)
+            margin = product_margin(product)
+            extra = f" Margen ${money(margin[0])}." if margin and margin[0] > 0 else ' Sin margen positivo todavía.'
+            return f"A la venta: {product['name']} por ${money(product['price'])}.{extra} {product['url']}"
         if head == 'quitar':
             name = parts[0].split(' ', 1)[1].strip() if ' ' in parts[0] else ''
             with core._data_lock:

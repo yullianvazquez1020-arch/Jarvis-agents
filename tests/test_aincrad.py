@@ -41,6 +41,16 @@ class AincradTests(unittest.TestCase):
         self.assertIn('https://ejemplo.com/p', text)
         self.assertIn('sin descuento inventado', text)
 
+    def test_recommendation_picks_the_positive_margin(self):
+        catalog = [
+            {'name': 'Barato', 'price': 10, 'cost': 9, 'url': 'https://ejemplo.com/a', 'benefit': 'Poco.', 'limit': ''},
+            {'name': 'Bueno', 'price': 20, 'cost': 5, 'url': 'https://ejemplo.com/b', 'benefit': 'Deja margen.', 'limit': ''},
+        ]
+        text = a.sales_reply('qué me recomiendas', 'https://ejemplo.com/hub', catalog)
+        self.assertIn('Bueno', text)
+        self.assertIn('Margen $15', text)
+        self.assertNotIn('Barato', text)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
