@@ -14,6 +14,7 @@ HELP = ('/hub — tu página de links\n'
 SLUG = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$')
 PIXEL = re.compile(r'^\d{5,20}$')
 GA4 = re.compile(r'^G-[A-Z0-9]{4,20}$')
+WHATSAPP_URL = 'https://wa.me/17874465095'
 
 
 def empty():
@@ -38,6 +39,17 @@ def https_url(value):
     return u.geturl()
 
 
+def ensure_whatsapp(d):
+    links = d.setdefault('links', [])
+    if not isinstance(links, list):
+        d['links'] = []
+        links = d['links']
+    if any(isinstance(x, dict) and x.get('slug') == 'whatsapp' for x in links):
+        return False
+    links.append({'slug': 'whatsapp', 'name': 'WhatsApp', 'url': WHATSAPP_URL, 'clicks': 0})
+    return True
+
+
 def load():
     d = core.kv_get(KEY, empty())
     if not isinstance(d, dict):
@@ -45,6 +57,11 @@ def load():
     d.setdefault('title', 'AINCRAD')
     d.setdefault('bio', '')
     d.setdefault('links', [])
+    if ensure_whatsapp(d):
+        try:
+            save(d)
+        except Exception:
+            pass
     return d
 
 
