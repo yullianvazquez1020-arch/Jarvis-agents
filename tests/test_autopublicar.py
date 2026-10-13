@@ -40,6 +40,37 @@ class AutoPublicar(unittest.TestCase):
         self.assertNotIn('auto_publish_own_post', j.READ_ONLY_TOOLS)
         self.assertEqual((j.HARD_MAX_ORDER_USD, j.HARD_MAX_DAY_USD), (100.0, 300.0))
 
+    def test_tiktok_private_by_default_and_capped(self):
+        class R:
+            status_code = 200
+            def json(self): return {'data': {'publish_id': 'pub-ficticio-1'}}
+        hc = AsyncMock(); hc.post = AsyncMock(return_value=R())
+        hc.__aenter__ = AsyncMock(return_value=hc); hc.__aexit__ = AsyncMock(return_value=False)
+        env = {**ON, 'TIKTOK_ACCESS_TOKEN': 'token-ficticio-tiktok-123456', 'AUTO_PUBLISH_MAX_DAY': '1'}
+        with patch.dict(os.environ, env), patch.object(j.httpx, 'AsyncClient', return_value=hc), \
+             patch.object(j, '_tg_safe_send', new=AsyncMock()) as note:
+            r = self.run_(c.auto_publish_tiktok('Video ficticio', 'https://assets.example.com/v.mp4'))
+            self.assertEqual((r['privacy'], r['publish_id']), ('SELF_ONLY', 'pub-ficticio-1'))
+            self.assertEqual(hc.post.await_args.kwargs['json']['post_info']['privacy_level'], 'SELF_ONLY')
+            self.assertIn('TikTok', note.await_args.args[1])
+            with self.assertRaises(ValueError): self.run_(c.auto_publish_tiktok('Otro', 'https://assets.example.com/w.mp4'))
+            self.assertEqual(hc.post.await_count, 1)
+
+    def test_tiktok_and_youtube_off_without_flag_or_keys(self):
+        with patch.dict(os.environ, {'AUTO_PUBLISH_OWN_SOCIAL': '', 'TIKTOK_ACCESS_TOKEN': 'token-ficticio-tiktok-123456'}):
+            with self.assertRaises(ValueError): self.run_(c.auto_publish_tiktok('x', 'https://assets.example.com/v.mp4'))
+        with patch.dict(os.environ, {**ON, 'YOUTUBE_CLIENT_ID': '', 'YOUTUBE_REFRESH_TOKEN': ''}):
+            with self.assertRaises(ValueError): self.run_(c.auto_publish_youtube(1))
+
+    def test_youtube_uses_existing_upload_and_publish(self):
+        env = {**ON, 'YOUTUBE_CLIENT_ID': 'id-ficticio', 'YOUTUBE_CLIENT_SECRET': 's-ficticio', 'YOUTUBE_REFRESH_TOKEN': 'r-ficticio'}
+        with patch.dict(os.environ, env), \
+             patch.object(j._growth, 'upload_youtube', new=AsyncMock(return_value={'url': 'https://www.youtube.com/watch?v=FICT'})) as up, \
+             patch.object(j._growth, 'publish_youtube', new=AsyncMock(return_value={'status': 'published', 'url': 'https://www.youtube.com/watch?v=FICT'})) as pub, \
+             patch.object(j, '_tg_safe_send', new=AsyncMock()) as note:
+            self.assertEqual(self.run_(c.auto_publish_youtube(7))['status'], 'published')
+        up.assert_awaited_once_with(7); pub.assert_awaited_once_with(7); self.assertIn('youtube.com', note.await_args.args[1])
+
 
 if __name__ == '__main__':
     unittest.main()

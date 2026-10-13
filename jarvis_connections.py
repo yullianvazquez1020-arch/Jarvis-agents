@@ -364,6 +364,57 @@ async def auto_publish_own_post(id):
     await _core._tg_safe_send(_core.TG_OWNER,f"📣 Publiqué solo (autopublicación) #{id} en tu {p['platform']}: {link}\n/brain off lo detiene.")
     return {**result,'link':link}
 
+def _auto_gate(network):
+    """Shared gate for auto-publication: flag, /brain off kill switch, daily cap (all networks together)."""
+    if not auto_publish_enabled():raise ValueError('Autopublicación apagada (AUTO_PUBLISH_OWN_SOCIAL)')
+    import jarvis_brain
+    if not jarvis_brain.owner_enabled(_core):raise ValueError('BRAIN apagado (/brain off): no autopublico')
+    today=_core._today().isoformat()
+    with _core._data_lock:
+        d=load();ap=d.get('auto_pub') if isinstance(d.get('auto_pub'),dict) else {}
+        if ap.get('day')!=today:ap={'day':today,'n':0}
+        if ap['n']>=auto_publish_max_day():raise ValueError(f"Tope diario de {auto_publish_max_day()} publicaciones automáticas alcanzado")
+        ap['n']+=1;d['auto_pub']=ap;save(d)
+
+async def _auto_notice(network,link):
+    _core.logger.info('auto-publish own %s -> %s',network,link)
+    await _core._tg_safe_send(_core.TG_OWNER,f"📣 Publiqué solo (autopublicación) en tu {network}: {link}\n/brain off lo detiene.")
+
+async def auto_publish_youtube(id):
+    """Own video plan -> upload (existing /subiryoutube code) -> public (existing /publicaryoutube code).
+    Uses YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET/YOUTUBE_REFRESH_TOKEN/YOUTUBE_CHANNEL_ID. Unverified Google apps stay private."""
+    if not (env('YOUTUBE_CLIENT_ID') and env('YOUTUBE_CLIENT_SECRET') and env('YOUTUBE_REFRESH_TOKEN')):raise ValueError('YouTube sin OAuth (YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN)')
+    _auto_gate('youtube')
+    g=_core._growth
+    up=await g.upload_youtube(int(id));out=await g.publish_youtube(int(id))
+    await _auto_notice('YouTube'+('' if out.get('status')=='published' else ' (quedó privado: app de Google sin verificar)'),out.get('url') or up.get('url',''))
+    return out
+
+async def _tiktok_token():
+    if env('TIKTOK_REFRESH_TOKEN') and env('TIKTOK_CLIENT_KEY') and env('TIKTOK_CLIENT_SECRET'):
+        async with _core.httpx.AsyncClient(timeout=30) as hc:
+            r=await hc.post('https://open.tiktokapis.com/v2/oauth/token/',data={'client_key':env('TIKTOK_CLIENT_KEY'),'client_secret':env('TIKTOK_CLIENT_SECRET'),'grant_type':'refresh_token','refresh_token':env('TIKTOK_REFRESH_TOKEN')})
+            tok=(r.json() or {}).get('access_token') if r.status_code==200 else None
+            if tok:return tok
+            raise ValueError(f'TikTok no renovó el token (HTTP {r.status_code})')
+    if env('TIKTOK_ACCESS_TOKEN'):return env('TIKTOK_ACCESS_TOKEN')
+    raise ValueError('TikTok sin token (TIKTOK_ACCESS_TOKEN o TIKTOK_CLIENT_KEY/SECRET/REFRESH_TOKEN)')
+
+async def auto_publish_tiktok(caption,video_url):
+    """Own video by PULL_FROM_URL. privacy SELF_ONLY: unaudited TikTok apps can only post private until the audit."""
+    caption=text(caption,150);video_url=media_url(video_url)
+    if not video_url:raise ValueError('TikTok requiere un video público HTTPS')
+    token=await _tiktok_token()
+    _auto_gate('tiktok')
+    privacy=env('TIKTOK_PRIVACY','SELF_ONLY') if env('TIKTOK_PRIVACY','SELF_ONLY') in ('SELF_ONLY','PUBLIC_TO_EVERYONE') else 'SELF_ONLY'
+    async with _core.httpx.AsyncClient(timeout=60) as hc:
+        r=await hc.post('https://open.tiktokapis.com/v2/post/publish/video/init/',headers={'Authorization':'Bearer '+token},
+                        json={'post_info':{'title':caption,'privacy_level':privacy},'source_info':{'source':'PULL_FROM_URL','video_url':video_url}})
+    pid=((r.json() or {}).get('data') or {}).get('publish_id') if r.status_code==200 else None
+    if not pid:raise ValueError(f'TikTok no confirmó (HTTP {r.status_code}); no reintento solo')
+    await _auto_notice('TikTok ('+('privado, app sin auditar' if privacy=='SELF_ONLY' else 'público')+')','publish_id '+pid)
+    return {'status':'submitted','publish_id':pid,'privacy':privacy}
+
 async def social_metrics(platform):
     if platform not in ('facebook','instagram'):raise ValueError('Plataforma: facebook o instagram')
     account=identity(platform)
@@ -421,7 +472,7 @@ async def command(chat_id,cmd,arg):
 def install(j):
     global _core
     _core=j
-    j._SECRET_ENVS=tuple(j._SECRET_ENVS)+('META_PAGE_ACCESS_TOKEN','SPECIALIST_AGENT_KEY')
+    j._SECRET_ENVS=tuple(j._SECRET_ENVS)+('META_PAGE_ACCESS_TOKEN','SPECIALIST_AGENT_KEY','TIKTOK_CLIENT_SECRET','TIKTOK_ACCESS_TOKEN','TIKTOK_REFRESH_TOKEN')
     S={'type':'string'};I={'type':'integer'}
     specs=[('connection_status',configuration,'Show configured/missing integrations; configuration does not prove authorization.',{},[]),
            ('list_social_posts',list_social_posts,'List drafted social posts and suggested calendar; no publishing.',{},[]),
@@ -430,6 +481,8 @@ def install(j):
     asyncs=[('collaborative_analysis',collaborative_analysis,'Use OpenAI/Claude specialists for research, marketing, code or business, with cross-review when both configured. No tools/actions.',{'topic':S,'kind':S},['topic']),
             ('browse_web',browse_web,'Search the public web or read an exact public HTTPS URL. Returns verified sources, pages actually read and access errors. No login, clicks, purchases or sending. Uses AI budget.',{'query':S,'url':S},[]),
             ('auto_publish_own_post',auto_publish_own_post,'Publish one of YOUR OWN drafted posts (prepare_social_post) to the owner\'s OWN Facebook/Instagram page now. Works only if the owner enabled AUTO_PUBLISH_OWN_SOCIAL; daily cap; organic posts only (no DMs, comments, ads or boosts).',{'id':I},['id']),
+            ('auto_publish_youtube',auto_publish_youtube,'Upload and publish one of YOUR OWN produced video plans to the owner\'s OWN YouTube channel. Only with AUTO_PUBLISH_OWN_SOCIAL on; shared daily cap.',{'id':I},['id']),
+            ('auto_publish_tiktok',auto_publish_tiktok,'Post one of YOUR OWN videos (public HTTPS URL) to the owner\'s OWN TikTok. Only with AUTO_PUBLISH_OWN_SOCIAL on; shared daily cap; private until TikTok audits the app.',{'caption':S,'video_url':S},['caption','video_url']),
             ('marketing_brief',marketing_brief,'Create a campaign brief and 7 original content ideas. Uses configured AI, no posting.',{'topic':S},['topic'])]
     for name,fn,desc,props,req in asyncs:j.ASYNC_TOOLS[name]=fn;j.TOOLS.append(j._t(name,desc,props,req))
     old_prompt=j.system_prompt

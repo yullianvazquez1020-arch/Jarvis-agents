@@ -21,3 +21,10 @@ python3 desktop/voz_loop.py
 ```
 Opcional: `PIPER_MODEL=/ruta/es_MX-claude-high.onnx` (si tienes `piper`), `WHISPER_SIZE=tiny` si va lento, `JARVIS_SAY_VOICE=Paulina`.
 Requiere que `/api/encargo` esté desplegado y `JARVIS_ENCARGO_SECRET` puesto en Render.
+
+## 3. Autopublicación en tus redes (apagada por defecto)
+Con `AUTO_PUBLISH_OWN_SOCIAL=true` en Render, Jarvis publica solo SUS videos y posts en TUS cuentas, sin /confirmarred, con tope diario compartido `AUTO_PUBLISH_MAX_DAY` (6) y aviso por Telegram con el enlace. `/brain off` lo detiene. Nunca DMs, comentarios a terceros, anuncios ni boosts.
+- Facebook/Instagram: `META_PAGE_ID`, `META_INSTAGRAM_ACCOUNT_ID`, `META_PAGE_ACCESS_TOKEN`, `SOCIAL_PUBLISH_ENABLED=true`.
+- YouTube: `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`, `YOUTUBE_CHANNEL_ID`. Si la app de Google no está verificada, los videos quedan privados.
+- TikTok: `TIKTOK_ACCESS_TOKEN` (o `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET` + `TIKTOK_REFRESH_TOKEN`). Sin auditoría de TikTok solo se puede publicar en privado (`SELF_ONLY`); después de la auditoría, `TIKTOK_PRIVACY=PUBLIC_TO_EVERYONE`.
+Pagos (/aprobar + /confirmar, $100/$300) y mensajes a clientes (/enviar) siguen igual.
