@@ -7018,14 +7018,18 @@ async def telegram(request: Request, background: BackgroundTasks,
     #   * if the process dies before handling it, the code is simply lost: the owner asks for a new one (/aprobar);
     #   * if it dies DURING a real send, the order stays "sending"; crypto_sending_sweep() later marks it "unknown"
     #     and tells the owner to check Coinbase before repeating. Nothing is ever resent automatically.
-    if cmd.lower().split("@")[0] in ("/confirmar", "/confirmarred"):
+    if cmd.lower().split("@")[0] in ("/confirmar", "/confirmarred", "/confirmarredes"):
         if not is_owner_private(msg):
             return {"ok": True}
         try:
             await asyncio.to_thread(_require_leader)
             if await asyncio.to_thread(_first_time, update_id):
-                if cmd.lower().split("@")[0] == "/confirmarred":
+                name = cmd.lower().split("@")[0]
+                if name == "/confirmarred":
                     await _connections.command(chat_id, "/confirmarred", arg.strip())
+                elif name == "/confirmarredes":
+                    import jarvis_evolve as _evolve_cmd
+                    await _evolve_cmd.confirm_command(chat_id, arg.strip())
                 else:
                     await _tg_cb_cmd(chat_id, "/confirmar", arg.strip())
         except StaleInstance:
@@ -7287,7 +7291,8 @@ async def health():
             "external_agent_key_separate": bool(EXTERNAL_AGENT_KEY) and EXTERNAL_AGENT_KEY != API_KEY,
             "desktop_api": {"enabled": bool(_desktop.ENABLED), "status": DESKTOP_STATUS},
             "funnel": {"status": globals().get("FUNNEL_STATUS", "no cargado"), "path": "/hub"},
-            "aincrad": {"status": globals().get("AINCRAD_STATUS", "no cargado"), "landing": "/kit"}}
+            "aincrad": {"status": globals().get("AINCRAD_STATUS", "no cargado"), "landing": "/kit"},
+            "evolve": {"status": globals().get("EVOLVE_STATUS", "no cargado")}}
 
 # Additive feature module; loaded after all core handlers and routes exist.
 import sys as _sys
@@ -7458,3 +7463,12 @@ try:
 except Exception as _e:
     AINCRAD_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("aincrad off: %s", type(_e).__name__)
+
+EVOLVE_STATUS = "no cargado"
+try:
+    import jarvis_evolve as _evolve
+    _evolve.install(__import__('sys').modules[__name__])
+    EVOLVE_STATUS = "activo"
+except Exception as _e:
+    EVOLVE_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("evolve off: %s", type(_e).__name__)

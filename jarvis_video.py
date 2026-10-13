@@ -157,6 +157,27 @@ def frame(scene,title,index,total,t,width=960,height=540):
     if (width,height)!=(960,540):im=im.resize((width,height),Image.Resampling.LANCZOS)
     return im
 
+def _srt_time(seconds):
+    ms=max(0,int(round(float(seconds)*1000)))
+    h,ms=divmod(ms,3600000);m,ms=divmod(ms,60000);s,ms=divmod(ms,1000)
+    return f'{h:02}:{m:02}:{s:02},{ms:03}'
+
+def captions_srt(title,scenes,intro=1.5,outro=1.5):
+    cues=[];t=0.0
+    def add(start,end,text):
+        clean=' '.join(str(text).split())
+        if clean and end>start:
+            cues.append((start,end,clean))
+    add(t,t+intro,'AINCRAD. '+title);t+=intro
+    for scene in scenes:
+        dur=float(scene.get('duration') or scene.get('seconds') or 0)
+        add(t,t+dur,scene.get('text') or title);t+=dur
+    add(t,t+outro,'El enlace está en la descripción')
+    lines=[]
+    for i,(start,end,text) in enumerate(cues,1):
+        lines.append(f'{i}\n{_srt_time(start)} --> {_srt_time(end)}\n{text}\n')
+    return '\n'.join(lines)
+
 def brand_card(title, line):
     im=Image.new('RGB',(960,540),'#0c0c0c');d=ImageDraw.Draw(im)
     d.text((480,210),'AINCRAD',font=font(54),fill='#D6B25E',anchor='mm')
@@ -210,4 +231,6 @@ def render_video(plan,output,audio_paths=None):
             if result.returncode:raise ValueError('No pude unir narración')
         else:shutil.copyfile(video,destination)
         shutil.copyfile(destination,output)
-    return {'seconds':sum(s['duration'] for s in scenes),'narration':bool(audio_paths),'path':str(output)}
+    srt=Path(output).with_suffix('.srt')
+    srt.write_text(captions_srt(plan.get('title',''),scenes),encoding='utf-8')
+    return {'seconds':sum(s['duration'] for s in scenes),'narration':bool(audio_paths),'path':str(output),'captions':str(srt)}
