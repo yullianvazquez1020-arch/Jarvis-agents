@@ -61,6 +61,11 @@ class AincradTests(unittest.TestCase):
         self.assertIn('Ofrezco Bueno', note)
         self.assertIn('No autoricé ningún pago', note)
 
+    def test_urls_stay_even_when_the_prompt_is_short(self):
+        facts = [{'text': 'https://yullian.gumroad.com/l/ketec'}, {'text': 'x' * 80}, {'text': 'y' * 80}]
+        chosen = a.select_facts(facts, limit=90)
+        self.assertIn('https://yullian.gumroad.com/l/ketec', chosen)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
