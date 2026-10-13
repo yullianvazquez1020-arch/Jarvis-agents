@@ -104,3 +104,29 @@ https://jarvis-agents.onrender.com/hub
 - Resend no está configurado, así que los correos no salen.
 - Twilio no está configurado, así que el bot no contesta.
 - Pixel, GA4, X, Pinterest y TikTok esperan sus tokens. No hacen falta para la primera venta.
+
+## Tu trabajo: comprobar que no hay errores
+
+No reescribas el proyecto. Lee el diff de `jarvis_funnel.py`, `jarvis_aincrad.py`, `jarvis_evolve.py`, `jarvis_video.py` y el bloque nuevo de `main.py`. Corre esto y pega el resultado:
+
+```
+python3 -m unittest tests.test_funnel tests.test_aincrad tests.test_evolve -v
+```
+
+El 2026-10-13 esos 12 tests pasaron. Si uno falla, arréglalo. Si pasan, no los cambies para hacerlos verdes.
+
+Revisa estos puntos y di sí o no, con el archivo y la línea:
+
+1. `/ventas/whatsapp` guarda el número antes de que Twilio acepte el envío. Si Twilio responde 400, ese número queda mudo 10 minutos. Confírmalo y, si es así, guarda la hora solo después de un envío aceptado.
+2. La firma usa `https://{PUBLIC_HOST}/ventas/whatsapp`. Un host con `https://`, mayúsculas o una barra hace 403. No lo "arregles" aceptando cualquier host.
+3. `TWILIO_FROM` tiene que empezar por `whatsapp:`. `_send_sms` vuelve a poner `whatsapp:` al destino. Confirma que no queda `whatsapp:whatsapp:+`.
+4. Gumroad manda `price` en centavos. `900` tiene que anotarse como 9.00 dólares. Un ping con `test=true` no puede llamar a `add_income`.
+5. El mismo `sale_id` no puede crear dos ingresos.
+6. `/hub/go/whatsapp` tiene que redirigir a `https://wa.me/17874465095`.
+7. El botón verde de `/kit` y `/hub` tiene que apuntar a `/hub/go/whatsapp`, no a un número escrito en el HTML.
+8. `/confirmarredes` no puede quedar guardado en la cola de Telegram. Tiene que salir por el mismo camino que `/confirmarred`.
+9. X, Pinterest y TikTok no publican sin código del dueño ni con `*_POST_ENABLED` apagado.
+10. No hay SID, token, ni secreto de Gumroad dentro del repo.
+
+Entrega solo esto: tests, los 10 puntos, y el parche si el punto 1 es cierto. Nada más.
+
