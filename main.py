@@ -7338,6 +7338,12 @@ async def _tg_route(msg, background):
 # and $300/day hard caps, and a client message still goes out only with the owner's /enviar.
 ENCARGO_SECRET = os.getenv("JARVIS_ENCARGO_SECRET", "").strip()
 ENCARGO_MAX = 4000
+ENCARGO_MIN_SECRET = 24          # shorter secret = endpoint closed (guessable)
+if ENCARGO_SECRET and len(ENCARGO_SECRET) < ENCARGO_MIN_SECRET:
+    logger.warning("JARVIS_ENCARGO_SECRET is shorter than %d characters: /api/encargo stays CLOSED", ENCARGO_MIN_SECRET)
+
+def _encargo_secret():
+    return ENCARGO_SECRET if len(ENCARGO_SECRET or "") >= ENCARGO_MIN_SECRET else ""
 
 class Encargo(BaseModel):
     texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
@@ -7351,7 +7357,11 @@ async def _encargo_run(texto):
 
 @app.post("/api/encargo")
 async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):      # constant-time; empty env var = endpoint closed
+    if not _key_ok(x_jarvis_secret, _encargo_secret()):   # constant-time; empty/short env var = endpoint closed
+        # wrong tries use their OWN bucket: they never consume the owner's "encargo" bucket
+        if not _rate_ok("encargo-mal"):
+            logger.warning("/api/encargo: too many bad-secret attempts (possible brute force)")
+            raise HTTPException(429, "Demasiados intentos fallidos; espera un minuto")
         raise HTTPException(401, "Bad secret")
     if not TG_OWNER:
         raise HTTPException(503, "TELEGRAM_OWNER_ID no configurado")
@@ -7362,6 +7372,7 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
         raise HTTPException(422, "Los comandos (/confirmar, /aprobar, /enviar...) solo se aceptan en tu chat privado")
     if not _rate_ok("encargo"):
         raise HTTPException(429, f"Más de {RATE_PER_MIN} encargos por minuto; espera un momento")
+    logger.info("/api/encargo accepted (%d chars)", len(texto))   # never the secret or the text
     background.add_task(_encargo_run, texto)
     return {"ok": True, "queued": True}
 
