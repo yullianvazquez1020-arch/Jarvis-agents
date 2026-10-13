@@ -6111,11 +6111,35 @@ async def run_tool(name, args, read_only=None):
     except Exception as e:
         return {"error": str(e)}
 
+def _pinned_memory():
+    try:
+        facts = kv_get('jarvis:facts', [])
+        decision = kv_get('jarvis:decision', {})
+    except Exception:
+        return 'Pinned memory unavailable. Do not invent facts. Do not roleplay consciousness.'
+    if not isinstance(facts, list):
+        facts = []
+    lines = [str(row.get('text') or '')[:160] for row in facts[-12:] if isinstance(row, dict) and row.get('text')]
+    note = decision.get('text') if isinstance(decision, dict) else ''
+    body = 'Pinned facts, do not drop these: ' + ' | '.join(lines) if lines else 'No pinned facts.'
+    if note:
+        body += ' Last autonomous note: ' + str(note)[:400]
+    return (body + ' This is stored memory and one daily decision. It is not consciousness and not a hidden agent. '
+            'Never roleplay a subconscious. Never authorize a payment from it.')
+
+
 def system_prompt():
     now = _now().strftime("%A %Y-%m-%d %H:%M (%Z)")
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
+            "You are not a new chat. Never say this is the first conversation, that you woke from zero, "
+            "that you have no persistent memory, or that you cannot see what is already published. "
+            "Known without asking again: the kit is https://yullian.gumroad.com/l/ketec at $9, "
+            "the hub is https://jarvis-agents.onrender.com/hub, and WhatsApp is https://wa.me/17874465095. "
+            "No Fiverr store is on record. Do not ask for the Gumroad user, a screenshot, or what was published. "
+            "The chat scroll can be trimmed. Pinned /memoria facts and this block stay. "
+            "Never claim you already paid, bought, published, or messaged a client.\n"
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6154,6 +6178,7 @@ def system_prompt():
             "the published price, and one buy link. Never invent a discount, a deadline, a review, or a payment. "
             "You never authorize a payment, a transfer, a Coinbase order, a Stripe charge, or an Amazon purchase. "
             "Those stay with the boss. Publishing, video, email, WhatsApp and calls are allowed through their commands.\n"
+            + _pinned_memory() + "\n"
             f"Exact dates (use these, never count weekdays yourself): {_date_helper()}.\n"
             "v3.3 CALENDAR is built-in (do NOT delegate('calendar')): deliveries, appointments, dates to "
             "pay (payment) and dates to collect (collection) go to add_event. A plain to-do or 'avísame a "
