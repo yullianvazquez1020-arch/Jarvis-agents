@@ -7286,7 +7286,8 @@ async def health():
             "external_agents": {a: bool(u) for a, u in AGENTS.items()},
             "external_agent_key_separate": bool(EXTERNAL_AGENT_KEY) and EXTERNAL_AGENT_KEY != API_KEY,
             "desktop_api": {"enabled": bool(_desktop.ENABLED), "status": DESKTOP_STATUS},
-            "funnel": {"status": globals().get("FUNNEL_STATUS", "no cargado"), "path": "/hub"}}
+            "funnel": {"status": globals().get("FUNNEL_STATUS", "no cargado"), "path": "/hub"},
+            "aincrad": {"status": globals().get("AINCRAD_STATUS", "no cargado"), "landing": "/kit"}}
 
 # Additive feature module; loaded after all core handlers and routes exist.
 import sys as _sys
@@ -7448,3 +7449,12 @@ try:
 except Exception as _e:
     FUNNEL_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("funnel hub off: %s", type(_e).__name__)
+
+AINCRAD_STATUS = "no cargado"
+try:
+    import jarvis_aincrad as _aincrad
+    _aincrad.install(__import__('sys').modules[__name__])
+    AINCRAD_STATUS = "activo"
+except Exception as _e:
+    AINCRAD_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("aincrad off: %s", type(_e).__name__)

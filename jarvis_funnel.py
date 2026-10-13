@@ -1,4 +1,5 @@
 """Hub de links propio. Jarvis lo sirve en /hub. No usa Linktree."""
+import json
 import os
 import re
 from urllib.parse import urlsplit
@@ -184,12 +185,47 @@ def reply(arg):
         raise ValueError(HELP)
 
 
-def record_click(slug):
+def bounce(url):
+    target = json.dumps(url)
+    ids = tracking()
+    scripts = []
+    if ids['ga4']:
+        gid = ids['ga4']
+        scripts.append(
+            f'<script async src="https://www.googletagmanager.com/gtag/js?id={gid}"></script>'
+            f'<script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}'
+            f'gtag("js",new Date());gtag("config","{gid}");gtag("event","select_content",{{content_type:"hub"}});</script>'
+        )
+    if ids['pixel']:
+        pid = ids['pixel']
+        scripts.append(
+            "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?"
+            "n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;"
+            "n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;"
+            "t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,"
+            "document,'script','https://connect.facebook.net/en_US/fbevents.js');"
+            f'fbq("init","{pid}");fbq("track","PageView");fbq("track","Lead");</script>'
+        )
+    safe = escape(url)
+    return f'''<!doctype html>
+<html lang="es"><meta charset="utf-8"><title>AINCRAD</title>
+{''.join(scripts)}
+<script>setTimeout(function(){{location.replace({target});}},350);</script>
+<p><a href="{safe}">Continuar</a></p>
+'''
+
+
+def record_click(slug, ref=''):
+    ref = re.sub(r'[^a-z0-9]', '', str(ref or '').lower())[:12]
     with core._data_lock:
         d = load()
         for link in d['links']:
             if link['slug'] == slug:
                 link['clicks'] = int(link.get('clicks') or 0) + 1
+                if ref:
+                    refs = link.setdefault('refs', {})
+                    if isinstance(refs, dict) and (ref in refs or len(refs) < 50):
+                        refs[ref] = int(refs.get(ref) or 0) + 1
                 save(d)
                 return link['url']
     return None
@@ -198,22 +234,22 @@ def record_click(slug):
 def install(j):
     global core
     core = j
-    from fastapi.responses import HTMLResponse, RedirectResponse
+    from fastapi.responses import HTMLResponse
 
     @j.app.get('/hub')
     async def hub_page():
         return HTMLResponse(page())
 
     @j.app.get('/hub/go/{slug}')
-    async def hub_go(slug: str):
+    async def hub_go(slug: str, request: j.Request):
         try:
             slugify(slug)
         except ValueError:
             raise j.HTTPException(404, 'No está')
-        url = record_click(slug)
+        url = record_click(slug, request.query_params.get('ref', ''))
         if not url:
             raise j.HTTPException(404, 'No está')
-        return RedirectResponse(url, status_code=302)
+        return HTMLResponse(bounce(url))
 
     old = j._extensions.command
 
