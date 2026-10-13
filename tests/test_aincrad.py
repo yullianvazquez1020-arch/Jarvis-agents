@@ -34,6 +34,23 @@ class AincradTests(unittest.TestCase):
         self.assertIn('$9', text)
         self.assertIn('https://ejemplo.com/hub', text)
 
+    def test_pitch_sells_any_product_without_a_fake_discount(self):
+        catalog = [{'name': 'Plantillas', 'price': 15, 'url': 'https://ejemplo.com/p', 'benefit': 'Las editas hoy.', 'limit': ''}]
+        text = a.sales_reply('está caro', 'https://ejemplo.com/hub', catalog)
+        self.assertIn('$15', text)
+        self.assertIn('https://ejemplo.com/p', text)
+        self.assertIn('sin descuento inventado', text)
+
+    def test_recommendation_picks_the_positive_margin(self):
+        catalog = [
+            {'name': 'Barato', 'price': 10, 'cost': 9, 'url': 'https://ejemplo.com/a', 'benefit': 'Poco.', 'limit': ''},
+            {'name': 'Bueno', 'price': 20, 'cost': 5, 'url': 'https://ejemplo.com/b', 'benefit': 'Deja margen.', 'limit': ''},
+        ]
+        text = a.sales_reply('qué me recomiendas', 'https://ejemplo.com/hub', catalog)
+        self.assertIn('Bueno', text)
+        self.assertIn('Margen $15', text)
+        self.assertNotIn('Barato', text)
+
     def test_click_bounce_counts_and_escapes(self):
         html = funnel.bounce('https://ejemplo.com/kit?q=1')
         self.assertIn('https://ejemplo.com/kit?q=1', html)
@@ -42,3 +59,11 @@ class AincradTests(unittest.TestCase):
     def test_affiliate_code_is_stable(self):
         self.assertEqual(a.affiliate_code('Ana'), a.affiliate_code('ana'))
         self.assertEqual(len(a.affiliate_code('Ana')), 8)
+
+    def test_call_text_is_escaped_and_the_number_is_strict(self):
+        self.assertIn('&', a.call_twiml('A&B'))
+        phone, text = a.parse_call('+17874465095 | Hola')
+        self.assertEqual(phone, '+17874465095')
+        self.assertEqual(text, 'Hola')
+        with self.assertRaises(ValueError):
+            a.parse_call('7874465095 | Hola')

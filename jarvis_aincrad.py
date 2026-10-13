@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 from base64 import b64encode
 from urllib.parse import parse_qs
 from xml.sax.saxutils import escape
@@ -13,7 +14,10 @@ import jarvis_funnel
 
 KEY = 'jarvis:aincrad'
 HELP = ('/aincrad · /secuencia · /secuencia alta EMAIL · /afiliado · /afiliado alta NOMBRE · '
-        '/ventas · /monetizar · /monetizar medium N · /monetizar quora N')
+        '/ventas · /producto · /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO · /producto rentables · /producto quitar NOMBRE · '
+        '/monetizar · /monetizar medium N · /monetizar quora N · '
+        '/llamar +NUMERO | MENSAJE · /confirmarllamada ID CODIGO')
+PHONE_RE = re.compile(r'^\+[1-9]\d{7,14}$')
 OFFSETS = (0, 1, 2, 4, 7)
 COMMISSION = (('Gumroad', 30), ('Amazon', 25), ('Otros productos', 40))
 EMAIL_RE = re.compile(r'[^@\s<>,;]+@[^@\s<>,;]+\.[A-Za-z]{2,}')
@@ -70,6 +74,54 @@ def load():
 
 def save(d):
     core.kv_set(KEY, d)
+
+
+def call_twiml(text):
+    return f'<Response><Say language="es-MX">{escape(text)}</Say></Response>'
+
+
+def parse_call(arg):
+    phone, _, text = str(arg or '').partition('|')
+    phone = phone.strip().replace(' ', '')
+    text = ' '.join(text.split())[:280] or 'Hola. Te llama AINCRAD.'
+    if not PHONE_RE.fullmatch(phone):
+        raise ValueError('Usa /llamar +1787XXXXXXX | mensaje')
+    return phone, text
+
+
+def stage_call(phone, text):
+    if not core.SMS_ON:
+        raise ValueError('Falta una clave real de Twilio. La llamada está cableada; falta la clave.')
+    code = f'{secrets.randbelow(1000000):06d}'
+    with core._data_lock:
+        d = load()
+        calls = d.setdefault('calls', [])
+        if not isinstance(calls, list):
+            calls = []
+        call = {'id': int(d.get('call_seq') or 0) + 1, 'to': phone, 'text': text, 'status': 'preview',
+                'hash': hashlib.sha256(code.encode()).hexdigest(),
+                'expires': (core._now() + dt.timedelta(minutes=10)).isoformat()}
+        d['call_seq'] = call['id']
+        calls.append(call)
+        d['calls'] = calls[-30:]
+        save(d)
+    return call, code
+
+
+async def dial(call):
+    import httpx
+    origin = str(core.TW_FROM).removeprefix('whatsapp:')
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f'https://api.twilio.com/2010-04-01/Accounts/{core.TW_SID}/Calls.json',
+            auth=(core.TW_SID, core.TW_TOKEN),
+            data={'From': origin, 'To': call['to'], 'Twiml': call_twiml(call['text'])})
+    if response.status_code >= 400:
+        raise ValueError('Twilio no marcó la llamada')
+    try:
+        return str(response.json().get('sid') or '')
+    except ValueError:
+        return ''
 
 
 def valid_email(value):
@@ -153,17 +205,131 @@ def pending_step(sub, today):
     return None
 
 
-def sales_reply(text, hub=None):
-    hub = hub or hub_url()
+def default_product():
+    return {'name': 'Kit de remodelación', 'price': 9, 'url': PRODUCT_URL,
+            'benefit': 'Dejas el alcance escrito antes de pedir cotizaciones.',
+            'limit': 'No incluye inspección ni planos.'}
+
+
+def money(value):
+    number = float(value)
+    return str(int(number)) if number == int(number) else f'{number:.2f}'
+
+
+def catalog_or_default():
+    if 'core' not in globals() or core is None:
+        return [default_product()]
+    try:
+        rows = [p for p in (load().get('products') or []) if isinstance(p, dict) and p.get('url')]
+    except Exception:
+        return [default_product()]
+    return rows or [default_product()]
+
+
+def product_margin(product):
+    raw = product.get('cost')
+    if raw is None or raw == '':
+        return None
+    price = float(product.get('price') or 0)
+    cost = float(raw)
+    if price <= 0:
+        return None
+    profit = round(price - cost, 2)
+    percent = round(100 * profit / price, 1)
+    return profit, percent
+
+
+def profitable(rows):
+    ranked = []
+    for row in rows:
+        margin = product_margin(row)
+        if margin and margin[0] > 0:
+            ranked.append((margin[0], margin[1], row))
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return ranked
+
+
+def pick_product(text, rows):
     q = str(text or '').lower()
-    offer = jarvis_business.OFFERS['gumroad']
-    price = int(offer['price_proposed_usd'])
-    if any(w in q for w in ('precio', 'cuesta', 'costo', 'cuánto', 'cuanto')):
-        return f'El kit está en ${price} USD. Compra: {PRODUCT_URL}\n{hub}'
-    if any(w in q for w in ('kit', 'compra', 'comprar', 'gumroad', 'link', 'enlace')):
-        return f'{offer["name"]}. Compra: {PRODUCT_URL}\n{hub}'
-    return ('Organizo el alcance de una remodelación en un kit corto, en español. '
-            f'No incluye inspección ni planos. Compra: {PRODUCT_URL}\n{hub}')
+    for row in rows:
+        if str(row.get('name') or '').lower() in q and len(str(row.get('name') or '')) > 2:
+            return row
+    best = profitable(rows)
+    return best[0][2] if best else rows[0]
+
+
+def margin_line(product):
+    margin = product_margin(product)
+    if not margin:
+        return 'Sin costo anotado, así que no lo marco como rentable.'
+    profit, percent = margin
+    if profit <= 0:
+        return f'Margen ${money(profit)} ({percent}%). No es rentable con ese costo.'
+    return f'Margen ${money(profit)} ({percent}%) sobre el costo que anotaste.'
+
+
+def pitch(text, hub, product):
+    q = str(text or '').lower()
+    name = str(product.get('name') or 'Producto')
+    price = money(product.get('price') or 0)
+    url = product.get('url') or hub
+    benefit = str(product.get('benefit') or 'Está listo para usarse.').strip()
+    limit = str(product.get('limit') or '').strip()
+    cta = f'Compra aquí: {url}\n{hub}'
+    note = margin_line(product)
+    if any(w in q for w in ('caro', 'descuento', 'barato', 'duda')):
+        return f'{name} cuesta ${price} USD. {benefit} El precio es el publicado, sin descuento inventado. {note} {cta}'
+    if any(w in q for w in ('precio', 'cuesta', 'costo', 'cuanto', 'cuánto')):
+        return f'{name}: ${price} USD. {benefit} {note} {cta}'
+    if any(w in q for w in ('incluye', 'sirve', 'qué es', 'que es')):
+        return ' '.join(part for part in (f'{name}.', benefit, limit, note, cta) if part)
+    return ' '.join(part for part in (benefit, f'{name} está en ${price} USD.', limit, note, cta) if part)
+
+
+def sales_reply(text, hub=None, catalog=None):
+    hub = hub or hub_url()
+    rows = catalog or catalog_or_default()
+    q = str(text or '').lower()
+    if any(w in q for w in ('catalogo', 'catálogo', 'que vendes', 'qué vendes', 'productos')):
+        lines = []
+        for profit, percent, product in profitable(rows):
+            lines.append(f"{product['name']}: margen ${money(profit)} ({percent}%). {product['url']}")
+        if not lines:
+            return 'Ninguno tiene costo anotado y margen positivo. /producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO'
+        return 'Primero el de mayor margen:\n' + '\n'.join(lines) + '\n' + hub
+    return pitch(text, hub, pick_product(text, rows))
+
+
+def add_product(name, price, url, benefit='', cost=None):
+    name = ' '.join(str(name).split())[:80]
+    if len(name) < 2:
+        raise ValueError('Falta el nombre')
+    try:
+        amount = round(float(str(price).replace(',', '')), 2)
+    except ValueError as e:
+        raise ValueError('Precio inválido') from e
+    if not 0 < amount <= 100000:
+        raise ValueError('Precio inválido')
+    stored_cost = None
+    if cost not in (None, ''):
+        try:
+            stored_cost = round(float(str(cost).replace(',', '')), 2)
+        except ValueError as e:
+            raise ValueError('Costo inválido') from e
+        if stored_cost < 0:
+            raise ValueError('Costo inválido')
+    link = jarvis_funnel.https_url(url)
+    with core._data_lock:
+        d = load()
+        rows = [p for p in d.get('products') or [] if isinstance(p, dict)]
+        rows = [p for p in rows if str(p.get('name') or '').lower() != name.lower()]
+        if len(rows) >= 20:
+            raise ValueError('Tope de 20 productos')
+        rows.append({'name': name, 'price': amount, 'url': link,
+                     'benefit': ' '.join(benefit.split())[:180], 'limit': '', 'cost': stored_cost})
+        d['products'] = rows
+        save(d)
+    return rows[-1]
 
 
 def monetizar(kind, number=None):
@@ -212,6 +378,7 @@ def status_text():
         f'GA4: {"en cada clic" if ga else "falta GA4_MEASUREMENT_ID"}',
         'Video: intro, outro, marca AINCRAD y texto de la escena en el cuadro',
         f'Ventas 24/7: {sales}',
+        'Llamada: /llamar +NUMERO | MENSAJE y después /confirmarllamada',
         'Afiliados: Gumroad 30% · Amazon 25% · otros 40%. /afiliado alta NOMBRE',
         'TikTok, Reddit, Medium y Quora: /monetizar',
         HELP,
@@ -234,6 +401,42 @@ def affiliate_code(name):
 
 
 def reply(arg, cmd):
+    if cmd == '/producto':
+        parts = [p.strip() for p in str(arg or '').split('|')]
+        if not parts or not parts[0]:
+            rows = catalog_or_default()
+            lines = []
+            for product in rows:
+                margin = product_margin(product)
+                note = f"margen ${money(margin[0])}" if margin else 'sin costo'
+                lines.append(f"{product['name']} · ${money(product['price'])} · {note} · {product['url']}")
+            return '\n'.join(lines)
+        head, _, _rest = parts[0].partition(' ')
+        if head == 'rentables':
+            return sales_reply('qué vendes', hub_url())
+        if head == 'alta':
+            name = parts[0].split(' ', 1)[1] if ' ' in parts[0] else ''
+            if len(parts) < 3:
+                raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO | COSTO')
+            product = add_product(name, parts[1], parts[2], parts[3] if len(parts) > 3 else '', parts[4] if len(parts) > 4 else None)
+            margin = product_margin(product)
+            extra = f" Margen ${money(margin[0])}." if margin and margin[0] > 0 else ' Sin margen positivo todavía.'
+            return f"A la venta: {product['name']} por ${money(product['price'])}.{extra} {product['url']}"
+        if head == 'quitar':
+            name = parts[0].split(' ', 1)[1].strip() if ' ' in parts[0] else ''
+            with core._data_lock:
+                d = load()
+                before = len(d.get('products') or [])
+                d['products'] = [p for p in d.get('products') or [] if str(p.get('name') or '').lower() != name.lower()]
+                save(d)
+            if len(d['products']) == before:
+                return 'Ese producto no está.'
+            return f'Quitado: {name}'
+        raise ValueError('/producto alta NOMBRE | PRECIO | URL | BENEFICIO')
+    if cmd == '/llamar':
+        phone, text = parse_call(arg)
+        call, code = stage_call(phone, text)
+        return f"Llamada #{call['id']} a {phone}. Confirma en 10 minutos: /confirmarllamada {call['id']} {code}"
     if cmd == '/aincrad':
         return status_text()
     if cmd == '/ventas':
@@ -328,6 +531,44 @@ async def send_due(now):
         await core._tg_send(core.TG_OWNER, f'Secuencia {step + 1}/5 enviada a {mail}')
 
 
+async def confirm_call(arg):
+    parts = (arg or '').split()
+    if len(parts) != 2 or not parts[0].isdigit():
+        raise ValueError('/confirmarllamada ID CODIGO')
+    with core._data_lock:
+        d = load()
+        call = next((c for c in d.get('calls') or [] if c.get('id') == int(parts[0])), None)
+        if not call or call.get('status') != 'preview':
+            raise ValueError('No hay una llamada pendiente')
+        if core._now() > dt.datetime.fromisoformat(call['expires']):
+            call['status'] = 'expired'
+            save(d)
+            raise ValueError('El código venció')
+        if not hmac.compare_digest(hashlib.sha256(parts[1].encode()).hexdigest(), call.get('hash', '')):
+            raise ValueError('Código incorrecto')
+        call['status'] = 'dialing'
+        snapshot = dict(call)
+        save(d)
+    try:
+        sid = await dial(snapshot)
+    except Exception:
+        with core._data_lock:
+            d = load()
+            row = next((c for c in d.get('calls') or [] if c.get('id') == snapshot['id']), None)
+            if row and row.get('status') == 'dialing':
+                row['status'] = 'failed'
+                save(d)
+        raise
+    with core._data_lock:
+        d = load()
+        row = next((c for c in d.get('calls') or [] if c.get('id') == snapshot['id']), None)
+        if row:
+            row['status'] = 'placed'
+            row['sid'] = sid
+            save(d)
+    return f"Llamada marcada a {snapshot['to']}."
+
+
 def install(j):
     global core
     core = j
@@ -391,9 +632,18 @@ def install(j):
     old = j._extensions.command
 
     async def command(chat_id, cmd, arg):
-        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar'):
+        if cmd not in ('/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada'):
             return await old(chat_id, cmd, arg)
         if str(chat_id) != str(j.TG_OWNER):
+            return
+        if cmd == '/confirmarllamada':
+            try:
+                text = await confirm_call(arg)
+            except ValueError as e:
+                text = str(e)
+            except Exception as e:
+                text = f'No se marcó ({type(e).__name__}).'
+            await j._tg_safe_send(chat_id, text)
             return
         try:
             text = reply(arg, cmd)
@@ -407,6 +657,6 @@ def install(j):
         await j._tg_safe_send(chat_id, text)
 
     j._extensions.command = command
-    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar'})
+    j._extensions.COMMANDS.update({'/aincrad', '/secuencia', '/afiliado', '/ventas', '/monetizar', '/producto', '/llamar', '/confirmarllamada'})
     j.HELP_TEXT += '\n' + HELP
     j._aincrad = __import__(__name__)
