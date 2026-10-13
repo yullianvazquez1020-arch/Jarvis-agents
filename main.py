@@ -7159,6 +7159,15 @@ async def _tg_route(msg, background):
     import jarvis_mobile_media as mobile
     video = msg.get("video") if isinstance(msg.get("video"), dict) else None
     caption = msg.get("caption") if isinstance(msg.get("caption"), str) else ""
+    if text.strip().lower().split(" ")[0].split("@")[0] == "/amazon":
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para Amazon.")
+        else:
+            async def _amazon_reply(_chat=chat_id, _text=text):
+                import jarvis_amazon
+                await _tg_safe_send(_chat, await jarvis_amazon.command(_text))
+            background.add_task(_amazon_reply)
+        return {"ok": True}
     if text.strip().lower().split(" ")[0].split("@")[0] == "/movil":
         if not is_owner_private(msg):
             background.add_task(_tg_safe_send, chat_id, "Usa tu chat privado para el diagnóstico móvil.")
