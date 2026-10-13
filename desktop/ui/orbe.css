@@ -1,0 +1,5 @@
+html, body { margin: 0; height: 100%; background: #02060c; overflow: hidden; }
+#orbe { display: block; width: 100vw; height: 100vh; }
+.estado { position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
+  font: 600 14px/1.2 Menlo, monospace; letter-spacing: .25em; color: #6fd3ff; }
+.estado.alerta { color: #ff9a3c; }
