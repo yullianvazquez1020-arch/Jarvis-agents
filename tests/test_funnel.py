@@ -32,3 +32,9 @@ class FunnelHubTests(unittest.TestCase):
         self.assertEqual(ids['ga4'], '')
         os.environ.pop('META_PIXEL_ID', None)
         os.environ.pop('GA4_MEASUREMENT_ID', None)
+
+    def test_whatsapp_link_is_added_once(self):
+        data = {'title': 'AINCRAD', 'bio': '', 'links': []}
+        self.assertTrue(funnel.ensure_whatsapp(data))
+        self.assertFalse(funnel.ensure_whatsapp(data))
+        self.assertEqual(data['links'][0]['url'], 'https://wa.me/17874465095')
