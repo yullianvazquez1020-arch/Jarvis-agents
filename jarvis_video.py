@@ -150,10 +150,18 @@ def frame(scene,title,index,total,t,width=960,height=540):
     for n,line in enumerate(lines):_fit_text(d,line,480,453+(n-(len(lines)-1)/2)*31,810,30,'#244B62')
     d.rounded_rectangle((55,512,905,522),5,fill='#DBEEE1');length=850*(index+min(t/scene['duration'],1))/total
     d.rounded_rectangle((55,512,55+max(8,length),522),5,fill='#249F93')
+    d.text((900,48),'AINCRAD',font=font(14),fill='#D6B25E',anchor='rm')
     # Brief, gentle scene fades instead of abrupt cuts; no frame history in memory.
     fade=min(1,t/.3,max(0,(scene['duration']-t)/.3))
     if fade<1:im=Image.blend(Image.new('RGB',im.size,'#FFFBEA'),im,fade)
     if (width,height)!=(960,540):im=im.resize((width,height),Image.Resampling.LANCZOS)
+    return im
+
+def brand_card(title, line):
+    im=Image.new('RGB',(960,540),'#0c0c0c');d=ImageDraw.Draw(im)
+    d.text((480,210),'AINCRAD',font=font(54),fill='#D6B25E',anchor='mm')
+    _fit_text(d,title,480,300,860,32,'#F4F1EA')
+    _fit_text(d,line,480,360,820,22,'#C8C2B4')
     return im
 
 def render_video(plan,output,audio_paths=None):
@@ -171,11 +179,19 @@ def render_video(plan,output,audio_paths=None):
         with err.open('wb') as errors:
             proc=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=errors)
             try:
+                intro=brand_card(plan['title'],'Empieza aquí')
+                outro=brand_card(plan['title'],'El enlace está en la descripción')
+                for card, frames in ((intro, 18), (outro, 0)):
+                    if card is intro:
+                        for _ in range(frames):
+                            proc.stdin.write(card.tobytes())
                 for i,s in enumerate(scenes):
                     frames=math.ceil(s['duration']*fps);s['duration']=frames/fps
                     for f in range(frames):
                         if time.monotonic()-start>240:raise TimeoutError('Render agotó tiempo disponible')
                         proc.stdin.write(frame(s,plan['title'],i,len(scenes),f/fps).tobytes())
+                for _ in range(18):
+                    proc.stdin.write(outro.tobytes())
                 proc.stdin.close();code=proc.wait(timeout=60)
                 if code:raise ValueError('Falló el codificador de video')
             finally:
