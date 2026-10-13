@@ -62,8 +62,9 @@ def load():
     d.setdefault('title', 'AINCRAD')
     d.setdefault('bio', '')
     d.setdefault('links', [])
-    changed = ensure_whatsapp(d) or ensure_link(d, 'kit', 'Kit', KIT_URL)
-    if changed:
+    added_whatsapp = ensure_whatsapp(d)
+    added_kit = ensure_link(d, 'kit', 'Kit', KIT_URL)
+    if added_whatsapp or added_kit:
         try:
             save(d)
         except Exception:

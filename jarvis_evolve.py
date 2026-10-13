@@ -249,11 +249,16 @@ def price_reply(arg):
     raise ValueError(HELP)
 
 
+def configured(value):
+    text = value or ''
+    return len(text) >= 20 and ' ' not in text
+
+
 def network_flags():
     return {
-        'x': bool(env('X_USER_ACCESS_TOKEN')) and enabled('X_POST_ENABLED'),
-        'pinterest': bool(env('PINTEREST_ACCESS_TOKEN') and env('PINTEREST_BOARD_ID')) and enabled('PINTEREST_POST_ENABLED'),
-        'tiktok': bool(env('TIKTOK_ACCESS_TOKEN')) and enabled('TIKTOK_POST_ENABLED'),
+        'x': configured(env('X_USER_ACCESS_TOKEN')) and enabled('X_POST_ENABLED'),
+        'pinterest': configured(env('PINTEREST_ACCESS_TOKEN')) and bool(re.fullmatch(r'\S{4,}', env('PINTEREST_BOARD_ID'))) and enabled('PINTEREST_POST_ENABLED'),
+        'tiktok': configured(env('TIKTOK_ACCESS_TOKEN')) and enabled('TIKTOK_POST_ENABLED'),
         'gumroad': True,
     }
 
@@ -315,6 +320,7 @@ async def confirm_command(chat_id, arg):
     if len(parts) != 2 or not parts[0].isdigit():
         await core._tg_safe_send(chat_id, '/confirmarredes ID CODIGO')
         return
+    snapshot = None
     try:
         with core._data_lock:
             d = load()
@@ -340,6 +346,13 @@ async def confirm_command(chat_id, arg):
         await core._tg_safe_send(chat_id, str(e))
         return
     except Exception as e:
+        if snapshot:
+            with core._data_lock:
+                d = load()
+                post = next((p for p in d['posts'] if p['id'] == snapshot['id']), None)
+                if post and post.get('status') == 'publishing':
+                    post['status'] = 'failed'
+                    save(d)
         await core._tg_safe_send(chat_id, f'No se confirmó la publicación ({type(e).__name__}). Revisa la red antes de repetir.')
         return
     with core._data_lock:

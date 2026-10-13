@@ -342,8 +342,12 @@ def install(j):
             raise j.HTTPException(404, 'Ventas apagadas')
         raw = (await request.body()).decode('utf-8', 'replace')
         params = {k: v[-1] for k, v in parse_qs(raw, keep_blank_values=True).items()}
-        host = os.getenv('PUBLIC_HOST', '').strip()
-        if not host:
+        host = os.getenv('PUBLIC_HOST', '').strip().lower()
+        for prefix in ('https://', 'http://'):
+            if host.startswith(prefix):
+                host = host[len(prefix):]
+        host = host.strip('/')
+        if not host or '/' in host:
             raise j.HTTPException(400, 'Falta PUBLIC_HOST')
         url = f'https://{host}/ventas/whatsapp'
         given = request.headers.get('x-twilio-signature', '')
@@ -361,12 +365,14 @@ def install(j):
             last = d['replies'].get(key)
             if last and (now - dt.datetime.fromisoformat(last)).total_seconds() < 600:
                 return PlainTextResponse('', status_code=204)
+        body = sales_reply(params.get('Body', ''))
+        await j._send_sms(phone, body)
+        with j._data_lock:
+            d = load()
             if len(d['replies']) > 400:
                 d['replies'] = dict(list(d['replies'].items())[-200:])
             d['replies'][key] = now.isoformat(timespec='seconds')
             save(d)
-        body = sales_reply(params.get('Body', ''))
-        await j._send_sms(phone, body)
         return PlainTextResponse('', status_code=204)
 
     old_tick = j._tick_v38
