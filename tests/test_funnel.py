@@ -20,6 +20,8 @@ class FunnelHubTests(unittest.TestCase):
             'links': [{'slug': 'kit', 'name': 'Kit', 'url': 'https://example.com/kit'}],
         })
         self.assertIn('/hub/go/kit', html)
+        self.assertIn('class="wa"', html)
+        self.assertIn('/hub/go/whatsapp', html)
         self.assertNotIn('<script>', html)
         self.assertIn('amp;B', html)
         self.assertNotIn('linktr.ee', html)

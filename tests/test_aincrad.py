@@ -10,6 +10,7 @@ class AincradTests(unittest.TestCase):
         html = a.kit_html()
         self.assertIn('Organiza tu remodelación', html)
         self.assertIn('$9', html)
+        self.assertIn('class="wa"', html)
         self.assertNotIn('<script>', html.split('<style>')[0])
 
     def test_sequence_is_five_notes_across_a_week(self):

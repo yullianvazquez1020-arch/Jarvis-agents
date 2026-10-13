@@ -129,6 +129,8 @@ def page(data=None, host=''):
           color:#f4f1ea; text-decoration:none; text-align:center; letter-spacing:.04em; }}
   a.go:hover {{ border-color:#d6b25e; color:#d6b25e; }}
   .empty {{ color:#8a8478; }}
+  a.wa {{ position:fixed; right:16px; bottom:16px; background:#25D366; color:#06210f;
+         text-decoration:none; font-weight:700; padding:14px 18px; border-radius:999px; }}
 </style>
 {''.join(scripts)}
 <main>
@@ -136,6 +138,7 @@ def page(data=None, host=''):
   <p>{bio}</p>
   {body}
 </main>
+<a class="wa" href="/hub/go/whatsapp">WhatsApp</a>
 '''
 
 
