@@ -300,6 +300,24 @@ def startup_sound(cfg):
     return (default, "audio/wav") if default.is_file() else None
 
 
+MUSIC_NAMES = ("inicio.mp3", "inicio.m4a", "inicio.ogg", "inicio.wav")
+
+
+def startup_music(cfg):
+    """Música de inicio propia del dueño: primer archivo de MUSIC_NAMES en <VOICE_HOME>/musica/.
+    Nombres fijos (nada del cliente entra en la ruta), sin symlinks fuera de la carpeta, máx. 40 MB.
+    Nunca va en Git ni se descarga: Yullian pone su archivo comprado."""
+    home = Path(str(cfg.get("VOICE_HOME") or Path.home() / ".jarvis-desktop")).expanduser()
+    folder = (home / "musica").resolve()
+    for name in MUSIC_NAMES:
+        p = (folder / name).resolve()
+        if p.parent != folder or not p.is_file():
+            continue
+        if p.stat().st_size <= 40 * 2 ** 20:
+            return p, SOUND_TYPES[p.suffix.lower()]
+    return None
+
+
 def core_mode(server_state, last_alert_at, now):
     """Núcleo: "jarvis" (azul) normal; "ultron" (rojo/naranja) con aviso reciente o servidor caído."""
     if server_state in BAD_SERVER:
@@ -1082,6 +1100,11 @@ def make_handler(app, host, port):
                 found = startup_sound(app.cfg)
                 if not found:
                     return self._send(404, {"error": "sin sonido de arranque"})
+                return self._send(200, found[0].read_bytes(), found[1])
+            if u.path == "/api/startup-music":                # música de inicio: archivo local del dueño o 404
+                found = startup_music(app.cfg)
+                if not found:
+                    return self._send(404, {"error": "sin música de inicio"})
                 return self._send(200, found[0].read_bytes(), found[1])
             if u.path == "/api/ciclo":
                 c = getattr(app, "ciclo", None)

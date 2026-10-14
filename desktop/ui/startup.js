@@ -1,4 +1,6 @@
-/* Explicit local startup settings. No camera frames, models or music downloads. */
+/* Explicit local startup settings. No camera frames, models or music downloads.
+   Música de inicio: encendida por defecto (respeta un "off" guardado). Usa el archivo propio del dueño
+   (/api/startup-music → ~/.jarvis-desktop/musica/inicio.*) y si no existe, el acorde sintetizado. */
 (function () {
   'use strict';
   function saved(key, fallback) {
@@ -7,19 +9,31 @@
   }
   function save(key, value) { try { localStorage.setItem(key,String(value)); } catch (_) {} }
   const hands=window.JarvisHands;
+  const FILE_VOLUME=.35, FILE_DUCKED=.06;
   let context=null, gain=null, nodes=[], enabled=false, speaking=false;
-  let musicButton=null;
+  let musicButton=null, track=null, fileMissing=false, waitingGesture=false;
   function volume() {
     if(gain && context) gain.gain.setTargetAtTime(speaking?.002:.014,context.currentTime,.18);
+    if(track) track.volume=speaking?FILE_DUCKED:FILE_VOLUME;
+  }
+  function label(playing) {
+    if(!musicButton)return;
+    musicButton.textContent=playing?'Silenciar música':(enabled?'Activar audio · permiso del navegador':'Activar música');
+    musicButton.setAttribute('aria-pressed',String(enabled));
+  }
+  function whenAllowed() {   // mismo patrón que arranque.js: primer clic/tecla
+    if(waitingGesture)return; waitingGesture=true;
+    function once(){removeEventListener('pointerdown',once);removeEventListener('keydown',once);waitingGesture=false;if(enabled)startMusic();}
+    addEventListener('pointerdown',once);addEventListener('keydown',once);
   }
   function stopMusic() {
+    if(track){try { track.pause(); } catch (_) {}}
     nodes.forEach(node=>{try { node.stop(); node.disconnect(); } catch (_) {}}); nodes=[];
     if(context) context.close().catch(()=>{}); context=null;gain=null;
   }
-  async function startMusic() {
-    if(!enabled || document.hidden || window.JarvisAudioOwner!==true) return;
+  async function startChord() {
     const Audio=window.AudioContext||window.webkitAudioContext;
-    if(!Audio){musicButton.textContent='Música no disponible';return;}
+    if(!Audio){if(musicButton)musicButton.textContent='Música no disponible';return;}
     if(!context){
       context=new Audio();gain=context.createGain();gain.gain.value=.014;gain.connect(context.destination);
       // Original quiet ambient chord, synthesized locally with two oscillators.
@@ -29,8 +43,25 @@
     }
     try { await context.resume(); } catch (_) {}
     if(!context || !enabled)return;
-    musicButton.textContent=context.state==='running'?'Silenciar música':'Activar audio · permiso del navegador';
-    musicButton.setAttribute('aria-pressed',String(enabled));
+    label(context.state==='running');
+    if(context.state!=='running')whenAllowed();
+  }
+  async function startMusic() {
+    if(!enabled || document.hidden || window.JarvisAudioOwner!==true) return;
+    if(!fileMissing){
+      if(!track){
+        track=new window.Audio('/api/startup-music');track.loop=true;track.preload='auto';
+        track.addEventListener('error',function(){if(track && track.error){fileMissing=true;track=null;if(enabled)startChord();}});
+      }
+      volume();
+      try { await track.play(); label(true); return; }
+      catch (err) {
+        if(fileMissing)return;               // el handler de error ya pasó al acorde
+        if(err && err.name==='NotAllowedError'){label(false);whenAllowed();return;}
+        fileMissing=true;track=null;          // 404 / formato no soportado → acorde
+      }
+    }
+    return startChord();
   }
   window.JarvisAmbience={duck:function(value){speaking=value;volume();}};
   fetch('/api/state',{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('sin sesión');return r.json();}).then(state=>{
@@ -47,17 +78,20 @@
     }
     function initializeMusic() {
     if(window.JarvisAudioOwner!==true || musicButton)return;
-    musicButton=document.createElement('button');musicButton.type='button';musicButton.textContent='Activar música';
+    musicButton=document.createElement('button');musicButton.type='button';
     (document.querySelector('footer')||document.body).appendChild(musicButton);
-    enabled=saved('jarvis-startup-music',!!settings.audio);
+    enabled=saved('jarvis-startup-music',true);   // encendida por defecto; respeta "off" guardado
+    label(false);
     musicButton.onclick=function(){
-      if(context && context.state!=='running' && enabled){startMusic();return;}
+      const playing=(track && !track.paused) || (context && context.state==='running');
+      if(enabled && !playing){startMusic();return;}
       enabled=!enabled;save('jarvis-startup-music',enabled);
-      if(enabled)startMusic();else{stopMusic();musicButton.textContent='Activar música';musicButton.setAttribute('aria-pressed','false');}
+      if(enabled)startMusic();else{stopMusic();label(false);}
     };
     if(enabled)startMusic();
-    addEventListener('pointerdown',function(){if(enabled && (!context||context.state!=='running'))startMusic();});
-    document.addEventListener('visibilitychange',function(){if(document.hidden && context)context.suspend().catch(()=>{});else if(enabled && window.JarvisAudioOwner===true)startMusic();});
+    document.addEventListener('visibilitychange',function(){
+      if(document.hidden){if(track)track.pause();if(context)context.suspend().catch(()=>{});}
+      else if(enabled && window.JarvisAudioOwner===true)startMusic();});
     }
     addEventListener('jarvis-audio-owner',function(event){if(event.detail)initializeMusic();else stopMusic();});
     initializeMusic();
