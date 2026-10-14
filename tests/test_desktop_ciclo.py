@@ -143,6 +143,36 @@ class Ciclo(unittest.TestCase):
         self.assertEqual(len(otra), 1)
         self.assertIn("en cola", otra[0])
 
+    def test_borrar_la_hecha_no_condona_la_rechazada(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        orden = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(orden) + "\n" + json.dumps(orden))
+        n = {"v": 0}
+
+        def mouse(o):
+            n["v"] += 1
+            if n["v"] == 1:
+                return {"ok": True, "orden": "scroll"}
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
+
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
+        self.assertEqual(len(c.vuelta()), 2)
+        lineas = (home / "encargos.jsonl").read_text(encoding="utf-8").splitlines()
+        (home / "encargos.jsonl").write_text(lineas[1] + "\n", encoding="utf-8")
+        c.mouse = lambda o: {"ok": True, "orden": "scroll"}
+        otra = c.vuelta()
+        self.assertEqual(len(otra), 1)
+        self.assertIn("en cola", otra[0])
+
+    def test_un_id_con_numero_no_se_recorta(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        (home / "encargos.jsonl").write_text(json.dumps({"id": "1:task", "tipo": "shell"}) + "\n")
+        dichas = []
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=dichas.append, stopped=lambda: False)
+        self.assertEqual(len(c.vuelta()), 1)
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(len(dichas), 1)
+
     def test_no_lee_ruta_sensible_ni_red_privada(self):
         home = pathlib.Path(tempfile.mkdtemp()); base = home / "archivos"
         (base / "privado").mkdir(parents=True)

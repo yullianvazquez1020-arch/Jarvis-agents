@@ -192,7 +192,8 @@ class Revision4(unittest.TestCase):
             (home / "encargos.jsonl").write_text("\n".join(json.dumps(e) for e in cola), encoding="utf-8")
             c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
             self.assertEqual(len(c.vuelta()), 2)
-            (home / "encargos.jsonl").write_text(json.dumps(cola[1]), encoding="utf-8")      # se quita la primera línea
+            lineas = (home / "encargos.jsonl").read_text(encoding="utf-8").splitlines()
+            (home / "encargos.jsonl").write_text(lineas[1] + "\n", encoding="utf-8")
             self.assertEqual(c.vuelta(), [])                                                 # la segunda no se repite
 
     def test_dueno_caducado_con_otra_ventana_viva_usa_altavoces(self):

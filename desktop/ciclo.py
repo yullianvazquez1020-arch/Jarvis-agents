@@ -14,6 +14,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import socket
 import threading
 import time
@@ -154,8 +155,14 @@ class Ciclo:
         items = raw.items() if isinstance(raw, dict) else ((k, 1) for k in raw) if isinstance(raw, list) else ()
         for key, n in items:
             key = str(key)
-            if re.match(r"^\d+:", key):
-                key = key.split(":", 1)[1]
+            legado = re.match(r"^(\d+):(.*)$", key)
+            if legado:
+                try:
+                    obj = json.loads(legado.group(2))
+                except ValueError:
+                    obj = None
+                if isinstance(obj, dict) and legado.group(2) == json.dumps(obj, sort_keys=True):
+                    key = legado.group(2)
             try:
                 n = int(n)
             except (TypeError, ValueError):
@@ -164,14 +171,31 @@ class Ciclo:
                 counts[key] = counts.get(key, 0) + n
         return counts
 
+    def _con_id(self, entradas):
+        """Cada línea guarda su propio id. Dos textos iguales no comparten el hecho de una sola."""
+        cambio, out = False, []
+        for e in entradas:
+            e = dict(e)
+            if not str(e.get("id") or "").strip():
+                e["id"] = "c-" + secrets.token_hex(8)
+                cambio = True
+            out.append(e)
+        if not cambio:
+            return out
+        self.home.mkdir(parents=True, exist_ok=True)
+        tmp = self.cola.with_name(self.cola.name + ".tmp")
+        tmp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in out), encoding="utf-8")
+        os.replace(tmp, self.cola)
+        return out
+
     def vuelta(self):
         self.vueltas += 1
         if self.stopped():
             self.ultimo = "STOP activo: ciclo en pausa"; return []
         hechos, out, vistos = self._hechos(), [], {}
         previo = [k for k, n in sorted(hechos.items()) for _ in range(n)]
-        for e in leer_cola(self.cola):
-            key = str(e.get("id") or json.dumps(e, sort_keys=True))
+        for e in self._con_id(leer_cola(self.cola)):
+            key = str(e.get("id"))
             vistos[key] = vistos.get(key, 0) + 1
             if vistos[key] <= hechos.get(key, 0):
                 continue
