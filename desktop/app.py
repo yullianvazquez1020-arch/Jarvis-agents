@@ -43,6 +43,9 @@ import intents                                    # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
 from audio import engines                         # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
+import negocios                                  # noqa: E402
+import mouse_autonomo                            # noqa: E402
+import ciclo                                     # noqa: E402
 from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe_events, PANELS  # noqa: E402
 
 VERSION = "desktop-1"
@@ -52,18 +55,25 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
             "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
             "torre.jpg": "image/jpeg",
-            "orbe.js": "text/javascript; charset=utf-8", "orbe.css": "text/css; charset=utf-8",   # orbe holográfico
+            "orbe.js": "text/javascript; charset=utf-8", "negocios.js": "text/javascript; charset=utf-8", "torre-pisos.js": "text/javascript; charset=utf-8", "negocios.css": "text/css; charset=utf-8", "orbe.css": "text/css; charset=utf-8",   # orbe holográfico
             "mercado.css": "text/css; charset=utf-8", "mercado.js": "text/javascript; charset=utf-8",   # gráfica holográfica
             "cielo.js": "text/javascript; charset=utf-8",                                         # fondo de galaxia
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
-            "hudx.js": "text/javascript; charset=utf-8"}                                          # HUD v2: barras y medidores
+            "hudx.js": "text/javascript; charset=utf-8",
+            "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8"}
+VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
+                "three/three.core.js": "text/javascript; charset=utf-8",
+                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8"}
+IRONMAN_LINK = re.compile(rb"<!--ironman-->.*?<!--/ironman-->", re.S)                                          # HUD v2: barras y medidores
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
-            "VOICE_TTS_BACKEND": "none", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop")}
+            "VOICE_TTS_BACKEND": "auto", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
+            "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
 SLOW_MS = 1500
@@ -239,6 +249,27 @@ def check_bind(host, allow_lan):
     return host
 
 
+ALERT_MODE_S = 30 * 60
+BAD_SERVER = ("error", "down", "offline")
+
+
+def local_player(which=shutil.which):
+    """afplay en la Mac; paplay/aplay en Linux. None si no hay altavoz local."""
+    for cmd in (["afplay"], ["paplay"], ["aplay", "-q"]):
+        if which(cmd[0]):
+            return cmd
+    return None
+
+
+def core_mode(server_state, last_alert_at, now):
+    """Núcleo: "jarvis" (azul) normal; "ultron" (rojo/naranja) con aviso reciente o servidor caído."""
+    if server_state in BAD_SERVER:
+        return "ultron"
+    if last_alert_at and now - last_alert_at < ALERT_MODE_S:
+        return "ultron"
+    return "jarvis"
+
+
 class Companion:
     """All state of one running companion. Thread-safe; the HTTP handler only calls methods here."""
 
@@ -251,6 +282,7 @@ class Companion:
         self.home = Path(cfg["VOICE_HOME"])
         self.tokens = TokenStore(self.home)
         self.demo = truthy(cfg["VOICE_DEMO"])
+        self.avatar_ironman = truthy(cfg.get("JARVIS_AVATAR_IRONMAN", "0"))
         url = cfg.get("JARVIS_SERVER_URL", "")
         self.client = JarvisClient(check_url(url) if url else "", self._token)
         self.stt, self.tts = engines.build(cfg)
@@ -268,7 +300,7 @@ class Companion:
         self.health = {"state": "demo" if self.demo else "unknown", "latency_ms": None, "last_ok": None,
                        "info": dict(DEMO_STATUS) if self.demo else {}}       # la demo muestra su estado de ejemplo desde el inicio
         self.hud_cache = []
-        self.last_alert = None
+        self.last_alert = None; self.last_alert_at = 0.0
         self.alerts_seen = self._load_seen()
 
     # --- secrets and prefs ---
@@ -326,7 +358,7 @@ class Companion:
                 self.alerts_seen.append(item["key"]); fresh.append(item)
             if fresh:
                 self.alerts_seen = self.alerts_seen[-300:]; self._save_seen()
-                self.last_alert = fresh[-1]
+                self.last_alert = fresh[-1]; self.last_alert_at = time.time()
         for item in fresh:
             self.emit(dict(item, type="alert"))
         if fresh:
@@ -515,7 +547,9 @@ class Companion:
                     "wake_word": False, "retain_audio": self.retain, "prefs": dict(self.prefs),
                     "pairing": None if not p else {"code": p.get("code"), "status": p.get("status"),
                                                    "error": p.get("error")},
-                    "panels": list(PANELS), "server": self.health_view(),
+                    "panels": list(PANELS), "server": self.health_view(), "avatar_ironman": self.avatar_ironman,
+                    "mode": core_mode(self.health_view().get("state"), self.last_alert_at, time.time()),
+                    "alert": dict(self.last_alert) if self.last_alert and self.last_alert_at else None,
                     "windows": sum(1 for t in self.windows.values() if time.time() - t < WINDOW_STALE)}
 
     def refresh_status(self):
@@ -628,7 +662,26 @@ class Companion:
                 self.audio.pop(old, None)
             self.last["audio"] = aid
         self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
+        self._play_local(audio)
         return aid
+
+    def _play_local(self, audio):
+        """Voz siempre activa sin depender del autoplay del navegador: reproduce en los altavoces de este equipo.
+        Solo habla en local; nunca envía nada. VOICE_SERVER_PLAYBACK=false lo apaga."""
+        if str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).lower() in ("false", "0", "no", "off"):
+            return False
+        player = local_player()
+        if not player:
+            return False
+        def run():
+            path = self.home / "ultima_voz.wav"
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(audio)
+                subprocess.run(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        threading.Thread(target=run, daemon=True).start()
+        return True
 
     # --- turns ---
     def start_turn(self, request_id, text, source="text"):
@@ -835,20 +888,42 @@ def make_handler(app, host, port):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(303, b"", headers={"Location": "/", "Set-Cookie":
                                   f"jd_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_TTL}"})
+            if u.path == "/avatar/ironman":
+                if not app.avatar_ironman:
+                    return self._send(404, {"error": "no existe"})
+                if not app.session_ok(self._cookie()):
+                    return self._send(401, INDEX_401, "text/html; charset=utf-8")
+                return self._send(200, (HERE / "ui" / "ironman.html").read_bytes(), "text/html; charset=utf-8")
             if u.path in ("/", "/hud", "/avatar", "/torre", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html",
                         "/mercado": "mercado.html", "/orbe": "orbe.html"}[u.path]
-                return self._send(200, (HERE / "ui" / page).read_bytes(), "text/html; charset=utf-8")
+                body = (HERE / "ui" / page).read_bytes()
+                if u.path == "/avatar" and not app.avatar_ironman:
+                    body = IRONMAN_LINK.sub(b"", body)
+                return self._send(200, body, "text/html; charset=utf-8")
             if not self._guard():
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
                 return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+            if u.path.startswith("/ui/vendor/") and u.path[11:] in VENDOR_FILES:
+                if not app.avatar_ironman:
+                    return self._send(404, {"error": "no existe"})
+                return self._send(200, (HERE / "ui" / "vendor" / u.path[11:]).read_bytes(), VENDOR_FILES[u.path[11:]])
             if u.path == "/api/hand-mouse/status":
                 return self._send(200, app.hand_mouse.status())
             if u.path == "/api/state":
                 return self._send(200, app.state())
+            if u.path == "/api/mouse-autonomo":              # solo lectura: sesión, agente, STOP
+                return self._send(200, mouse_autonomo.estado())
+            if u.path == "/api/ciclo":
+                c = getattr(app, "ciclo", None)
+                return self._send(200, c.estado_view() if c else {"activo": False})
+            if u.path == "/api/negocios":                     # torre de Aincrad: cifras DEMO, sin red
+                return self._send(200, negocios.torre())
+            if u.path == "/api/cripto":                       # precios públicos, sin claves ni trading
+                return self._send(200, negocios.mercado())
             if u.path == "/api/hud":
                 try:
                     return self._send(200, app.hud())
@@ -920,11 +995,15 @@ def make_handler(app, host, port):
                     return self._send(200, app.hello(str(data.get("window", ""))[:64]))
                 if u.path == "/api/audio/claim":
                     return self._send(200, app.claim_audio(str(data.get("window", ""))[:64]))
+                if u.path == "/api/mouse-autonomo/orden":   # Jarvis encarga investigación; el ejecutor revalida
+                    return self._send(200, mouse_autonomo.encargar(data.get("orden")))
                 if u.path == "/api/open":
                     return self._send(200, app.open_detail(str(data.get("target", ""))[:20]))
                 if u.path == "/api/alerts/repeat":
                     return self._send(200, app.alert_repeat())
                 if u.path == "/api/alerts/silence":
+                    with app.lock:
+                        app.last_alert_at = 0.0                 # silenciar = el núcleo vuelve a modo Jarvis
                     app.emit({"type": "audio.stop"}); return self._send(200, {"ok": True})
                 if u.path == "/api/pulse":
                     app.pulse_once(); return self._send(200, app.health_view())
@@ -969,6 +1048,14 @@ def serve(cfg, open_browser=True):
     httpd = Server((host, port), http.server.BaseHTTPRequestHandler)
     real_port = httpd.server_address[1]                  # differs from port only when port is 0 (tests)
     httpd.RequestHandlerClass = make_handler(app, host, real_port)
+    def _estado_srv():
+        try:
+            return "servidor: " + " · ".join(app.panel("estado").get("lines", [])[:3])
+        except Exception as e:
+            return f"servidor no disponible ({type(e).__name__})"
+    app.ciclo = ciclo.Ciclo(app.home, base=cfg.get("VOICE_CICLO_DIR", str(app.home / "archivos")), emit=app.emit,
+                            speak=lambda t: app.speak(t, sensitive=True), stopped=mouse_autonomo.ae.stopped,
+                            mouse=mouse_autonomo.encargar, estado=_estado_srv)
     return app, httpd, real_port
 
 
@@ -1061,6 +1148,8 @@ def main(argv=None):
     if truthy(cfg["VOICE_WAKE_WORD_ENABLED"]):
         print("Aviso: la palabra de activación aún no está implementada (fase 2); se ignora.")
     app, httpd, port = serve(cfg)
+    if truthy(cfg.get("VOICE_CICLO", "true")):
+        app.ciclo.arrancar()                             # ciclo autónomo local, siempre encendido
     host = cfg["VOICE_BIND_HOST"]
     link = f"http://{host}:{port}/?launch={app.new_launch()}"
     print(f"\nJarvis panel listo. Abre este enlace (sirve una vez, 2 minutos):\n  {link}\n"

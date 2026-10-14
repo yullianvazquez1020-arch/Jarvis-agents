@@ -104,3 +104,26 @@ calcula con los últimos 30 resultados y se reinicia al apagar. No son números 
 La escena decorativa baja a 8 FPS con cámara (4 si está pausada); las manos conservan su
 redibujado independiente con cada resultado. Audio activo mantiene su actualización anterior.
 No se promete 30 FPS ni latencia cero: hay que medir cada navegador y equipo físico.
+
+## Modo autónomo (`autonomo.py`)
+
+Un agente mueve el mouse, hace clic y decide el próximo clic por su cuenta, **solo** dentro de la lista permitida y **solo** después de que tú abras la sesión en tu Terminal.
+
+### Preparar la Mac (una vez)
+1. `python3 -m pip install --user pyautogui pillow`
+2. Ajustes del Sistema → Privacidad y seguridad → **Accesibilidad** → activa Terminal (o la app desde la que lo corres).
+3. Ajustes del Sistema → Privacidad y seguridad → **Grabación de pantalla** → activa la misma app (para `pantalla.png`).
+4. Cierra y vuelve a abrir Terminal.
+
+### Usar
+```
+cd Jarvis-agents/desktop/mac
+python3 autonomo.py --start claude --minutes 15 --run   # te pide un código; escríbelo
+```
+- El agente lee `~/.jarvis-control/autonomo/pantalla.png` y `estado.json` (tamaño, cursor, app al frente, resultado de la última orden).
+- Deja su orden en `~/.jarvis-control/autonomo/siguiente.json`, por ejemplo `{"agent":"claude","action":"click","x":700,"y":400}`.
+- Permitido: move, click, double_click, scroll, screenshot, wait, type (≤200 caracteres, sin Enter ni secretos), open_url (hosts permitidos), open_app (Notes, Safari).
+- Siempre bloqueado: atajos de teclado, bancos/pagos, mensajes/correo, Terminal, Finder, Ajustes, borrar, comandos y contraseñas. Tampoco hay clic ni texto si la app al frente es una de esas.
+- La sesión vive en `~/.jarvis-owner/autonomo.json`, fuera del alcance de los agentes. Tope: 30 min, 20 acciones/min, 300 pasos.
+- Parada: mouse a la esquina superior izquierda, Ctrl+C, `python3 autonomo.py --stop` o `touch ~/.jarvis-control/STOP`.
+- La bitácora `audit.jsonl` guarda tipo y veredicto, nunca el texto escrito (solo su largo y hash).

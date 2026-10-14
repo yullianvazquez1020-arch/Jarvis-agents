@@ -1,5 +1,6 @@
-html, body { margin: 0; height: 100%; background: #02060c; overflow: hidden; }
+html, body { margin: 0; height: 100%; background: #02060c; overflow: hidden; transition: background .6s; }
+body.ultron { background: #0c0202; }
 #orbe { display: block; width: 100vw; height: 100vh; }
 .estado { position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-  font: 600 14px/1.2 Menlo, monospace; letter-spacing: .25em; color: #6fd3ff; }
-.estado.alerta { color: #ff9a3c; }
+  font: 600 14px/1.2 Menlo, monospace; letter-spacing: .25em; color: #6fd3ff; text-shadow: 0 0 8px rgba(111,211,255,.6); }
+.estado.alerta { color: #ff5a2c; text-shadow: 0 0 10px rgba(255,60,20,.8); letter-spacing: .35em; }

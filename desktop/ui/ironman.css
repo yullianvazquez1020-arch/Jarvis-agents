@@ -1,0 +1,91 @@
+/* Holograma + Torre de Aincrad. Paleta igual a /avatar: azul frío sobre fondo casi negro. */
+:root {
+  --ink: #031018;
+  --line: #0f3f5c;
+  --text: #9fd7ff;
+  --dim: #5f93b4;
+  --hot: #3ec4ff;
+  --warn: #ffb347;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+.holo-page { max-width: 1480px; margin: 0 auto; padding: 14px 18px 32px; }
+header {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--line); padding-bottom: 10px;
+}
+.brand { letter-spacing: .14em; font-size: 12px; color: var(--hot); }
+nav a { color: var(--text); margin-left: 14px; text-decoration: none; border-bottom: 1px solid transparent; }
+nav a:hover, nav a:focus { border-bottom-color: var(--hot); }
+
+.banner {
+  margin: 12px 0 14px; padding: 8px 12px;
+  border: 1px solid var(--warn); border-radius: 8px;
+  color: var(--warn); background: rgba(255, 179, 71, .07);
+  letter-spacing: .04em;
+}
+.banner.real { border-color: var(--hot); color: var(--hot); background: rgba(62, 196, 255, .07); }
+
+.holo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+@media (max-width: 1040px) { .holo-layout { grid-template-columns: 1fr; } }
+
+.stage { min-width: 0; }
+#holo {
+  width: 100%; display: block; background: radial-gradient(circle at 50% 40%, #06202f 0%, #020b12 72%);
+  border: 1px solid var(--line); border-radius: 10px;
+  touch-action: none; cursor: crosshair;
+}
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 6px; }
+button {
+  background: #0c3a55; color: var(--text); border: 1px solid var(--hot);
+  padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer;
+}
+button:hover:not(:disabled) { background: #114b6d; }
+button:disabled { opacity: .5; cursor: progress; }
+button[aria-pressed="true"] { background: #11566f; }
+
+#scene-status, #voice-status, #live-status { margin: 4px 0; color: var(--dim); }
+.totals { margin: 8px 0; color: var(--text); }
+.policy { margin: 10px 0 0; color: var(--dim); font-size: 12px; line-height: 1.5; max-width: 72ch; }
+
+.rail { min-width: 0; display: grid; gap: 14px; }
+.card, .live {
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #04161f;
+}
+.card h2 { margin: 0 0 4px; font-size: 15px; color: var(--hot); }
+.card .sector { margin: 0 0 10px; color: var(--dim); font-size: 12px; }
+.card dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; }
+.card dt { color: var(--dim); }
+.card dd { margin: 0; text-align: right; }
+.note { margin: 10px 0 0; font-size: 12px; color: var(--dim); line-height: 1.45; }
+.note.demo { color: var(--warn); }
+
+.live h3, .list-title { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; color: var(--hot); }
+.live h3 { margin-top: 0; }
+.live section { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.live section h3 { margin-bottom: 6px; }
+.live ul { margin: 0; padding-left: 18px; }
+.live li { margin: 2px 0; }
+
+.list { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.floor-row {
+  display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; align-items: center;
+  width: 100%; margin: 0; padding: 6px 10px; text-align: left;
+  background: transparent; border: 0; border-bottom: 1px solid #0a2a3c;
+  border-radius: 0; color: var(--text); cursor: pointer;
+}
+.floor-row .n { color: var(--c, var(--hot)); }
+.floor-row .name { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floor-row:hover { background: #072a3b; }
+.floor-row[aria-pressed="true"] { background: #0d3d55; outline: 1px solid var(--c, var(--hot)); outline-offset: -1px; }
+/* Modo Ultron: el mismo holograma vira a rojo/naranja con aviso (nucleo-modo.js). */
+body.ultron canvas { filter: hue-rotate(170deg) saturate(1.8) contrast(1.15); transition: filter .6s; }
+body.ultron { background: #0c0302; }
+body.jarvis canvas { transition: filter .6s; }

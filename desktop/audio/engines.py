@@ -203,11 +203,25 @@ class NoTTS:
         raise EngineError(self.problem())
 
 
+def pick_tts(cfg, platform=None, which=None, exists=None):
+    """auto: macOS -> say; si hay piper y voz .onnx -> piper; si no, none (la respuesta queda en pantalla)."""
+    platform = platform or sys.platform; which = which or shutil.which
+    exists = exists or (lambda p: bool(p) and os.path.isfile(p))
+    if platform == "darwin" and which("say"):
+        return "macos_say"
+    binary = cfg.get("VOICE_PIPER_BIN", "piper")
+    if (which(binary) or exists(binary)) and exists(cfg.get("VOICE_TTS_VOICE", "")):
+        return "piper"
+    return "none"
+
+
 def build(cfg):
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
                     cfg.get("VOICE_STT_THREADS", "4")) if stt == "whisper_cpp" else NoSTT())
+    if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
+        tts = pick_tts(cfg)
     if tts == "macos_say":
         t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"))
     elif tts == "piper":
