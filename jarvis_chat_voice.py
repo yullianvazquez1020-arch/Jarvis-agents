@@ -226,7 +226,7 @@ async def speak_local(text: str, language: str | None = None) -> bytes:
     if not text:
         raise ValueError("no hay texto para hablar")
     import jarvis_local_tts
-    chosen = "alan" if language == "alan" else "en-GB" if language in ("en", "en-GB", "en_gb") else "es" if language in ("es", "es-MX", "es_mx") else reply_language()
+    chosen = "alan" if language == "alan" else "en-GB" if language in ("en", "en-GB", "en_gb") else "es" if language in ("es", "es-MX", "es_mx") else ("alan" if reply_language() == "en-GB" else "es")
     with tempfile.TemporaryDirectory() as tmp:
         chunks = speech_chunks(text)
         paths = await jarvis_local_tts.local_narration(

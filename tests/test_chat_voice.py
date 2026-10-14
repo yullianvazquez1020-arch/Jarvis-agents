@@ -106,7 +106,7 @@ class ChatVoice(unittest.TestCase):
             return [str(path)]
         with patch.dict(os.environ,{'JARVIS_REPLY_LANGUAGE':'en-GB'}),patch.object(jarvis_local_tts,'local_narration',new=narration):
             asyncio.run(REAL_SPEAK_LOCAL('Good morning, sir.'))
-            self.assertEqual(seen,['en-GB'])
+            self.assertEqual(seen,['alan'])
             self.assertTrue(cv.spoken_preview('word '*100).startswith('The full response'))
 
     def test_transcribes_locally_and_dictation_stays_pending(self):
