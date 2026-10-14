@@ -277,6 +277,7 @@ class Companion:
         self.hud_cache = []
         self.last_alert = None
         self.alerts_seen = self._load_seen()
+        self.voz = {"estado": "idle", "idioma": "es", "lineas": [], "corte": False}
 
     # --- secrets and prefs ---
     def _token(self):
@@ -487,6 +488,35 @@ class Companion:
                     return {"events": new, "seq": self.seq, "owner": self.owner == window}
                 self.cond.wait(max(0.1, end - time.time()))
                 self._seen(window)
+
+    def voz_view(self):
+        with self.lock:
+            v = self.voz
+            return {"estado": v["estado"], "idioma": v["idioma"], "corte": bool(v.get("corte")),
+                    "lineas": [dict(x) for x in v["lineas"]]}
+
+    def voz_aviso(self, data):
+        """Estado de la voz continua para el HUD. No aprueba, no envía y no guarda audio."""
+        if not isinstance(data, dict):
+            raise ValueError("JSON inválido")
+        estado = str(data.get("estado") or "")
+        if estado not in ("idle", "escuchando", "pensando", "hablando"):
+            raise ValueError("estado no válido")
+        idioma = data.get("idioma")
+        linea = data.get("linea") if isinstance(data.get("linea"), dict) else None
+        with self.lock:
+            self.voz["estado"] = estado
+            self.voz["corte"] = bool(data.get("corte"))
+            if idioma in ("es", "en"):
+                self.voz["idioma"] = idioma
+            if linea:
+                quien = linea.get("quien")
+                texto = " ".join(str(linea.get("texto") or "").split())[:240]
+                if quien in ("tu", "jarvis") and texto:
+                    self.voz["lineas"] = (self.voz["lineas"] + [{"quien": quien, "texto": texto}])[-8:]
+        vista = self.voz_view()
+        self.emit({"type": "voz", "voz": vista})
+        return vista
 
     # --- windows: one captures audio, the others only display ---
     def _seen(self, window):
@@ -871,6 +901,8 @@ def make_handler(app, host, port):
                     since = 0
                 window = (q.get("window", [""])[0] or "")[:64]
                 return self._send(200, app.poll(since, window))
+            if u.path == "/api/voz":
+                return self._send(200, app.voz_view())
             m = re.fullmatch(r"/api/panels/([a-z]+)", u.path)
             if m:
                 try:
@@ -887,6 +919,15 @@ def make_handler(app, host, port):
         # --- POST ---
         def do_POST(self):
             u = urllib.parse.urlsplit(self.path)
+            if u.path == "/api/voz":
+                if self.headers.get("Host") not in allowed_hosts:
+                    return self._send(400, {"error": "host no permitido"})
+                if not loopback_host(self.client_address[0]):
+                    return self._send(403, {"error": "solo el equipo local"})
+                try:
+                    return self._send(200, app.voz_aviso(self._json(limit=4096)))
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)[:200]})
             if not self._guard(post=True):
                 return
             try:
@@ -959,6 +1000,10 @@ def make_handler(app, host, port):
                 self._send(400, {"error": str(e)[:200]})
 
     return Handler
+
+
+def loopback_host(addr: str) -> bool:
+    return addr in ("127.0.0.1", "::1")
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

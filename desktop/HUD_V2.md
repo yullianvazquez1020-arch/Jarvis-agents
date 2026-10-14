@@ -7,6 +7,7 @@ Abre HUD desde la ventana principal del escritorio. El diseño usa un reactor di
 - Medidores: trabajos abiertos, latencia del servidor, ventanas locales y antigüedad del estado. Sin una medición aparece «sin dato»; cero sigue siendo cero.
 - Seguridad: emparejamiento, almacenamiento y operaciones reales según las respuestas existentes. El HUD consulta; no aprueba ni ejecuta operaciones.
 - Las tarjetas conservan sus detalles y el control Mostrar montos. Avatar y conversación abren sus vistas existentes.
+- Voz continua: el cliente de la Mac avisa a `http://127.0.0.1:8765/api/voz`. El HUD muestra escucha, pensamiento, habla, el idioma (ES/EN) y el texto. La silueta mueve la boca mientras Jarvis habla. Si el HUD está cerrado, la voz sigue por los altavoces. Desde aquí no se aprueba ni se envía nada.
 
 El servidor añade `jobs`, `jobs_count` y `as_of` al HUD autenticado. La consulta de trabajos usa el bloqueo de escritura existente y una lista explícita de campos. Un servidor antiguo puede seguir dando tarjetas: los trabajos aparecerán como «sin dato».
 

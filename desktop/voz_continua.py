@@ -12,6 +12,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import urllib.error
+import urllib.parse
+import urllib.request
 import wave
 
 RATE = 16000
@@ -37,6 +40,107 @@ def headers(secret: str) -> dict:
     return {"X-Jarvis-Secret": secret}
 
 
+def hud_endpoint(base: str) -> str:
+    """El aviso al HUD solo va a este equipo. Una URL externa se rechaza."""
+    raw = (base or "").strip() or "http://127.0.0.1:8765"
+    parsed = urllib.parse.urlsplit(raw.rstrip("/"))
+    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        raise ValueError("el HUD solo se avisa en este equipo")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("el HUD solo se avisa en este equipo")
+    port = parsed.port or 80
+    host = parsed.hostname
+    shown = f"[{host}]" if ":" in host else host
+    return f"http://{shown}:{port}/api/voz"
+
+
+def hud_notice(ev: dict) -> dict | None:
+    """Traduce un evento de /ws/voz a lo que el HUD sabe dibujar. No aprueba ni envía nada."""
+    if not isinstance(ev, dict):
+        return None
+    kind = ev.get("type")
+    lang = ev.get("idioma") if ev.get("idioma") in ("es", "en") else None
+    text = " ".join(str(ev.get("texto") or "").split())[:240]
+    notice: dict = {}
+    if lang:
+        notice["idioma"] = lang
+    if kind == "escuchando":
+        notice["estado"] = "escuchando"
+    elif kind == "transcripcion" and text:
+        notice["estado"] = "pensando"
+        notice["linea"] = {"quien": "tu", "texto": text}
+    elif kind in ("respuesta", "rechazado") and text:
+        notice["estado"] = "hablando"
+        notice["linea"] = {"quien": "jarvis", "texto": text}
+    elif kind == "interrumpido":
+        notice["estado"] = "escuchando"
+        notice["corte"] = True
+    elif kind in ("listo", "error"):
+        notice["estado"] = "idle"
+        if kind == "error" and text:
+            notice["linea"] = {"quien": "jarvis", "texto": text}
+    else:
+        return None
+    return notice
+
+
+def post_hud(notice: dict, base: str | None = None, timeout: float = 0.4) -> bool:
+    """Avisa al display. Si el HUD está cerrado, no es un error: la voz sigue."""
+    if not notice:
+        return False
+    try:
+        url = hud_endpoint(base if base is not None else os.getenv("JARVIS_HUD", ""))
+        body = json.dumps(notice).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= getattr(resp, "status", 200) < 300
+    except (OSError, urllib.error.URLError, ValueError):
+        return False
+
+
+class HudLink:
+    """Lleva el turno al HUD y deja la boca en movimiento mientras suena el audio."""
+
+    def __init__(self, publish=None):
+        self.publish = publish or post_hud
+        self.hablando = False
+        self.sono = False
+
+    def _send(self, notice: dict) -> None:
+        try:
+            self.publish(notice)
+        except Exception:
+            return
+
+    def event(self, ev: dict) -> None:
+        if isinstance(ev, dict) and ev.get("type") == "audio_fin":
+            if not self.sono:
+                self.hablando = False
+                self._send({"estado": "idle"})
+            return
+        notice = hud_notice(ev)
+        if not notice:
+            return
+        if notice.get("estado") != "hablando":
+            self.sono = False
+        self.hablando = notice.get("estado") == "hablando"
+        self._send(notice)
+
+    def audio(self) -> None:
+        self.sono = True
+        if self.hablando:
+            return
+        self.hablando = True
+        self._send({"estado": "hablando"})
+
+    def silencio(self) -> None:
+        if not self.hablando or not self.sono:
+            return
+        self.hablando = False
+        self.sono = False
+        self._send({"estado": "idle"})
+
+
 def wav_frames(data: bytes):
     with wave.open(io.BytesIO(data), "rb") as w:
         return w.getframerate(), w.readframes(w.getnframes())
@@ -55,10 +159,15 @@ class Player:
         self.queue.clear()
 
 
-def handle_event(raw: str, player: Player) -> dict:
+def handle_event(raw: str, player: Player, publish=None) -> dict:
     ev = json.loads(raw)
     if ev.get("type") in ("interrumpido", "escuchando"):
         player.stop()
+    if publish:
+        try:
+            publish(ev)
+        except Exception:
+            pass
     return ev
 
 
@@ -70,6 +179,7 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
     url = ws_url(os.getenv("JARVIS_URL", ""))
     hdr = headers(os.getenv("JARVIS_ENCARGO_SECRET", ""))
     player = Player()
+    link = HudLink()
     loop = asyncio.get_running_loop()
     mic: asyncio.Queue = asyncio.Queue()
     def cb(indata, frames, t, status):
@@ -83,19 +193,22 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
             async for msg in ws:
                 if isinstance(msg, bytes):
                     player.push(msg)
+                    link.audio()
                 else:
-                    ev = handle_event(msg, player)
+                    ev = handle_event(msg, player, link.event)
                     if ev.get("texto"):
                         print(f"[{ev['type']}] {ev['texto']}")
         async def play():
             while True:
                 if player.queue:
+                    link.audio()
                     rate, pcm = player.queue.pop(0)
                     sd.play(np.frombuffer(pcm, dtype=np.int16), rate)
                     await asyncio.sleep(0.05)
                     while sd.get_stream().active:   # sd.stop() (barge-in) lo corta
                         await asyncio.sleep(0.03)
                 else:
+                    link.silencio()
                     await asyncio.sleep(0.03)
         orig_stop = player.stop
         def stop():

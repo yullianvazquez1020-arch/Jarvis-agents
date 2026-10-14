@@ -173,6 +173,43 @@ class Client(unittest.TestCase):
         client.handle_event(json.dumps({'type': 'interrumpido'}), p)
         self.assertEqual(p.queue, [])
 
+    def test_hud_notice_covers_the_turn(self):
+        user = client.hud_notice({'type': 'transcripcion', 'texto': '¿Qué tiempo hace?', 'idioma': 'es'})
+        self.assertEqual(user['estado'], 'pensando')
+        self.assertEqual(user['linea']['quien'], 'tu')
+        said = client.hud_notice({'type': 'respuesta', 'texto': 'Despejado, señor.', 'idioma': 'es'})
+        self.assertEqual(said['estado'], 'hablando')
+        self.assertEqual(said['linea']['quien'], 'jarvis')
+        cut = client.hud_notice({'type': 'interrumpido'})
+        self.assertEqual(cut, {'estado': 'escuchando', 'corte': True})
+        self.assertEqual(client.hud_notice({'type': 'escuchando'})['estado'], 'escuchando')
+        self.assertEqual(client.hud_notice({'type': 'listo'})['estado'], 'idle')
+        self.assertIsNone(client.hud_notice({'type': 'audio_fin'}))
+
+    def test_hud_follows_speech_and_ignores_a_closed_display(self):
+        seen = []
+        link = client.HudLink(seen.append)
+        link.event({'type': 'respuesta', 'texto': 'A su servicio.', 'idioma': 'en'})
+        link.audio()
+        link.silencio()
+        self.assertEqual([n['estado'] for n in seen], ['hablando', 'idle'])
+        self.assertEqual(seen[0]['idioma'], 'en')
+        link.event({'type': 'audio_fin'})
+        self.assertEqual(seen[-1]['estado'], 'idle')
+        self.assertFalse(client.post_hud({'estado': 'idle'}, base='http://127.0.0.1:9', timeout=0.2))
+        with self.assertRaises(ValueError):
+            client.hud_endpoint('https://jarvis.ejemplo.invalid')
+        with self.assertRaises(ValueError):
+            client.hud_endpoint('http://10.0.0.8:8765')
+
+    def test_a_failing_hud_does_not_stop_the_event(self):
+        p = client.Player(); p.push(v.pcm_to_wav(SILENCE))
+        def boom(ev):
+            raise RuntimeError('pantalla apagada')
+        ev = client.handle_event(json.dumps({'type': 'interrumpido'}), p, boom)
+        self.assertEqual(ev['type'], 'interrumpido')
+        self.assertEqual(p.queue, [])
+
 
 class Endpoint(unittest.TestCase):
     @classmethod
