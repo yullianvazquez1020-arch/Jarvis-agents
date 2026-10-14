@@ -1,4 +1,4 @@
-.neg{margin:12px 16px;padding:12px;border:1px solid rgba(80,180,255,.35);border-radius:10px;background:rgba(4,16,32,.6);color:#cfe8ff;font:13px system-ui,sans-serif}
+.neg{margin:8px 16px 0;padding:10px 12px;max-height:22vh;overflow:auto;border:1px solid rgba(80,180,255,.35);border-radius:10px;background:rgba(4,16,32,.6);color:#cfe8ff;font:13px system-ui,sans-serif}
 .neg h2{margin:0 0 6px;font-size:14px;letter-spacing:.08em;color:#7fd0ff}
 .neg .demo{font-size:11px;color:#ffcf66}
 .neg ul{list-style:none;margin:6px 0;padding:0}
