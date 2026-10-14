@@ -157,7 +157,8 @@ class MacSay:
         with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as tmp:
             src = Path(tmp) / "in.txt"; src.write_text(text, encoding="utf-8")   # text via file, never argv
             out = Path(tmp) / "out.wav"
-            cmd = ["say", "-r", str(int(self.BASE_WPM * rate)), "-o", str(out), "--file-format=WAVE",
+            wpm = DANIEL_WPM if (self.voice or "").strip() == "Daniel" else self.BASE_WPM
+            cmd = ["say", "-r", str(int(wpm * rate)), "-o", str(out), "--file-format=WAVE",
                    "--data-format=LEI16@22050", "-f", str(src)]
             chosen = self.resolve_voice()
             if chosen:
@@ -169,8 +170,12 @@ class MacSay:
 class Piper:
     name = "piper"
 
-    def __init__(self, binary, model):
+    def __init__(self, binary, model, length_scale=1.18):
         self.binary = binary or "piper"; self.model = model or ""
+        try:                                              # 1.18 = Alan algo más pausado (más grave y señorial)
+            self.length_scale = max(0.5, min(float(length_scale), 2.5))
+        except (TypeError, ValueError):
+            self.length_scale = 1.18
 
     def problem(self):
         if not (shutil.which(self.binary) or os.access(self.binary, os.X_OK)):
@@ -189,7 +194,7 @@ class Piper:
         with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as tmp:
             out = Path(tmp) / "out.wav"
             _run([self.binary, "--model", self.model, "--output_file", str(out), "--length_scale",
-                  f"{1 / max(0.5, min(rate, 2.0)):.2f}"], timeout=60, stdin=text.encode("utf-8"))
+                  f"{self.length_scale / max(0.5, min(rate, 2.0)):.2f}"], timeout=60, stdin=text.encode("utf-8"))
             return out.read_bytes(), "audio/wav"
 
 
@@ -203,15 +208,71 @@ class NoTTS:
         raise EngineError(self.problem())
 
 
+def pick_tts(cfg, platform=None, which=None, exists=None):
+    """auto: macOS -> say; si hay piper y voz .onnx -> piper; si no, none (la respuesta queda en pantalla)."""
+    platform = platform or sys.platform; which = which or shutil.which
+    exists = exists or (lambda p: bool(p) and os.path.isfile(p))
+    voice = str(cfg.get("VOICE_TTS_VOICE") or "")
+    binary = cfg.get("VOICE_PIPER_BIN", "piper")
+    if voice.endswith(".onnx") and exists(voice) and (which(binary) or exists(binary)):
+        return "piper"
+    if platform == "darwin" and which("say"):
+        return "macos_say"
+    if (which(binary) or exists(binary)) and exists(cfg.get("VOICE_TTS_VOICE", "")):
+        return "piper"
+    return "none"
+
+
+DANIEL_WPM = 165                         # Daniel (say en la Mac), algo más pausado
+# Voces femeninas conocidas en inglés: nunca se usan como respaldo en en-GB (Jarvis es voz masculina).
+FEMALE_EN = {"samantha", "karen", "kate", "serena", "moira", "tessa", "victoria", "allison", "ava", "susan",
+             "fiona", "veena", "zoe", "stephanie", "martha", "flo", "sandy", "shelley", "grandma",
+             "en_gb-jenny_dioco-medium.onnx", "en_gb-cori-high.onnx", "en_gb-cori-medium.onnx",
+             "en_gb-southern_english_female-low.onnx", "en_gb-semaine-medium.onnx", "en_gb-alba-medium.onnx"}
+
+
+def is_female_en(voice):
+    return os.path.basename(str(voice or "")).strip().lower() in FEMALE_EN
+
+
+ALAN = "en_GB-alan-medium.onnx"          # voz británica masculina (igual que "Alan" del PR #116)
+
+
+def default_voice(cfg, exists=None):
+    """Con JARVIS_REPLY_LANGUAGE=en-GB y sin voz elegida: Alan (Piper) o Daniel (say en la Mac)."""
+    exists = exists or os.path.isfile
+    if cfg.get("VOICE_TTS_VOICE"):
+        return cfg["VOICE_TTS_VOICE"]
+    if str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-") != "en-gb":
+        return ""
+    dirs = [cfg.get("VOICE_PIPER_DIR", ""), os.path.join(cfg.get("VOICE_HOME", ""), "voices"),
+            os.path.expanduser("~/piper-voices"), "/workspace/piper-voices"]
+    for d in dirs:
+        if d and exists(os.path.join(d, ALAN)):
+            return os.path.join(d, ALAN)
+    return ""
+
+
 def build(cfg):
+    cfg = dict(cfg)
+    if str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-") == "en-gb" and is_female_en(cfg.get("VOICE_TTS_VOICE")):
+        cfg["VOICE_TTS_VOICE"] = ""                    # en-GB: nunca voz femenina; cae a Alan o Daniel
+    if not cfg.get("VOICE_TTS_VOICE"):
+        v = default_voice(cfg)
+        if v:
+            cfg["VOICE_TTS_VOICE"] = v
+        elif str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en") and sys.platform == "darwin":
+            cfg["VOICE_TTS_VOICE"] = "Daniel"
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
                     cfg.get("VOICE_STT_THREADS", "4")) if stt == "whisper_cpp" else NoSTT())
+    if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
+        tts = pick_tts(cfg)
     if tts == "macos_say":
         t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"))
     elif tts == "piper":
-        t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""))
+        t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""), cfg.get("VOICE_PIPER_LENGTH_SCALE", "1.18"))
     else:
         t = NoTTS()
     return s, t

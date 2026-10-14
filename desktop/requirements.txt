@@ -5,3 +5,6 @@
 #   whisper.cpp  (speech-to-text)   https://github.com/ggml-org/whisper.cpp
 #   piper        (text-to-speech)   https://github.com/OHF-Voice/piper1-gpl
 # macOS already includes `say` with Spanish voices (offline), the suggested starting point.
+
+# Opcional: display de terminal (desktop/jarvis_display.py)
+#   python3 -m pip install rich==15.0.0

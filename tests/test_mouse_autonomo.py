@@ -118,6 +118,31 @@ class Autonomo(Base):
         self.assertEqual(p.calls, [("move", 1, 1), ("move", 2, 2), ("move", 3, 3)])
         self.assertEqual(list(carpeta.glob("lote-*.jsonl")), [])
 
+    def test_autonomo_rechecks_the_page_and_stays_out_of_slack(self):
+        class Cambia:
+            def __init__(self):
+                self.urls = ["https://github.com/ejemplo", "https://mail.google.com/mail"]
+
+            def frontmost(self):
+                return "Safari"
+
+            def page_url(self):
+                return self.urls.pop(0)
+
+        self.assertEqual(ae.frente_seguro({"action": "click"}, Cambia()), "sitio_no_verificado")
+
+        class Slack:
+            def frontmost(self):
+                return "Slack"
+
+        self.assertEqual(ae.frente_seguro({"action": "move"}, Slack()), "app_frente")
+
+        class Notas:
+            def frontmost(self):
+                return "Notes"
+
+        self.assertIsNone(ae.frente_seguro({"action": "click"}, Notas()))
+
     def test_voice_stop_creates_stop(self):
         for frase in ("para el mouse", "Jarvis, detén el ratón", "stop mouse"):
             self.assertEqual(intents.parse(frase)[0], "stop_mouse", frase)
