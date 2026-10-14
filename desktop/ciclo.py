@@ -145,34 +145,50 @@ class Ciclo:
         self.ultimo = None; self.vueltas = 0
 
     def _hechos(self):
+        """Cuenta cuántas veces se completó cada clave. Una lista guarda las repeticiones."""
         try:
-            return set(json.loads(self.hechos.read_text(encoding="utf-8")))
+            raw = json.loads(self.hechos.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return set()
+            return {}
+        counts = {}
+        items = raw.items() if isinstance(raw, dict) else ((k, 1) for k in raw) if isinstance(raw, list) else ()
+        for key, n in items:
+            key = str(key)
+            if re.match(r"^\d+:", key):
+                key = key.split(":", 1)[1]
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                counts[key] = counts.get(key, 0) + n
+        return counts
 
     def vuelta(self):
         self.vueltas += 1
         if self.stopped():
             self.ultimo = "STOP activo: ciclo en pausa"; return []
-        hechos, out, presentes = self._hechos(), [], set()
-        hechos |= {k.split(":", 1)[1] for k in hechos if re.match(r"^\d+:", k)}   # migra claves antiguas con índice
-        for i, e in enumerate(leer_cola(self.cola)):
-            key = str(e.get("id") or json.dumps(e, sort_keys=True))      # clave estable: el contenido, nunca la posición
-            presentes.add(key)
-            if key in hechos:
+        hechos, out, vistos = self._hechos(), [], {}
+        previo = [k for k, n in sorted(hechos.items()) for _ in range(n)]
+        for e in leer_cola(self.cola):
+            key = str(e.get("id") or json.dumps(e, sort_keys=True))
+            vistos[key] = vistos.get(key, 0) + 1
+            if vistos[key] <= hechos.get(key, 0):
                 continue
             res, aceptar = procesar(e, base=self.base, mouse=self.mouse, estado=self.estado,
                                     fetch=self.fetch, resolver=self.resolver)
             if aceptar:
-                hechos.add(key)
+                hechos[key] = hechos.get(key, 0) + 1
             out.append(res)
             self.emit({"type": "ciclo", "tipo": e.get("tipo"), "text": res[:300]})
             self.speak(f"Encargo listo. {res[:160]}")
-        vigentes = hechos & presentes                      # se recuerda TODO lo que sigue en la cola (sin tope que lo reprocese)
-        if out or vigentes != hechos:
+        vigentes = {k: min(hechos.get(k, 0), n) for k, n in vistos.items()}
+        vigentes = {k: n for k, n in vigentes.items() if n > 0}
+        lista = [k for k, n in sorted(vigentes.items()) for _ in range(n)]
+        if lista != previo:
             self.home.mkdir(parents=True, exist_ok=True)
             tmp = self.hechos.with_name(self.hechos.name + ".tmp")
-            tmp.write_text(json.dumps(sorted(vigentes)), encoding="utf-8"); os.replace(tmp, self.hechos)
+            tmp.write_text(json.dumps(lista), encoding="utf-8"); os.replace(tmp, self.hechos)
         self.ultimo = out[-1] if out else self.ultimo
         return out
 
