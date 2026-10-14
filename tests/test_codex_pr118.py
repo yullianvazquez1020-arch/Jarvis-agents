@@ -117,8 +117,8 @@ class Revision2(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]):
             c = self.make(d)
             self.assertTrue(c._playback_native())                    # sin ventana: altavoces
-            c.windows["w1"] = time.time()
-            self.assertFalse(c._playback_native())                   # con ventana viva: solo el navegador
+            c.owner = "w1"; c.windows["w1"] = time.time()
+            self.assertFalse(c._playback_native())                   # con ventana dueña viva: solo el navegador
             c.windows["w1"] = time.time() - desk.WINDOW_STALE - 1
             self.assertTrue(c._playback_native())
             self.assertTrue(self.make(d, "true")._playback_native())
@@ -179,6 +179,42 @@ class Revision3(unittest.TestCase):
             c.tts = T(); played, ev = [], []; c._play_local = played.append; c.emit = ev.append
             self.assertIsNotNone(c.speak("Hola, señor"))
             self.assertEqual(len(played), 1); self.assertFalse(any(e.get("type") == "audio.play" for e in ev))
+
+
+
+class Revision4(unittest.TestCase):
+    """Codex PR #118, revisión de 320f7da."""
+
+    def test_claves_estables_sin_id(self):
+        import ciclo
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d); cola = [{"tipo": "shell", "n": 1}, {"tipo": "shell", "n": 2}]
+            (home / "encargos.jsonl").write_text("\n".join(json.dumps(e) for e in cola), encoding="utf-8")
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+            self.assertEqual(len(c.vuelta()), 2)
+            (home / "encargos.jsonl").write_text(json.dumps(cola[1]), encoding="utf-8")      # se quita la primera línea
+            self.assertEqual(c.vuelta(), [])                                                 # la segunda no se repite
+
+    def test_dueno_caducado_con_otra_ventana_viva_usa_altavoces(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]):
+            c = desk.Companion.__new__(desk.Companion)
+            c.cfg = {"VOICE_SERVER_PLAYBACK": "auto"}; c.home = Path(d); c.lock = threading.Lock()
+            c.owner = "vieja"; c.windows = {"vieja": time.time() - desk.WINDOW_STALE - 5, "otra": time.time()}
+            self.assertTrue(c._playback_native())
+            c.owner = None; self.assertTrue(c._playback_native())
+
+    def test_cola_de_voz_unica_con_hilos(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]), \
+                patch.object(desk.subprocess, "Popen", FakeProc):
+            c = desk.Companion.__new__(desk.Companion); c.cfg = {"VOICE_SERVER_PLAYBACK": "auto"}; c.home = Path(d)
+            arranques = []; orig = threading.Thread.start
+            def contar(th):
+                arranques.append(th); return orig(th)
+            with patch.object(threading.Thread, "start", contar):
+                hs = [threading.Thread(target=c._play_local, args=(b"RIFF",)) for _ in range(8)]
+                [orig(h) for h in hs]; [h.join() for h in hs]
+            self.assertEqual(len(arranques), 1)                                              # un solo worker
+            c.stop_local_audio()
 
 
 if __name__ == "__main__":

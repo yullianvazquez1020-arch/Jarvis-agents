@@ -317,6 +317,9 @@ def speech_topics(text):
     return out[:4]
 
 
+_VOZ_INIT_LOCK = threading.Lock()
+
+
 class Companion:
     """All state of one running companion. Thread-safe; the HTTP handler only calls methods here."""
 
@@ -736,8 +739,9 @@ class Companion:
         if m in ("true", "1", "yes", "on", "native"):
             return True
         now = time.time()
-        with self.lock:
-            live = any(now - t < WINDOW_STALE for t in getattr(self, "windows", {}).values())
+        with self.lock:                                   # depende de la ventana DUEÑA del audio, no de cualquier ventana
+            owner = getattr(self, "owner", None)
+            live = bool(owner) and now - getattr(self, "windows", {}).get(owner, 0) < WINDOW_STALE
         return not live
 
     def _play_local(self, audio):
@@ -748,10 +752,11 @@ class Companion:
         player = local_player()
         if not player:
             return False
-        if not hasattr(self, "_voz_q"):
-            import queue
-            self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0; self._voz_lock = threading.Lock()
-            threading.Thread(target=self._voz_worker, args=(player,), daemon=True).start()
+        with _VOZ_INIT_LOCK:                              # inicialización única aunque hablen dos hilos a la vez
+            if not hasattr(self, "_voz_q"):
+                import queue
+                self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0; self._voz_lock = threading.Lock()
+                threading.Thread(target=self._voz_worker, args=(player,), daemon=True).start()
         self._voz_q.put((self._voz_gen, audio))           # cola: una frase cada vez, sin solaparse
         return True
 

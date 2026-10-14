@@ -98,8 +98,9 @@ class Ciclo:
         if self.stopped():
             self.ultimo = "STOP activo: ciclo en pausa"; return []
         hechos, out, presentes = self._hechos(), [], set()
+        hechos |= {k.split(":", 1)[1] for k in hechos if re.match(r"^\d+:", k)}   # migra claves antiguas con índice
         for i, e in enumerate(leer_cola(self.cola)):
-            key = str(e.get("id") or f"{i}:{json.dumps(e, sort_keys=True)}")
+            key = str(e.get("id") or json.dumps(e, sort_keys=True))      # clave estable: el contenido, nunca la posición
             presentes.add(key)
             if key in hechos:
                 continue
