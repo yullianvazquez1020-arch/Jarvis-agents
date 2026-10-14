@@ -7366,6 +7366,41 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
     return {"ok": True, "queued": True}
 
 
+# Bus de negocios (Jarvis <-> Grok Bot): registro y lectura de eventos de estado. No ejecuta acciones.
+import jarvis_bus
+
+class BusEvento(BaseModel):
+    negocio: str = Field(min_length=1, max_length=40)
+    tipo: str = Field(default="nota", max_length=40)
+    texto: str = Field(default="", max_length=jarvis_bus.MAX_TEXTO)
+    estado: str | None = None
+    fuente: str = "grokbot"
+
+@app.get("/api/bus/negocios")
+async def bus_negocios(x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+        raise HTTPException(401, "Bad secret")
+    return jarvis_bus.BUS.tablero()
+
+@app.get("/api/bus/eventos")
+async def bus_eventos(desde: int = 0, negocio: str | None = None, limite: int = 100,
+                      x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+        raise HTTPException(401, "Bad secret")
+    return {"eventos": jarvis_bus.BUS.eventos(desde, negocio, limite)}
+
+@app.post("/api/bus/eventos")
+async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+        raise HTTPException(401, "Bad secret")
+    if not _rate_ok("bus"):
+        raise HTTPException(429, "Demasiados eventos por minuto")
+    try:
+        return jarvis_bus.BUS.emitir(req.negocio, req.tipo, req.texto, req.estado, req.fuente)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(422, str(e))
+
+
 @app.get("/backup")
 async def backup(x_api_key: str = Header(...)):
     """Full copy of all data (personal + books + calendar + bank + research). Save it somewhere safe."""
