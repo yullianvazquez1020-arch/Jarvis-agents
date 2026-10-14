@@ -14,6 +14,7 @@ La Mac no abre puertos: todo es por archivos locales.
 """
 from __future__ import annotations
 
+import math
 import argparse
 import importlib.util
 import json
@@ -93,6 +94,9 @@ def start(agent: str, minutes: int, *, ask=None, tty=None) -> int:
     return 0
 
 
+MAX_SCROLL = 50
+
+
 def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> str | None:
     """None = se puede ejecutar. Si no, el motivo (sin repetir el texto de la orden)."""
     if not isinstance(action, dict):
@@ -112,6 +116,26 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> 
             return "coordenadas"
         if not (0 <= x < size[0] and 0 <= y < size[1]) or (x <= CORNER and y <= CORNER):
             return "coordenadas"
+    if kind == "scroll":                       # números válidos antes de ejecutar: una orden mala se rechaza, no activa STOP
+        dy = action.get("dy", 0)
+        if isinstance(dy, bool) or not isinstance(dy, (int, float, str)):
+            return "desplazamiento"
+        try:
+            dyf = float(dy)
+        except (TypeError, ValueError):
+            return "desplazamiento"
+        if not math.isfinite(dyf) or dyf != int(dyf) or abs(dyf) > MAX_SCROLL:
+            return "desplazamiento"
+    if kind == "wait":
+        sec = action.get("seconds", 0)
+        if isinstance(sec, bool) or not isinstance(sec, (int, float, str)):
+            return "espera"
+        try:
+            secf = float(sec)
+        except (TypeError, ValueError):
+            return "espera"
+        if not math.isfinite(secf) or not 0 <= secf <= 10:
+            return "espera"
     if kind == "type":
         text = str(action.get("text") or "")
         if not text or len(text) > MAX_TEXT:

@@ -713,8 +713,10 @@ class Companion:
             for old in list(self.audio)[:-10]:
                 self.audio.pop(old, None)
             self.last["audio"] = aid
-        self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
-        self._play_local(audio)
+        if self._playback_native():                       # una sola salida: altavoces si no hay ventana del panel viva
+            self._play_local(audio)
+        else:
+            self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
         try:                                                    # "hablando" para la torre (respaldo sin BroadcastChannel)
             import io, wave as _w
             with _w.open(io.BytesIO(audio)) as wf:
@@ -722,6 +724,21 @@ class Companion:
         except Exception:
             self.speaking_until = time.time() + 3
         return aid
+
+    def _playback_mode(self):
+        return str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).strip().lower()
+
+    def _playback_native(self):
+        """auto: nativo solo si no hay ninguna ventana del panel viva (si no, suena dos veces); true/native: siempre nativo."""
+        m = self._playback_mode()
+        if m in ("false", "0", "no", "off") or not local_player():
+            return False
+        if m in ("true", "1", "yes", "on", "native"):
+            return True
+        now = time.time()
+        with self.lock:
+            live = any(now - t < WINDOW_STALE for t in getattr(self, "windows", {}).values())
+        return not live
 
     def _play_local(self, audio):
         """Voz siempre activa sin depender del autoplay del navegador: reproduce en los altavoces de este equipo.
@@ -733,7 +750,7 @@ class Companion:
             return False
         if not hasattr(self, "_voz_q"):
             import queue
-            self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0
+            self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0; self._voz_lock = threading.Lock()
             threading.Thread(target=self._voz_worker, args=(player,), daemon=True).start()
         self._voz_q.put((self._voz_gen, audio))           # cola: una frase cada vez, sin solaparse
         return True
@@ -747,8 +764,11 @@ class Companion:
             n += 1; path = self.home / f"voz_{n % 2}.wav"
             try:
                 path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(audio)
-                proc = subprocess.Popen(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self._voz_proc = proc
+                with self._voz_lock:                     # comprobar y lanzar de forma atómica frente a stop_local_audio
+                    if gen != self._voz_gen:
+                        continue
+                    proc = subprocess.Popen(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._voz_proc = proc
                 try:
                     proc.wait(timeout=120)
                 except subprocess.TimeoutExpired:
@@ -762,13 +782,14 @@ class Companion:
         """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
         if not hasattr(self, "_voz_q"):
             return
-        self._voz_gen += 1
-        proc = self._voz_proc
-        if proc and proc.poll() is None:
-            try:
-                proc.terminate()
-            except OSError:
-                pass
+        with self._voz_lock:
+            self._voz_gen += 1
+            proc = self._voz_proc
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
 
     # --- turns ---
     def start_turn(self, request_id, text, source="text"):

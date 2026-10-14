@@ -104,5 +104,51 @@ class RayosObjetivo(unittest.TestCase):
         self.assertIn("data-negocio", neg); self.assertIn("data-cripto", neg); self.assertIn("jarvis-scan", neg)
 
 
+
+class Revision2(unittest.TestCase):
+    """Codex PR #118, revisión de ff3f2fe."""
+
+    def make(self, d, mode="auto"):
+        c = desk.Companion.__new__(desk.Companion)
+        c.cfg = {"VOICE_SERVER_PLAYBACK": mode}; c.home = Path(d); c.lock = threading.Lock(); c.windows = {}
+        return c
+
+    def test_auto_una_sola_salida(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]):
+            c = self.make(d)
+            self.assertTrue(c._playback_native())                    # sin ventana: altavoces
+            c.windows["w1"] = time.time()
+            self.assertFalse(c._playback_native())                   # con ventana viva: solo el navegador
+            c.windows["w1"] = time.time() - desk.WINDOW_STALE - 1
+            self.assertTrue(c._playback_native())
+            self.assertTrue(self.make(d, "true")._playback_native())
+            self.assertFalse(self.make(d, "false")._playback_native())
+
+    def test_stop_entre_comprobacion_y_lanzamiento(self):
+        FakeProc.vivos = []
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]):
+            c = self.make(d)
+            orig = Path.write_bytes
+            def lento(self_, data):                                   # el stop llega mientras escribe el wav
+                r = orig(self_, data); c.stop_local_audio(); return r
+            with patch.object(desk.subprocess, "Popen", FakeProc), patch.object(Path, "write_bytes", lento):
+                c._play_local(b"RIFF1"); time.sleep(0.4)
+            self.assertEqual(FakeProc.vivos, [])                     # nunca se lanza tras el stop
+
+    def test_scroll_y_wait_malformados_se_rechazan(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autonomo_t", Path(__file__).resolve().parents[1] / "desktop/mac/autonomo.py")
+        au = importlib.util.module_from_spec(spec); spec.loader.exec_module(au)
+        ses = {"agent": "jarvis"}
+        with patch.object(au.ae, "denial", return_value=None):
+            for bad in ({"action": "scroll", "dy": "down"}, {"action": "scroll", "dy": float("nan")}, {"action": "scroll", "dy": 9999},
+                        {"action": "scroll", "dy": True}, {"action": "wait", "seconds": "pronto"}, {"action": "wait", "seconds": float("inf")},
+                        {"action": "wait", "seconds": -1}, {"action": "wait", "seconds": [1]}):
+                bad = dict(bad, agent="jarvis")
+                self.assertIn(au.validate(bad, ses, (1440, 900), "Safari"), ("desplazamiento", "espera"), bad)
+            self.assertIsNone(au.validate({"action": "scroll", "dy": -5, "agent": "jarvis"}, ses, (1440, 900), "Safari"))
+            self.assertIsNone(au.validate({"action": "wait", "seconds": "2.5", "agent": "jarvis"}, ses, (1440, 900), "Safari"))
+
+
 if __name__ == "__main__":
     unittest.main()
