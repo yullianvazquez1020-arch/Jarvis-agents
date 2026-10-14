@@ -699,8 +699,8 @@ class Companion:
             discreet = self.prefs["discreet"]; rate = self.prefs["rate"]; owner = self.owner
         if discreet and (sensitive or re.search(r"\d", text or "")):
             text = "Te lo dejé en pantalla."
-        if not owner or self.tts.problem():
-            return None
+        if (not owner and not self._playback_native()) or self.tts.problem():
+            return None                                      # sin ventana dueña: en auto suena por los altavoces
         try:
             audio, ctype = self.tts.synthesize(text, rate=rate)
         except engines.EngineError as e:

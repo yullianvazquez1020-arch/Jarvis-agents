@@ -150,5 +150,36 @@ class Revision2(unittest.TestCase):
             self.assertIsNone(au.validate({"action": "wait", "seconds": "2.5", "agent": "jarvis"}, ses, (1440, 900), "Safari"))
 
 
+
+class Revision3(unittest.TestCase):
+    """Codex PR #118, revisión de f0ce9b6."""
+
+    def test_ciclo_no_reprocesa_mas_de_500(self):
+        import ciclo
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d); cola = [{"id": f"e{i}", "tipo": "shell"} for i in range(620)]   # tipo no permitido: barato
+            (home / "encargos.jsonl").write_text("\n".join(json.dumps(e) for e in cola), encoding="utf-8")
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+            self.assertEqual(len(c.vuelta()), 620)
+            self.assertEqual(c.vuelta(), [])                                  # nada se repite
+            (home / "encargos.jsonl").write_text(json.dumps(cola[0]), encoding="utf-8")     # cola compactada
+            self.assertEqual(c.vuelta(), [])
+            self.assertEqual(json.loads((home / "encargos_hechos.json").read_text()), ["e0"])
+
+    def test_habla_sin_ventana_duena_por_altavoces(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]):
+            c = desk.Companion.__new__(desk.Companion)
+            c.cfg = {"VOICE_SERVER_PLAYBACK": "auto"}; c.home = Path(d); c.lock = threading.Lock(); c.windows = {}
+            c.owner = None; c.prefs = {"discreet": False, "rate": 1.0}; c.turns = {}; c.audio = {}; c.last = {}
+            class T:
+                def problem(self): return ""
+                def synthesize(self, text, rate=1.0):
+                    from audio.wav import make_wav
+                    return make_wav(b"\x00\x00" * 1600), "audio/wav"
+            c.tts = T(); played, ev = [], []; c._play_local = played.append; c.emit = ev.append
+            self.assertIsNotNone(c.speak("Hola, señor"))
+            self.assertEqual(len(played), 1); self.assertFalse(any(e.get("type") == "audio.play" for e in ev))
+
+
 if __name__ == "__main__":
     unittest.main()

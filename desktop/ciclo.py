@@ -11,6 +11,7 @@ El ciclo del servidor (BRAIN 4.2.7) vive en Render con BRAIN_ENABLED=true; este 
 """
 import html
 import json
+import os
 import re
 import threading
 import time
@@ -96,18 +97,21 @@ class Ciclo:
         self.vueltas += 1
         if self.stopped():
             self.ultimo = "STOP activo: ciclo en pausa"; return []
-        hechos, out = self._hechos(), []
+        hechos, out, presentes = self._hechos(), [], set()
         for i, e in enumerate(leer_cola(self.cola)):
             key = str(e.get("id") or f"{i}:{json.dumps(e, sort_keys=True)}")
+            presentes.add(key)
             if key in hechos:
                 continue
             res = procesar(e, base=self.base, mouse=self.mouse, estado=self.estado, fetch=self.fetch)
             hechos.add(key); out.append(res)
             self.emit({"type": "ciclo", "tipo": e.get("tipo"), "text": res[:300]})
             self.speak(f"Encargo listo. {res[:160]}")
-        if out:
+        vigentes = hechos & presentes                      # se recuerda TODO lo que sigue en la cola (sin tope que lo reprocese)
+        if out or vigentes != hechos:
             self.home.mkdir(parents=True, exist_ok=True)
-            self.hechos.write_text(json.dumps(sorted(hechos)[-500:]), encoding="utf-8")
+            tmp = self.hechos.with_name(self.hechos.name + ".tmp")
+            tmp.write_text(json.dumps(sorted(vigentes)), encoding="utf-8"); os.replace(tmp, self.hechos)
         self.ultimo = out[-1] if out else self.ultimo
         return out
 
