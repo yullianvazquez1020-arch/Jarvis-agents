@@ -7633,19 +7633,21 @@ def _voz_c_auth(ws) -> bool:
 
 async def _voz_c_transcribe(wav: bytes) -> str:
     import jarvis_chat_voice
-    return await jarvis_chat_voice.transcribe_local(wav)
+    return await jarvis_chat_voice.transcribe_local(wav, language="auto")
 
 
-async def _voz_c_speak(text: str) -> bytes:
-    import jarvis_chat_voice                      # Piper; voz británica 'Alan' si JARVIS_REPLY_LANGUAGE=en-GB
-    return await jarvis_chat_voice.speak_local(text)
+async def _voz_c_speak(text: str, language: str = "es") -> bytes:
+    import jarvis_chat_voice                      # Piper: Ald en español, Alan en inglés
+    return await jarvis_chat_voice.speak_local(text, language)
 
 
-async def _voz_c_reply(text: str) -> str:
+async def _voz_c_reply(text: str, language: str = "es") -> str:
     if not _rate_ok("voz-continua"):
-        return f"Más de {RATE_PER_MIN} turnos por minuto; espera un momento."
+        return f"More than {RATE_PER_MIN} turns per minute; wait a moment." if language == "en" else f"Más de {RATE_PER_MIN} turnos por minuto; espera un momento."
+    aviso = "Reply in English only. " if language == "en" else "Responde solo en español. "
     # read_only="voice": la voz no escribe nada ni ejecuta acciones; pagos/mensajes van por Telegram con /aprobar
-    return await run("voz:continua", text, read_only="voice")
+    return await run("voz:continua", aviso + "Do not approve, pay, or send anything.\n" + text if language == "en"
+                     else aviso + "No apruebes, no pagues y no envíes nada.\n" + text, read_only="voice")
 
 
 @app.websocket("/ws/voz")
@@ -7658,6 +7660,7 @@ async def ws_voz(ws: WebSocket):
         send_json=ws.send_json, send_bytes=ws.send_bytes,
         log=lambda s: logger.info(s), redact=lambda s: _redact_secrets(s)[0])
     await ws.send_json({"type": "listo", "rate": _voz_c.RATE, "formato": "pcm16le-mono",
+                        "idiomas": ["es", "en"],
                         "idioma_voz": __import__("jarvis_chat_voice").reply_language()})
     try:
         while True:

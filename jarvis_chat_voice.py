@@ -55,7 +55,10 @@ try:
     m = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1,
                      download_root=req["models"])
     stage = "transcribe"
-    segs, _ = m.transcribe(req["wav"], language="es", vad_filter=True, beam_size=int(req.get("beam", 1)),
+    lang = req.get("language", "es")
+    if lang not in ("es", "en"):
+        lang = None
+    segs, _ = m.transcribe(req["wav"], language=lang, vad_filter=True, beam_size=int(req.get("beam", 1)),
                           initial_prompt=req.get("hint", "")[:200], condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segs)
     print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
@@ -171,7 +174,7 @@ async def _ffmpeg(args, timeout=FFMPEG_TIMEOUT) -> int:
     return code
 
 
-async def transcribe_local(raw: bytes) -> str:
+async def transcribe_local(raw: bytes, language: str = "es") -> str:
     if not raw or len(raw) > MAX_AUDIO:
         raise ValueError("audio vacío o mayor de 1.5 MB")
     with tempfile.TemporaryDirectory(prefix="jarvis-voz-") as tmp:
@@ -184,7 +187,8 @@ async def transcribe_local(raw: bytes) -> str:
         try:
             code, out = await _run([sys.executable, "-c", _WORKER], WHISPER_TIMEOUT,
                                    stdin=json.dumps({"wav": str(wav), "models": str(model_dir()),
-                                                     "hint": NAME_HINT, "beam": whisper_beam()}).encode(),
+                                                     "hint": NAME_HINT, "beam": whisper_beam(),
+                                                     "language": language if language in ("es", "en") else "auto"}).encode(),
                                    env=_child_env())
         except asyncio.TimeoutError:
             raise ValueError("la transcripción local tardó demasiado") from None
@@ -205,16 +209,17 @@ def reply_language():
     return 'en-GB' if os.getenv('JARVIS_REPLY_LANGUAGE','es').lower() in ('en','en-gb','en_gb') else 'es'
 
 
-async def speak_local(text: str) -> bytes:
-    """WAV con la voz local (Piper, jarvis_local_tts)."""
+async def speak_local(text: str, language: str | None = None) -> bytes:
+    """WAV con la voz local (Piper, jarvis_local_tts). language es 'es' o 'en'; si falta, usa el idioma fijo."""
     text = " ".join(text.split())[:MAX_CHARS]
     if not text:
         raise ValueError("no hay texto para hablar")
     import jarvis_local_tts
+    chosen = "en-GB" if language in ("en", "en-GB", "en_gb") else "es" if language in ("es", "es-MX", "es_mx") else reply_language()
     with tempfile.TemporaryDirectory() as tmp:
         chunks = speech_chunks(text)
         paths = await jarvis_local_tts.local_narration(
-            {"language": reply_language(), "scenes": [{"narration": chunk} for chunk in chunks]}, tmp)
+            {"language": chosen, "scenes": [{"narration": chunk} for chunk in chunks]}, tmp)
         merged = io.BytesIO()
         with wave.open(merged, "wb") as dst:
             params = None

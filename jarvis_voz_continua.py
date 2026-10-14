@@ -31,6 +31,22 @@ MIN_SPEECH_MS = 240
 MAX_UTTERANCE_S = 30
 SPEECH_START_FRAMES = 3                            # 90 ms seguidos de voz para abrir turno / barge-in
 _CMD_WORDS = ("confirmar", "aprobar", "enviar", "ejecutar", "dictado", "cripto")
+_EN_WORDS = ("the", "what", "how", "please", "call", "hello", "thanks", "thank", "can", "could", "would", "appointment", "price", "yes", "tomorrow", "about")
+_ES_WORDS = ("el", "la", "los", "las", "que", "como", "por", "favor", "hola", "gracias", "cita", "precio", "puedes", "quiero", "para", "una", "bueno", "manana")
+
+
+def idioma(text: str, previo: str = "es") -> str:
+    """Elige español o inglés según el turno. Si no hay señal, se queda el anterior."""
+    words = re.findall(r"[a-z]+", _norm(text))
+    if not words:
+        return "es" if previo not in ("es", "en") else previo
+    en = sum(1 for w in words if w in _EN_WORDS)
+    es = sum(1 for w in words if w in _ES_WORDS)
+    if en > es:
+        return "en"
+    if es > en:
+        return "es"
+    return "es" if previo not in ("es", "en") else previo
 
 
 def enabled() -> bool:
@@ -42,17 +58,18 @@ def _norm(text: str) -> str:
     return "".join(c for c in t if not unicodedata.combining(c)).strip()
 
 
-def refusal(text: str) -> Optional[str]:
-    """Mismo filtro que desktop/voz_loop.py: motivo de rechazo o None."""
+def refusal(text: str, lang: str = "es") -> Optional[str]:
+    """Mismo filtro que desktop/voz_loop.py: motivo de rechazo o None. El aviso sale en el idioma del turno."""
     t = _norm(text)
+    en = lang == "en"
     if not t:
-        return "No entendí nada."
+        return "I didn't catch that." if en else "No entendí nada."
     if t.startswith("/") or re.search(r"(^|\s)(slash|barra)\s+\w+", t):
-        return "Los comandos se escriben, no se dictan."
+        return "Commands are typed, not spoken." if en else "Los comandos se escriben, no se dictan."
     if re.search(r"/\s*(" + "|".join(_CMD_WORDS) + r")\b", t) or re.search(r"\b(confirmar|aprobar|approve|confirm)\b", t):
-        return "Nada se aprueba ni se confirma por voz. Escríbelo en Telegram."
+        return "Nothing is approved or confirmed by voice. Type it in Telegram." if en else "Nada se aprueba ni se confirma por voz. Escríbelo en Telegram."
     if re.search(r"\b\d(?:[\s-]?\d){3,7}\b", t) or re.search(r"\b(codigo|clave|pin|password|contrasena)\b", t):
-        return "Ese dictado parece llevar un código. Los códigos solo se escriben."
+        return "That sounds like a code. Codes are only typed." if en else "Ese dictado parece llevar un código. Los códigos solo se escriben."
     return None
 
 
@@ -106,6 +123,7 @@ class VozSession:
         self.send_json, self.send_bytes = send_json, send_bytes
         self.log, self.redact = log, redact
         self.vad = vad or VAD()
+        self.idioma = "es"
         self._buf = bytearray()
         self._utt = bytearray()
         self._speech_run = 0
@@ -161,33 +179,42 @@ class VozSession:
         except asyncio.CancelledError:
             raise
         except Exception:
-            await self.send_json({"type": "error", "texto": "No pude entender el audio."}); return
+            await self.send_json({"type": "error", "texto": self._aviso("audio")}); return
+        self.idioma = idioma(text, self.idioma)
         clean = self.redact(text or "")
-        await self.send_json({"type": "transcripcion", "texto": clean})
-        why = refusal(text)
+        await self.send_json({"type": "transcripcion", "texto": clean, "idioma": self.idioma})
+        why = refusal(text, self.idioma)
         if why:
             self.log("voz continua: dictado rechazado")
-            await self.send_json({"type": "rechazado", "texto": why})
+            await self.send_json({"type": "rechazado", "texto": why, "idioma": self.idioma})
             await self._say(why); return
         self.turns += 1
         try:
-            answer = await self.reply(text)
+            answer = await self.reply(text, self.idioma)
         except asyncio.CancelledError:
             raise
         except Exception:
-            answer = "Tuve un problema al responder. Inténtalo otra vez."
+            answer = self._aviso("respuesta")
         answer = self.redact(answer or "")
-        await self.send_json({"type": "respuesta", "texto": answer})
+        await self.send_json({"type": "respuesta", "texto": answer, "idioma": self.idioma})
         await self._say(answer)
+
+    def _aviso(self, cual: str) -> str:
+        en = self.idioma == "en"
+        if cual == "audio":
+            return "I couldn't understand the audio." if en else "No pude entender el audio."
+        if cual == "voz":
+            return "Voice isn't available; the text is on screen." if en else "La voz no está disponible; mostré el texto."
+        return "I had a problem answering. Try again." if en else "Tuve un problema al responder. Inténtalo otra vez."
 
     async def _say(self, text: str) -> None:
         for part in sentences(text):
             try:
-                audio = await self.speak(part)
+                audio = await self.speak(part, self.idioma)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                await self.send_json({"type": "error", "texto": "La voz no está disponible; mostré el texto."})
+                await self.send_json({"type": "error", "texto": self._aviso("voz")})
                 break
             if audio:
                 await self.send_bytes(audio)

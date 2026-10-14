@@ -21,15 +21,15 @@ def quiet(ms=900):
 
 class Harness:
     def __init__(self, text='¿Cómo van las ventas de Tienda Ficticia?', answer='Van bien. Todo en orden.', slow=0.0):
-        self.events, self.audio, self.replies = [], [], []
+        self.events, self.audio, self.replies, self.langs = [], [], [], []
         self.text, self.answer, self.slow = text, answer, slow
         async def transcribe(wav):
             assert wav[:4] == b'RIFF'; return self.text
-        async def reply(t):
-            self.replies.append(t)
+        async def reply(t, lang="es"):
+            self.replies.append(t); self.langs.append(lang)
             if self.slow: await asyncio.sleep(self.slow)
             return self.answer
-        async def speak(t): return b'RIFF' + t.encode()
+        async def speak(t, lang="es"): return b'RIFF' + lang.encode() + t.encode()
         async def sj(d): self.events.append(d)
         async def sb(b): self.audio.append(b)
         self.s = v.VozSession(transcribe=transcribe, reply=reply, speak=speak, send_json=sj, send_bytes=sb,
@@ -55,6 +55,22 @@ class VozContinua(unittest.TestCase):
         self.assertEqual(h.types()[-1], 'audio_fin')
         self.assertEqual(len(h.audio), 2)                    # una trama por frase
         self.assertEqual(h.replies, ['¿Cómo van las ventas de Tienda Ficticia?'])
+        self.assertEqual(h.langs, ['es'])
+
+    def test_english_turn_keeps_its_language(self):
+        h = Harness(text='Please call me tomorrow about the appointment', answer='Thursday works.')
+        async def go():
+            await h.s.feed(speech() + quiet()); await h.s.task
+        run(go())
+        self.assertEqual(h.langs, ['en'])
+        self.assertEqual(h.events[1]['idioma'], 'en')
+        self.assertTrue(h.audio[0].startswith(b'RIFFen'))
+
+    def test_english_refusal_is_in_english(self):
+        self.assertIn('Telegram', v.refusal('approve the payment', 'en'))
+        self.assertIn('voz', v.refusal('aprobar el pago'))
+        self.assertEqual(v.idioma('¿Cómo van las ventas?'), 'es')
+        self.assertEqual(v.idioma('ok', 'en'), 'en')
 
     def test_short_noise_is_not_a_turn(self):
         h = Harness()
@@ -128,7 +144,7 @@ class Endpoint(unittest.TestCase):
         old = j.ENCARGO_SECRET; j.ENCARGO_SECRET = 'secreto-ficticio-voz-123'
         async def tr(w): return 'Resume mis tareas de hoy'
         async def rp(t): return 'Tienes dos tareas.'
-        async def sp(t): return b'RIFFfake'
+        async def sp(t, lang="es"): return b'RIFFfake'
         try:
             c = TestClient(j.app)
             with patch.dict(os.environ, {'VOZ_CONTINUA_ENABLED': 'true'}), \

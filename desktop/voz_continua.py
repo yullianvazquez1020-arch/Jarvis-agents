@@ -1,6 +1,6 @@
 """Cliente de voz continua para la Mac: micrófono -> /ws/voz -> altavoz, con barge-in.
 
-El servidor hace VAD, transcripción, respuesta y voz (Alan si JARVIS_REPLY_LANGUAGE=en-GB).
+El servidor hace VAD, transcripción, respuesta y voz. Cada turno sale en español o en inglés.
 Aquí solo se captura el micro, se envía PCM16 16 kHz y se reproducen los WAV que llegan;
 si llega "interrumpido" o el dueño empieza a hablar, se corta la reproducción al instante.
 Nada se aprueba por voz (el servidor y voz_loop.refusal lo rechazan).
