@@ -105,8 +105,20 @@ class BusTest(unittest.TestCase):
         self.assertFalse(r["reinicio"])
         self.assertEqual([e["seq"] for e in r["eventos"]], [ev["seq"]])
         src = (ROOT / "main.py").read_text("utf-8")
-        self.assertIn("_guardar_seq_bus(ev[\"seq\"])", src)
-        self.assertIn("jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())", src)
+        vida = src[src.index("async def _lifespan"):src.index('VERSION = "4.2.7"')]
+        self.assertLess(vida.index("fence_take_leadership"), vida.index("_restaurar_seq_bus"))
+        self.assertIn("secuencia del bus no guardada", src)
+        self.assertNotIn("bus seq not saved", src)
+
+    def test_si_no_se_guarda_el_numero_se_puede_repetir(self):
+        primero = self.b.emitir("amazon", "nota", "uno", estado="plan")
+        self.assertNotIn("_previo", primero)
+        self.assertTrue(self.b.deshacer_emision(primero["seq"]))
+        self.assertEqual(self.b._estado["amazon"]["estado"], "idea")
+        self.assertEqual(self.b._estado["amazon"]["nota"], "")
+        otro = self.b.emitir("amazon", "nota", "reintento")
+        self.assertEqual(otro["seq"], primero["seq"])
+        self.assertEqual([e["texto"] for e in self.b.eventos()], ["reintento"])
 
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")

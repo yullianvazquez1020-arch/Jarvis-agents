@@ -209,6 +209,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 async def _lifespan(app):
     # v4.0.1: take write leadership first (this is the newest process), then resume queued Telegram work
     await asyncio.to_thread(fence_take_leadership)
+    await asyncio.to_thread(_restaurar_seq_bus)
     from jarvis_private_backup import boot_migrate
     await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
     v420_boot = globals().get("v420_boot")
@@ -7356,10 +7357,10 @@ def _bus_seq_guardada():
 def _guardar_seq_bus(seq):
     if not USE_REDIS:
         return
-    try:
-        kv_set(BUS_SEQ_KEY, int(seq))
-    except (TypeError, ValueError, RuntimeError, ReadOnlyViolation):
-        logger.warning("bus seq not saved")
+    kv_set(BUS_SEQ_KEY, int(seq))
+
+def _restaurar_seq_bus():
+    jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
 
 class Encargo(BaseModel):
     texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
@@ -7391,7 +7392,6 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
 # Bus de negocios (Jarvis <-> Grok Bot): registro y lectura de eventos de estado. No ejecuta acciones.
 import jarvis_bus
 jarvis_bus.set_redactor(lambda t: _redact_secrets(t)[0])
-jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
 
 class BusEvento(BaseModel):
     negocio: str = Field(min_length=1, max_length=40)
@@ -7423,7 +7423,11 @@ async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
         ev = jarvis_bus.BUS.emitir(req.negocio, req.tipo, req.texto, req.estado, req.fuente)
     except (KeyError, ValueError) as e:
         raise HTTPException(422, str(e))
-    _guardar_seq_bus(ev["seq"])
+    try:
+        _guardar_seq_bus(ev["seq"])
+    except Exception:
+        jarvis_bus.BUS.deshacer_emision(ev["seq"])
+        raise HTTPException(503, "secuencia del bus no guardada")
     return ev
 
 

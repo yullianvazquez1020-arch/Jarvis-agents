@@ -79,12 +79,28 @@ class Bus:
                 tipo = re.sub(r"[^a-z0-9_.-]", "", crudo.lower())[:40] or "nota"
                 if contiene_secreto(tipo):
                     tipo = "redactado"
+            n = self._estado[negocio]
+            previo = {"nota": n["nota"], "ts": n["ts"], "estado": n["estado"]}
             ev = {"seq": self._seq, "ts": self._now(), "negocio": negocio, "tipo": tipo,
-                  "texto": redactar(texto), "estado": estado, "fuente": fuente}
+                  "texto": redactar(texto), "estado": estado, "fuente": fuente, "_previo": previo}
             self._ev.append(ev)
-            n = self._estado[negocio]; n["ts"] = ev["ts"]; n["nota"] = ev["texto"][:200]
+            n["ts"] = ev["ts"]; n["nota"] = ev["texto"][:200]
             if estado: n["estado"] = estado
-            return dict(ev)
+            publico = dict(ev)
+            publico.pop("_previo", None)
+            return publico
+
+    def deshacer_emision(self, seq):
+        """Quita el último evento si su número no llegó a guardarse. El siguiente puede reutilizarlo."""
+        with self._lock:
+            if not self._ev or self._ev[-1].get("seq") != int(seq) or self._seq != int(seq):
+                return False
+            ev = self._ev.pop()
+            self._seq -= 1
+            previo = ev.get("_previo")
+            if isinstance(previo, dict):
+                self._estado[ev["negocio"]].update(previo)
+            return True
 
     def continuar_desde(self, seq):
         """El siguiente evento sigue al último que ya se guardó. Un reinicio no vuelve a 1."""
@@ -107,7 +123,12 @@ class Bus:
             reinicio = otro_ciclo or cursor > self._seq
             if reinicio:
                 cursor = 0
-            out = [dict(e) for e in self._ev if e["seq"] > cursor and (negocio is None or e["negocio"] == negocio)]
+            out = []
+            for e in self._ev:
+                if e["seq"] > cursor and (negocio is None or e["negocio"] == negocio):
+                    publico = dict(e)
+                    publico.pop("_previo", None)
+                    out.append(publico)
             return {"eventos": out[:limite], "epoch": self._epoch, "reinicio": reinicio,
                     "ultimo_seq": self._seq}
 
