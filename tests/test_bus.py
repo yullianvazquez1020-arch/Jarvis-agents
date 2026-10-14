@@ -64,6 +64,15 @@ class BusTest(unittest.TestCase):
         normal = self.b.emitir("amazon", "Estado.Listo", "sigue")
         self.assertEqual(normal["tipo"], "estado.listo")
 
+    def test_tipo_en_mayusculas_no_se_guarda_en_minusculas(self):
+        clave = "AB" * 16
+        jb.set_redactor(lambda t: t.replace(clave, "[SECRETO OMITIDO]"))
+        e = self.b.emitir("amazon", clave, "texto normal")
+        self.assertEqual(e["tipo"], "redactado")
+        guardado = str(self.b.eventos())
+        self.assertNotIn(clave, guardado)
+        self.assertNotIn(clave.lower(), guardado)
+
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")
         for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)
