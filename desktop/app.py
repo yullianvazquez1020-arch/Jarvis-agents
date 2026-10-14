@@ -61,7 +61,7 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 "three/three.core.js": "text/javascript; charset=utf-8",
                 "three/controls/OrbitControls.js": "text/javascript; charset=utf-8"}
@@ -232,7 +232,7 @@ def load_config(path=None):
                     k, v = line.split("=", 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
-                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR"]:
+                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -259,6 +259,20 @@ def local_player(which=shutil.which):
         if which(cmd[0]):
             return cmd
     return None
+
+
+SOUND_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4"}
+GREETING = "Good morning, sir. All systems are online."
+
+
+def startup_sound(cfg):
+    """Archivo propio del dueño (JARVIS_STARTUP_SOUND, local y fuera de Git) o el sonido original del repo."""
+    own = str(cfg.get("JARVIS_STARTUP_SOUND", "") or "").strip()
+    if own:
+        p = Path(own).expanduser()
+        if p.is_file() and p.suffix.lower() in SOUND_TYPES and p.stat().st_size <= 20 * 2 ** 20:
+            return p, SOUND_TYPES[p.suffix.lower()]
+    return HERE / "ui" / "audio" / "arranque.wav", "audio/wav"
 
 
 def core_mode(server_state, last_alert_at, now):
@@ -917,6 +931,9 @@ def make_handler(app, host, port):
                 return self._send(200, app.state())
             if u.path == "/api/mouse-autonomo":              # solo lectura: sesión, agente, STOP
                 return self._send(200, mouse_autonomo.estado())
+            if u.path == "/api/startup-sound":                # sonido de arranque (original o archivo propio local)
+                path, ctype = startup_sound(app.cfg)
+                return self._send(200, path.read_bytes(), ctype)
             if u.path == "/api/ciclo":
                 c = getattr(app, "ciclo", None)
                 return self._send(200, c.estado_view() if c else {"activo": False})
@@ -995,6 +1012,8 @@ def make_handler(app, host, port):
                     return self._send(200, app.hello(str(data.get("window", ""))[:64]))
                 if u.path == "/api/audio/claim":
                     return self._send(200, app.claim_audio(str(data.get("window", ""))[:64]))
+                if u.path == "/api/greet":                   # saludo de Alan tras el sonido; solo voz local
+                    return self._send(200, {"audio": app.speak(GREETING)})
                 if u.path == "/api/mouse-autonomo/orden":   # Jarvis encarga investigación; el ejecutor revalida
                     return self._send(200, mouse_autonomo.encargar(data.get("orden")))
                 if u.path == "/api/open":

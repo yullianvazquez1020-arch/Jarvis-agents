@@ -35,6 +35,22 @@ class Voz(unittest.TestCase):
         self.assertEqual(app.local_player(which=lambda c: c == "afplay"), ["afplay"])
 
 
+class Arranque(unittest.TestCase):
+    def test_sonido_original_y_propio(self):
+        import app
+        p, ct = app.startup_sound({})
+        self.assertEqual(p.name, "arranque.wav"); self.assertEqual(ct, "audio/wav"); self.assertTrue(p.is_file())
+        own = pathlib.Path(tempfile.mkdtemp()) / "mio.mp3"; own.write_bytes(b"ID3fake")
+        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(own)}), (own, "audio/mpeg"))
+        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": "/no/existe.mp3"})[0].name, "arranque.wav")
+        bad = own.with_suffix(".exe"); bad.write_bytes(b"x")
+        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(bad)})[0].name, "arranque.wav")
+        self.assertIn("arranque.js", (ROOT / "desktop/ui/index.html").read_text("utf-8"))
+        import wave
+        with wave.open(str(p)) as w:
+            self.assertAlmostEqual(w.getnframes() / w.getframerate(), 5.2, places=1)
+
+
 class Mouse(unittest.TestCase):
     def setUp(self):
         ma.auto.end_session(); (ma.ae.control_dir() / "STOP").unlink(missing_ok=True)
