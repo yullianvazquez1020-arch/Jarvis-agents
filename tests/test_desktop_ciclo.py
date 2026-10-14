@@ -30,25 +30,28 @@ class Voz(unittest.TestCase):
     def test_defaults_voz_encendida(self):
         import app
         self.assertEqual(app.DEFAULTS["VOICE_TTS_BACKEND"], "auto")
-        self.assertEqual(app.DEFAULTS["VOICE_STARTUP_AUDIO"], "true")
+        self.assertEqual(app.DEFAULTS["VOICE_STARTUP_AUDIO"], "false")   # sin música
+        self.assertEqual(app.DEFAULTS["VOICE_STARTUP_GREETING"], "true")
         self.assertEqual(app.local_player(which=lambda c: None), None)
         self.assertEqual(app.local_player(which=lambda c: c == "afplay"), ["afplay"])
 
 
 class Arranque(unittest.TestCase):
-    def test_sonido_original_y_propio(self):
+    def test_encendido_original_y_archivo_propio(self):
         import app
-        p, ct = app.startup_sound({})
-        self.assertEqual(p.name, "arranque.wav"); self.assertEqual(ct, "audio/wav"); self.assertTrue(p.is_file())
+        self.assertEqual(app.startup_sound({})[0].name, "encendido.wav")            # original, síntesis propia
+        self.assertIsNone(app.startup_sound({"JARVIS_STARTUP_SOUND": "off"}))
+        self.assertFalse((ROOT / "desktop/ui/audio/arranque.wav").exists())
         own = pathlib.Path(tempfile.mkdtemp()) / "mio.mp3"; own.write_bytes(b"ID3fake")
         self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(own)}), (own, "audio/mpeg"))
-        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": "/no/existe.mp3"})[0].name, "arranque.wav")
+        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": "/no/existe.mp3"})[0].name, "encendido.wav")
         bad = own.with_suffix(".exe"); bad.write_bytes(b"x")
-        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(bad)})[0].name, "arranque.wav")
-        self.assertIn("arranque.js", (ROOT / "desktop/ui/index.html").read_text("utf-8"))
+        self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(bad)})[0].name, "encendido.wav")
         import wave
-        with wave.open(str(p)) as w:
-            self.assertAlmostEqual(w.getnframes() / w.getframerate(), 5.2, places=1)
+        with wave.open(str(ROOT / "desktop/ui/audio/encendido.wav")) as w:
+            self.assertAlmostEqual(w.getnframes() / w.getframerate(), 5.0, places=1)
+        js = (ROOT / "desktop/ui/arranque.js").read_text("utf-8")
+        self.assertIn("st.sound", js); self.assertIn("/api/greet", js)
 
 
 class Mouse(unittest.TestCase):

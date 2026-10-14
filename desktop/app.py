@@ -72,7 +72,7 @@ WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
             "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
             "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
@@ -266,13 +266,17 @@ GREETING = "Good morning, sir. All systems are online."
 
 
 def startup_sound(cfg):
-    """Archivo propio del dueño (JARVIS_STARTUP_SOUND, local y fuera de Git) o el sonido original del repo."""
+    """Archivo propio del dueño (JARVIS_STARTUP_SOUND, local y fuera de Git) o el encendido original del repo
+    (desktop/ui/audio/encendido.wav, síntesis propia). JARVIS_STARTUP_SOUND=off = sin sonido."""
     own = str(cfg.get("JARVIS_STARTUP_SOUND", "") or "").strip()
+    if own.lower() in ("off", "none", "0", "false"):
+        return None
     if own:
         p = Path(own).expanduser()
         if p.is_file() and p.suffix.lower() in SOUND_TYPES and p.stat().st_size <= 20 * 2 ** 20:
             return p, SOUND_TYPES[p.suffix.lower()]
-    return HERE / "ui" / "audio" / "arranque.wav", "audio/wav"
+    default = HERE / "ui" / "audio" / "encendido.wav"
+    return (default, "audio/wav") if default.is_file() else None
 
 
 def core_mode(server_state, last_alert_at, now):
@@ -553,7 +557,9 @@ class Companion:
             p = self.pairing
             return {"version": VERSION, "demo": self.demo, "server_configured": bool(self.client.url),
                     "paired": bool(self._token()), "server_version": self.server_version,
-                    "startup": {"camera": truthy(self.cfg.get("VOICE_AUTO_CAMERA", "false")), "audio": truthy(self.cfg.get("VOICE_STARTUP_AUDIO", "false"))},
+                    "startup": {"camera": truthy(self.cfg.get("VOICE_AUTO_CAMERA", "false")), "audio": truthy(self.cfg.get("VOICE_STARTUP_AUDIO", "false")),
+                                "greeting": truthy(self.cfg.get("VOICE_STARTUP_GREETING", "true")),
+                                "sound": startup_sound(self.cfg) is not None},
                     "stt": {"engine": self.stt.name, "problem": self.stt.problem()},
                     "tts": {"engine": self.tts.name, "problem": self.tts.problem()},
                     "processing": "Todo el audio se procesa en esta Mac" if self.stt.name != "none" else
@@ -932,8 +938,10 @@ def make_handler(app, host, port):
             if u.path == "/api/mouse-autonomo":              # solo lectura: sesión, agente, STOP
                 return self._send(200, mouse_autonomo.estado())
             if u.path == "/api/startup-sound":                # sonido de arranque (original o archivo propio local)
-                path, ctype = startup_sound(app.cfg)
-                return self._send(200, path.read_bytes(), ctype)
+                found = startup_sound(app.cfg)
+                if not found:
+                    return self._send(404, {"error": "sin sonido de arranque"})
+                return self._send(200, found[0].read_bytes(), found[1])
             if u.path == "/api/ciclo":
                 c = getattr(app, "ciclo", None)
                 return self._send(200, c.estado_view() if c else {"activo": False})
