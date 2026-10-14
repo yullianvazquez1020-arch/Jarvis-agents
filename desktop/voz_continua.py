@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import os
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,6 +39,32 @@ def headers(secret: str) -> dict:
     if not secret:
         raise ValueError("Falta JARVIS_ENCARGO_SECRET")
     return {"X-Jarvis-Secret": secret}
+
+
+def device_token(env=None, home=None) -> str:
+    """JARVIS_DEVICE_TOKEN, si no el token emparejado en ~/.jarvis-desktop/device.json (TokenStore)."""
+    env = os.environ if env is None else env
+    tok = (env.get("JARVIS_DEVICE_TOKEN") or "").strip()
+    if tok:
+        return tok
+    try:
+        from jarvis_client import TokenStore
+    except Exception:
+        return ""
+    folder = home or env.get("VOICE_HOME") or str(Path.home() / ".jarvis-desktop")
+    return (TokenStore(folder).load() or "").strip()
+
+
+def auth_headers(env=None, home=None) -> dict:
+    """Primero el token del dispositivo (Authorization: Bearer jd1...); si no hay, JARVIS_ENCARGO_SECRET."""
+    env = os.environ if env is None else env
+    tok = device_token(env, home)
+    if tok.startswith("jd1."):
+        return {"Authorization": "Bearer " + tok}
+    secret = (env.get("JARVIS_ENCARGO_SECRET") or "").strip()
+    if not secret:
+        raise ValueError("Empareja este Mac con /emparejar (o pon JARVIS_ENCARGO_SECRET)")
+    return headers(secret)
 
 
 def hud_endpoint(base: str) -> str:
@@ -177,7 +204,7 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
     import sounddevice as sd
     import websockets
     url = ws_url(os.getenv("JARVIS_URL", ""))
-    hdr = headers(os.getenv("JARVIS_ENCARGO_SECRET", ""))
+    hdr = auth_headers()
     player = Player()
     link = HudLink()
     loop = asyncio.get_running_loop()
