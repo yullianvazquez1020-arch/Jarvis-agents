@@ -139,112 +139,103 @@
     requestAnimationFrame(loop);
   }
 
-  // ---------- Reactor con volumen (HUD grande) ----------
-  // Pieza mecánica propia: bisel metálico con tornillos, 10 bobinas de acero azulado con su enrollado, luz que se
-  // escapa entre bobinas, aro de energía y núcleo de vidrio con malla. Las escalas de afuera giran; el metal no.
   function metal(ctx, x0, y0, x1, y1) {
     var g = ctx.createLinearGradient(x0, y0, x1, y1);
     g.addColorStop(0, "#d7e3ee"); g.addColorStop(0.18, "#5d7186"); g.addColorStop(0.42, "#1b2633");
     g.addColorStop(0.62, "#8fa3b7"); g.addColorStop(0.82, "#26323f"); g.addColorStop(1, "#b9c8d6");
     return g;
   }
-  function rrect(ctx, x, y, w, h, r) {
-    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
-  }
+
+  // ---------- Núcleo: reactor de arco (HUD) ----------
+  // Disco blanco, anillo de energía, diez segmentos trapezoidales, triángulo central y bisel con pernos.
+  // Geometría propia. No es un logo. Las marcas de afuera giran; el triángulo no.
   function reactor(ctx, cx, cy, R, t, gems) {
     var flock = gems && gems.length ? orbit(gems, R, t) : null;
-    if (flock) {
-      ctx.strokeStyle = "rgba(" + BLUE + ",0.16)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(cx, cy - R * 0.05, R * 1.55, R * 0.42, 0, 0, 6.283); ctx.stroke();
-      drawCrystals(ctx, cx, cy, R, t, flock, false);
-    }
-    var pulse = 0.88 + 0.12 * Math.sin(t * 2.4);
-    // halo de energía detrás de la pieza
-    var halo = ctx.createRadialGradient(cx, cy, R * 0.3, cx, cy, R * 1.25);
-    halo.addColorStop(0, "rgba(" + BLUE + "," + (0.35 * pulse) + ")"); halo.addColorStop(1, "rgba(" + BLUE + ",0)");
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.25, 0, 6.283); ctx.fill();
-    // escalas exteriores (HUD) que giran
+    if (flock) drawCrystals(ctx, cx, cy, R, t, flock, false);
+    var hablando = false;
+    var fig = document.querySelector(".hx-figure");
+    if (fig) hablando = fig.getAttribute("data-voz") === "hablando";
+    var pulse = hablando ? (0.72 + 0.28 * Math.abs(Math.sin(t * 9))) : (0.9 + 0.1 * Math.sin(t * 2.2));
+    var spin = reduce ? 0 : Math.sin(t * 0.35) * 0.04;
+
+    var halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.35);
+    halo.addColorStop(0, "rgba(210,245,255," + (0.55 * pulse) + ")");
+    halo.addColorStop(0.45, "rgba(" + BLUE + "," + (0.28 * pulse) + ")");
+    halo.addColorStop(1, "rgba(" + BLUE + ",0)");
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, R * 1.35, 0, 6.283); ctx.fill();
+
     ctx.save();
-    ctx.strokeStyle = "rgba(" + BLUE + ",0.5)";
-    for (var k = 0; k < 120; k++) {
-      var b = k / 120 * 6.283 + t * 0.05, long = k % 10 === 0, r1 = R * 1.06, r2 = R * (long ? 1.14 : 1.1);
-      ctx.lineWidth = long ? 1.6 : 0.8; ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(b) * r1, cy + Math.sin(b) * r1); ctx.lineTo(cx + Math.cos(b) * r2, cy + Math.sin(b) * r2); ctx.stroke();
+    ctx.strokeStyle = "rgba(" + BLUE + ",0.45)";
+    for (var k = 0; k < 96; k++) {
+      var b = k / 96 * 6.283 + t * 0.04, long = k % 8 === 0;
+      ctx.lineWidth = long ? 1.6 : 0.7;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(b) * R * 1.02, cy + Math.sin(b) * R * 1.02);
+      ctx.lineTo(cx + Math.cos(b) * R * (long ? 1.12 : 1.07), cy + Math.sin(b) * R * (long ? 1.12 : 1.07));
+      ctx.stroke();
     }
-    ring(ctx, cx, cy, R * 1.2, R * 0.012, 4, 0.7, -t * 0.1, 0.55);
-    ring(ctx, cx, cy, R * 1.0, R * 0.008, 60, 0.05, t * 0.08, 0.35);
     ctx.restore();
-    // placa de fondo
-    var plate = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 0.95);
-    plate.addColorStop(0, "#0d2238"); plate.addColorStop(1, "#03080f");
-    ctx.fillStyle = plate; ctx.beginPath(); ctx.arc(cx, cy, R * 0.95, 0, 6.283); ctx.fill();
-    // bisel metálico con tornillos
-    ctx.lineWidth = R * 0.085; ctx.strokeStyle = metal(ctx, cx - R, cy - R, cx + R, cy + R);
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.9, 0, 6.283); ctx.stroke();
-    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(220,235,250,0.55)";
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.945, 0, 6.283); ctx.stroke();
-    ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.beginPath(); ctx.arc(cx, cy, R * 0.855, 0, 6.283); ctx.stroke();
-    for (var s = 0; s < 12; s++) {
-      var a = s / 12 * 6.283 + 0.13, bx = cx + Math.cos(a) * R * 0.9, by = cy + Math.sin(a) * R * 0.9, br = R * 0.022;
+
+    var plate = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
+    plate.addColorStop(0, "#071424"); plate.addColorStop(1, "#02060c");
+    ctx.fillStyle = plate; ctx.beginPath(); ctx.arc(cx, cy, R * 0.98, 0, 6.283); ctx.fill();
+
+    ctx.lineWidth = R * 0.09; ctx.strokeStyle = metal(ctx, cx - R, cy - R, cx + R, cy + R);
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.93, 0, 6.283); ctx.stroke();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(230,242,255,0.7)";
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.975, 0, 6.283); ctx.stroke();
+    ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.beginPath(); ctx.arc(cx, cy, R * 0.885, 0, 6.283); ctx.stroke();
+    for (var s = 0; s < 10; s++) {
+      var ba = (s + 0.5) / 10 * 6.283, bx = cx + Math.cos(ba) * R * 0.93, by = cy + Math.sin(ba) * R * 0.93, br = R * 0.028;
       var bg = ctx.createRadialGradient(bx - br * 0.4, by - br * 0.4, 0, bx, by, br);
-      bg.addColorStop(0, "#f2f7fb"); bg.addColorStop(0.5, "#6f8396"); bg.addColorStop(1, "#141d27");
+      bg.addColorStop(0, "#f4f8fb"); bg.addColorStop(0.45, "#7d91a3"); bg.addColorStop(1, "#121920");
       ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, br, 0, 6.283); ctx.fill();
-      ctx.strokeStyle = "rgba(10,15,20,0.9)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(bx - br * 0.6, by); ctx.lineTo(bx + br * 0.6, by); ctx.stroke();
     }
-    // canal de las bobinas con luz que se escapa
-    ctx.lineWidth = R * 0.24; ctx.strokeStyle = "#05101c";
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.67, 0, 6.283); ctx.stroke();
-    ctx.save(); ctx.shadowColor = "rgba(" + BLUE + ",1)"; ctx.shadowBlur = R * 0.12;
-    ctx.lineWidth = R * 0.2; ctx.strokeStyle = "rgba(90,190,255," + (0.55 * pulse) + ")";
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.67, 0, 6.283); ctx.stroke(); ctx.restore();
-    // 10 bobinas de acero azulado con enrollado
-    for (var c = 0; c < 10; c++) {
-      var ang = c / 10 * 6.283 + 0.314;
-      ctx.save(); ctx.translate(cx + Math.cos(ang) * R * 0.67, cy + Math.sin(ang) * R * 0.67); ctx.rotate(ang + Math.PI / 2);
-      var w = R * 0.29, h = R * 0.2;
-      var body = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-      body.addColorStop(0, "#9fb6cc"); body.addColorStop(0.35, "#3d5a78"); body.addColorStop(0.7, "#1a2b3f"); body.addColorStop(1, "#5b7896");
-      rrect(ctx, -w / 2, -h / 2, w, h, R * 0.025); ctx.fillStyle = body; ctx.fill();
-      ctx.strokeStyle = "rgba(170,220,255,0.6)"; ctx.lineWidth = 1; ctx.stroke();
-      for (var wv = 1; wv < 13; wv++) {                                   // enrollado
-        var xx = -w / 2 + w * wv / 13;
-        ctx.strokeStyle = wv % 2 ? "rgba(200,230,255,0.55)" : "rgba(8,16,26,0.8)"; ctx.lineWidth = Math.max(1, R * 0.006);
-        ctx.beginPath(); ctx.moveTo(xx, -h / 2 + 2); ctx.lineTo(xx + R * 0.01, h / 2 - 2); ctx.stroke();
+
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(spin);
+    ctx.shadowColor = "rgba(160,220,255,0.95)"; ctx.shadowBlur = R * 0.12;
+    for (var i = 0; i < 10; i++) {
+      ctx.save(); ctx.rotate(i / 10 * 6.283);
+      ctx.beginPath();
+      ctx.moveTo(R * 0.42, -R * 0.055); ctx.lineTo(R * 0.8, -R * 0.125);
+      ctx.lineTo(R * 0.8, R * 0.125); ctx.lineTo(R * 0.42, R * 0.055); ctx.closePath();
+      var cg = ctx.createLinearGradient(R * 0.42, 0, R * 0.8, 0);
+      cg.addColorStop(0, "rgba(230,250,255," + pulse + ")");
+      cg.addColorStop(0.45, "rgba(90,190,255," + (0.85 * pulse) + ")");
+      cg.addColorStop(1, "rgba(20,90,170," + (0.55 * pulse) + ")");
+      ctx.fillStyle = cg; ctx.fill();
+      ctx.shadowBlur = 0; ctx.strokeStyle = "rgba(4,16,32,0.55)"; ctx.lineWidth = Math.max(1, R * 0.007);
+      for (var w = 0; w < 7; w++) {
+        var x = R * (0.48 + w * 0.042), hh = R * (0.06 + w * 0.008);
+        ctx.beginPath(); ctx.moveTo(x, -hh); ctx.lineTo(x, hh); ctx.stroke();
       }
-      ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, h * 0.18);   // brillo
       ctx.restore();
     }
-    // aro interior metálico
-    ctx.lineWidth = R * 0.05; ctx.strokeStyle = metal(ctx, cx + R * 0.5, cy - R * 0.5, cx - R * 0.5, cy + R * 0.5);
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.5, 0, 6.283); ctx.stroke();
-    // aro de energía
-    ctx.save(); ctx.shadowColor = "rgba(" + BLUE + ",1)"; ctx.shadowBlur = R * 0.18;
-    ctx.lineWidth = R * 0.035; ctx.strokeStyle = "rgba(150,220,255," + pulse + ")";
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.44, 0, 6.283); ctx.stroke(); ctx.restore();
-    // núcleo de vidrio con malla
-    var core = ctx.createRadialGradient(cx - R * 0.08, cy - R * 0.08, 0, cx, cy, R * 0.41);
-    core.addColorStop(0, "rgba(255,255,255," + pulse + ")"); core.addColorStop(0.35, "rgba(200,240,255,0.95)");
-    core.addColorStop(0.75, "rgba(80,180,255,0.85)"); core.addColorStop(1, "rgba(20,80,160,0.9)");
-    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, R * 0.41, 0, 6.283); ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R * 0.41, 0, 6.283); ctx.clip();
-    ctx.fillStyle = "rgba(10,60,120,0.22)"; var step = R * 0.035;
-    for (var yy = -R * 0.42; yy < R * 0.42; yy += step * 0.87) {
-      var off = Math.round(yy / (step * 0.87)) % 2 ? step / 2 : 0;
-      for (var xh = -R * 0.42 + off; xh < R * 0.42; xh += step) { ctx.beginPath(); ctx.arc(cx + xh, cy + yy, step * 0.28, 0, 6.283); ctx.fill(); }
-    }
-    ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1;
-    [0.16, 0.28, 0.36].forEach(function (k) { ctx.beginPath(); ctx.arc(cx, cy, R * k, 0, 6.283); ctx.stroke(); });
-    var shine = ctx.createLinearGradient(cx - R * 0.4, cy - R * 0.4, cx, cy);                     // reflejo del vidrio
-    shine.addColorStop(0, "rgba(255,255,255,0.35)"); shine.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = shine; ctx.beginPath(); ctx.ellipse(cx - R * 0.12, cy - R * 0.16, R * 0.22, R * 0.11, -0.6, 0, 6.283); ctx.fill();
     ctx.restore();
-    // cursor que recorre la escala
-    var cu = t * 0.4;
-    ctx.fillStyle = "rgba(" + ICE + ",0.95)";
-    ctx.beginPath(); ctx.arc(cx + Math.cos(cu) * R * 1.17, cy + Math.sin(cu) * R * 1.17, Math.max(2, R * 0.016), 0, 6.283); ctx.fill();
+
+    ctx.save(); ctx.shadowColor = "rgba(180,230,255,1)"; ctx.shadowBlur = R * 0.16;
+    ctx.lineWidth = R * 0.02; ctx.strokeStyle = "rgba(200,240,255," + pulse + ")";
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.36, 0, 6.283); ctx.stroke(); ctx.restore();
+
+    var core = ctx.createRadialGradient(cx - R * 0.06, cy - R * 0.08, 0, cx, cy, R * 0.34);
+    core.addColorStop(0, "rgba(255,255,255," + pulse + ")");
+    core.addColorStop(0.35, "rgba(210,245,255,0.95)");
+    core.addColorStop(1, "rgba(40,140,230,0.85)");
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, R * 0.3, 0, 6.283); ctx.fill();
+
+    ctx.save(); ctx.shadowColor = "rgba(255,255,255,0.95)"; ctx.shadowBlur = R * 0.08;
+    ctx.beginPath();
+    for (var p = 0; p < 3; p++) {
+      var ta = -1.5708 + p * 2.0944;
+      var tx = cx + Math.cos(ta) * R * 0.16, ty = cy + Math.sin(ta) * R * 0.16;
+      if (p === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255," + (0.92 * pulse) + ")"; ctx.fill();
+    ctx.lineWidth = Math.max(1.5, R * 0.012); ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.stroke();
+    ctx.restore();
+
     if (flock) drawCrystals(ctx, cx, cy, R, t, flock, true);
   }
 
