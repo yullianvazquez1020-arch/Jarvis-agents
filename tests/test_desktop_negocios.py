@@ -57,11 +57,21 @@ class TorreAincrad(unittest.TestCase):
 
 
 class TorreCine(unittest.TestCase):
+    def test_assets_cc0_cerrados_y_speaking(self):
+        import importlib; app = importlib.import_module("app")
+        for n in app.ASSET_FILES:
+            self.assertTrue((ROOT / "desktop/ui/assets" / n).is_file(), n)
+        self.assertIn("noche-1k.hdr", app.ASSET_FILES)
+        self.assertNotIn("..", "".join(app.ASSET_FILES))
+        self.assertIn('"speaking"', (ROOT / "desktop/app.py").read_text("utf-8"))
+
+
     def test_cine_three_local_y_respaldo_2d(self):
         js = (ROOT / "desktop/ui/torre-cine.js").read_text("utf-8")
         for k in ("./vendor/three/three.module.js", "UnrealBloomPass", "BokehPass", "OutputPass", "PCFSoftShadowMap",
                   "normalMap", "roughnessMap", "AdditiveBlending", "fresnel", "uGlitch", "prefers-reduced-motion",
-                  "calidad", "webglOk", "jarvis-piso", "/api/negocios", "JarvisAincradScene.stop"):
+                  "calidad", "webglOk", "jarvis-piso", "/api/negocios", "JarvisAincradScene.stop", "GTAOPass", "HDRLoader", "PMREMGenerator",
+                  "transmission", "ORBIT_S", "TRANS_S", "speaking", "AfterimagePass", "resume"):
             self.assertIn(k, js, k)
         self.assertNotIn("https://", js.split("*/", 1)[1])
         html = (ROOT / "desktop/ui/torre.html").read_text("utf-8")

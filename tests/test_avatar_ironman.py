@@ -97,10 +97,10 @@ class Files(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, desk.UI_FILES)
         post = [f"three/postprocessing/{n}.js" for n in ("BokehPass", "EffectComposer", "MaskPass", "OutputPass", "Pass",
-                                                          "RenderPass", "ShaderPass", "UnrealBloomPass")]
-        shaders = [f"three/shaders/{n}.js" for n in ("BokehShader", "CopyShader", "LuminosityHighPassShader", "OutputShader")]
+                                                          "RenderPass", "ShaderPass", "UnrealBloomPass", "GTAOPass", "AfterimagePass")]
+        shaders = [f"three/shaders/{n}.js" for n in ("BokehShader", "CopyShader", "LuminosityHighPassShader", "OutputShader", "GTAOShader", "PoissonDenoiseShader", "AfterimageShader")]
         self.assertEqual(sorted(desk.VENDOR_FILES), sorted(["three/controls/OrbitControls.js", "three/three.core.js",
-                                                            "three/three.module.js"] + post + shaders))   # lista cerrada (torre cine)
+                                                            "three/three.module.js", "three/math/SimplexNoise.js", "three/loaders/HDRLoader.js"] + post + shaders))   # lista cerrada (torre cine)
 
 
 class Route(unittest.TestCase):

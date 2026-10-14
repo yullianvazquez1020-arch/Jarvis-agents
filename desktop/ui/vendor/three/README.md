@@ -46,3 +46,12 @@ Copiados de `three@0.180.0` (npm, `examples/jsm/`), sin minificar: `postprocessi
 ShaderPass,MaskPass,Pass,UnrealBloomPass,BokehPass,OutputPass}.js` y `shaders/{CopyShader,LuminosityHighPassShader,
 BokehShader,OutputShader}.js`. Único cambio: `from 'three'` -> `from '../three.module.js'` (misma razón de CSP).
 Se sirven solo con `JARVIS_AVATAR_IRONMAN=1`; si no, `/torre` usa la escena 2D.
+
+## Añadidos torre-cine2 (r180, MIT, mismo origen npm three@0.180.0, import reescrito a '../three.module.js')
+postprocessing/GTAOPass.js, postprocessing/AfterimagePass.js, shaders/GTAOShader.js, shaders/PoissonDenoiseShader.js,
+shaders/AfterimageShader.js, math/SimplexNoise.js, loaders/HDRLoader.js.
+
+## Texturas y HDRI (desktop/ui/assets/) — todas CC0 1.0
+- piedra-{color,normal,rugosidad,ao}.jpg: ambientCG "Bricks066" (https://ambientcg.com, licencia https://docs.ambientcg.com/license/), redimensionadas.
+- roca-{color,normal,rugosidad}.jpg: ambientCG "Rock030", CC0.
+- noche-1k.hdr: Poly Haven "moonless_golf" 1k (https://polyhaven.com/a/moonless_golf, licencia https://polyhaven.com/license), CC0.

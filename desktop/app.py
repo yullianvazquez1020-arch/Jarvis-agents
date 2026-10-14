@@ -68,8 +68,15 @@ VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 **{f"three/{d}/{n}.js": "text/javascript; charset=utf-8" for d, names in (
                     ("postprocessing", ("EffectComposer", "RenderPass", "ShaderPass", "MaskPass", "Pass",
                                         "UnrealBloomPass", "BokehPass", "OutputPass")),
-                    ("shaders", ("CopyShader", "LuminosityHighPassShader", "BokehShader", "OutputShader")))
+                    ("shaders", ("CopyShader", "LuminosityHighPassShader", "BokehShader", "OutputShader",
+                                 "GTAOShader", "PoissonDenoiseShader", "AfterimageShader")),
+                    ("postprocessing", ("GTAOPass", "AfterimagePass")), ("math", ("SimplexNoise",)),
+                    ("loaders", ("HDRLoader",)))
                    for n in names}}
+# Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.
+ASSET_FILES = {**{f"piedra-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad", "ao")},
+               **{f"roca-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad")},
+               "noche-1k.hdr": "application/octet-stream"}
 IRONMAN_LINK = re.compile(rb"<!--ironman-->.*?<!--/ironman-->", re.S)                                          # HUD v2: barras y medidores
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600
@@ -573,6 +580,7 @@ class Companion:
                     "pairing": None if not p else {"code": p.get("code"), "status": p.get("status"),
                                                    "error": p.get("error")},
                     "panels": list(PANELS), "server": self.health_view(), "avatar_ironman": self.avatar_ironman,
+                    "speaking": time.time() < getattr(self, "speaking_until", 0),
                     "mode": core_mode(self.health_view().get("state"), self.last_alert_at, time.time()),
                     "alert": dict(self.last_alert) if self.last_alert and self.last_alert_at else None,
                     "windows": sum(1 for t in self.windows.values() if time.time() - t < WINDOW_STALE)}
@@ -688,6 +696,12 @@ class Companion:
             self.last["audio"] = aid
         self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
         self._play_local(audio)
+        try:                                                    # "hablando" para la torre (respaldo sin BroadcastChannel)
+            import io, wave as _w
+            with _w.open(io.BytesIO(audio)) as wf:
+                self.speaking_until = time.time() + wf.getnframes() / float(wf.getframerate())
+        except Exception:
+            self.speaking_until = time.time() + 3
         return aid
 
     def _play_local(self, audio):
@@ -932,6 +946,10 @@ def make_handler(app, host, port):
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
                 return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+            if u.path.startswith("/ui/assets/") and u.path[11:] in ASSET_FILES:
+                if not app.avatar_ironman:
+                    return self._send(404, {"error": "no existe"})
+                return self._send(200, (HERE / "ui" / "assets" / u.path[11:]).read_bytes(), ASSET_FILES[u.path[11:]])
             if u.path.startswith("/ui/vendor/") and u.path[11:] in VENDOR_FILES:
                 if not app.avatar_ironman:
                     return self._send(404, {"error": "no existe"})

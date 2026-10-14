@@ -175,7 +175,7 @@
   });
   addEventListener("jarvis-piso-lista", function (e) { sel = e.detail; });
   addEventListener("resize", size);
-  window.JarvisAincradScene = { stop: function () { stopped = true; }, floorAt: floorAt, setMode: function (m) { mode = m; }, setPisos: function (p) { pisos = p; } };
+  window.JarvisAincradScene = { stop: function () { stopped = true; }, resume: function () { if (stopped) { stopped = false; requestAnimationFrame(frame); } }, floorAt: floorAt, setMode: function (m) { mode = m; }, setPisos: function (p) { pisos = p; } };
   function poll() {
     fetch("/api/state", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (j) { mode = j.mode || "jarvis"; }).catch(function () {});
   }
