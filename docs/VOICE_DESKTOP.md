@@ -215,7 +215,7 @@ Debajo de cada respuesta, el panel indica si fue local (sin tokens) o si consult
 | Mac | `VOICE_BIND_HOST` / `VOICE_PORT` | `127.0.0.1` / `8765` | |
 | Mac | `VOICE_STT_BACKEND` | `none` | `whisper_cpp` después de medir |
 | Mac | `VOICE_WHISPER_BIN`, `VOICE_STT_MODEL_PATH`, `VOICE_STT_THREADS` | — | rutas de whisper.cpp |
-| Mac | `VOICE_TTS_BACKEND` | `none` | `macos_say` o `piper` |
+| Mac | `VOICE_TTS_BACKEND` | `auto` | Piper si hay un `.onnx`; si no, `macos_say` |
 | Mac | `VOICE_TTS_VOICE` | — | nombre de voz de macOS, o ruta `.onnx` de Piper |
 | Mac | `VOICE_PIPER_BIN` | `piper` | |
 | Mac | `VOICE_WAKE_WORD_ENABLED` | `false` | no implementado (fase 2); se ignora |

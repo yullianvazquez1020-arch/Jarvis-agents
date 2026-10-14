@@ -11,3 +11,8 @@ jarvis_*.json
 *.key
 piper_models/
 whisper_models/
+
+# Sonido de arranque propio del dueño (licencia suya): se apunta con JARVIS_STARTUP_SOUND y nunca se sube.
+desktop/ui/audio/propio.*
+*.licensed.mp3
+*.licensed.wav

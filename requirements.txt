@@ -15,3 +15,4 @@ onnxruntime==1.30.0
 faster-whisper==1.2.1
 # PyAV 19 removes metadata_errors used by faster-whisper 1.2.1's audio decoder.
 av==16.1.0
+rich==15.0.0

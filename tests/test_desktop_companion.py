@@ -853,6 +853,26 @@ class HudV2(CompanionBase):
         self.assertTrue(h["demo"]); self.assertTrue(all("(ejemplo)" in j["title"] for j in h["jobs"]))
         self.assertTrue(all(0 <= j["progress"] <= 100 for j in h["jobs"]))
 
+    def test_voice_reaches_the_hud_and_stays_local(self):
+        self.assertEqual(self.req("GET", "/api/voz", cookie=False)[0], 401)
+        self.assertFalse(desk.loopback_host("192.168.1.20"))
+        body = self.req("GET", "/hud")[3]
+        self.assertIn(b'id="hx-voz-lines"', body)
+        st, j, _, _ = self.req("POST", "/api/voz", {"estado": "pensando", "idioma": "es",
+                                                    "linea": {"quien": "tu", "texto": "Hola, Jarvis."}}, cookie=False)
+        self.assertEqual(st, 200, j)
+        self.assertEqual(j["estado"], "pensando")
+        self.assertEqual(j["lineas"], [{"quien": "tu", "texto": "Hola, Jarvis."}])
+        st, j, _, _ = self.req("POST", "/api/voz", {"estado": "hablando", "idioma": "en",
+                                                    "linea": {"quien": "jarvis", "texto": "At your service."}})
+        self.assertEqual(j["idioma"], "en")
+        self.assertEqual(j["lineas"][-1]["quien"], "jarvis")
+        self.assertTrue(any(e["type"] == "voz" and e["voz"]["estado"] == "hablando" for e in self.app.events))
+        self.assertEqual(self.req("POST", "/api/voz", {"estado": "aprobar"})[0], 400)
+        view = self.req("GET", "/api/voz")[1]
+        self.assertEqual(view["estado"], "hablando")
+        self.assertNotIn("secret", json.dumps(view))
+
     def test_clean_jobs_keeps_only_known_stages_and_dates(self):
         raw = [{"id": 1, "title": "Ana — Cocina", "status": "in_progress", "stage": "En progreso", "progress": 50,
                 "start": "2026-10-01", "due": "2026-10-12", "overdue": False},

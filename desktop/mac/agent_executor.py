@@ -692,6 +692,51 @@ def perform(action: dict, pointer) -> None:
         raise RuntimeError("accion")
 
 
+def _observador(pointer, name: str):
+    for cls in type(pointer).__mro__:
+        if name in cls.__dict__:
+            fn = getattr(pointer, name)
+            return fn if callable(fn) else None
+    return None
+
+
+def frente_seguro(action: dict, pointer) -> str | None:
+    """Justo antes de mover o clicar en modo autónomo. None = se puede. En la Mac, app y página se leen otra vez."""
+    kind = str(action.get("action") or "")
+    if kind not in {"move", "click", "double_click"}:
+        return None
+    frontmost = _observador(pointer, "frontmost")
+    if frontmost is None:
+        return "app_frente_desconocida" if sys.platform == "darwin" else None
+    try:
+        front = frontmost() or ""
+    except Exception:
+        return "app_frente_desconocida"
+    if norm(front) not in ALLOW_APPS:
+        return "app_frente"
+    if norm(front) != "safari":
+        return None
+    page_url = _observador(pointer, "page_url")
+    if page_url is None:
+        return "sitio_no_verificado"
+    try:
+        url = page_url() or ""
+    except Exception:
+        return "sitio_no_verificado"
+    if not allowed_host(host_of(url)):
+        return "sitio_no_verificado"
+    if kind == "move":
+        return None
+    try:
+        otra = page_url() or ""
+        frente = frontmost() or ""
+    except Exception:
+        return "sitio_no_verificado"
+    if otra != url or norm(frente) != norm(front):
+        return "sitio_no_verificado"
+    return None
+
+
 def finish(action: dict, how: str | None, pointer) -> str:
     """Última revisión justo antes de mover: código, parada, denylist, sesión vigente y turno."""
     if how == "cancelar" or how is None:
@@ -707,6 +752,11 @@ def finish(action: dict, how: str | None, pointer) -> str:
     if current is None or current["agent"] != action.get("agent"):
         clear_pending()
         return "RECHAZADO"
+    if how == "autonomo":
+        why = frente_seguro(action, pointer)
+        if why:
+            clear_pending()
+            return "BLOQUEADO"
     perform(action, pointer)
     return "HECHO"
 
@@ -720,6 +770,23 @@ class MacPointer:
         pyautogui.FAILSAFE = failsafe
         pyautogui.PAUSE = 0
         self.pg = pyautogui
+
+    def frontmost(self) -> str:
+        if sys.platform != "darwin":
+            return ""
+        import subprocess
+        out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
+                              'application process whose frontmost is true'], capture_output=True, text=True, timeout=5)
+        return out.stdout.strip()
+
+    def page_url(self) -> str:
+        if sys.platform != "darwin":
+            return ""
+        import subprocess
+        out = subprocess.run(
+            ["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
+            capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
 
     def move(self, x: int, y: int) -> None:
         self.pg.moveTo(x, y, duration=0.16, tween=self.pg.easeOutQuad)

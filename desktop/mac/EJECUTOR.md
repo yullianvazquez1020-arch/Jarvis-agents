@@ -105,6 +105,32 @@ La escena decorativa baja a 8 FPS con cámara (4 si está pausada); las manos co
 redibujado independiente con cada resultado. Audio activo mantiene su actualización anterior.
 No se promete 30 FPS ni latencia cero: hay que medir cada navegador y equipo físico.
 
+## Modo autónomo (`autonomo.py`)
+
+Un agente mueve el mouse, hace clic y decide el próximo clic por su cuenta, **solo** dentro de la lista permitida y **solo** después de que tú abras la sesión en tu Terminal.
+
+### Preparar la Mac (una vez)
+1. `python3 -m pip install --user pyautogui pillow`
+2. Ajustes del Sistema → Privacidad y seguridad → **Accesibilidad** → activa Terminal (o la app desde la que lo corres).
+3. Ajustes del Sistema → Privacidad y seguridad → **Grabación de pantalla** → activa la misma app (para `pantalla.png`).
+4. Cierra y vuelve a abrir Terminal.
+
+### Usar
+```
+cd Jarvis-agents/desktop/mac
+python3 autonomo.py --start claude --minutes 15 --run   # te pide un código; escríbelo
+```
+- El agente lee `~/.jarvis-control/autonomo/pantalla.png` y `estado.json` (tamaño, cursor, app al frente, resultado de la última orden).
+- Deja su orden en `~/.jarvis-control/autonomo/siguiente.json`, por ejemplo `{"agent":"claude","action":"click","x":700,"y":400}`.
+- Permitido: move, click, double_click, scroll, screenshot, wait, type (≤200 caracteres, sin Enter ni secretos), open_url (hosts permitidos), open_app (Notes, Safari).
+- El puntero solo se mueve con Notes o Safari al frente. Outlook, Slack, Mail y el resto no.
+- En Safari, justo antes de cada clic se vuelve a leer la página. Si cambió (por ejemplo al correo), el clic no se hace.
+- Siempre bloqueado: atajos de teclado, bancos/pagos, mensajes/correo, Terminal, Finder, Ajustes, borrar, comandos y contraseñas.
+- La sesión vive en `~/.jarvis-owner/autonomo.json`, fuera del alcance de los agentes. Tope: 30 min, 20 acciones/min, 300 pasos.
+- Parada: mouse a la esquina superior izquierda, Ctrl+C, `python3 autonomo.py --stop` o `touch ~/.jarvis-control/STOP`.
+- La bitácora `audit.jsonl` guarda tipo y veredicto, nunca el texto escrito (solo su largo y hash).
+- Al terminar suelta solo su propio turno. Si el turno ya es de otro agente, no lo borra.
+
 ## Modo mouse autónomo 24/7 (opcional, apagado por defecto)
 
 Se enciende solo en tu Mac con `JARVIS_AUTONOMO=1` o `--autonomo`. Sin eso, todo funciona exactamente como arriba.
@@ -120,6 +146,7 @@ Qué cambia en este modo:
 - **Sin aprobación por orden, solo para la lista segura:** mover, clic, doble clic, desplazar, esperar, captura, escribir texto (sin Enter), abrir las webs permitidas (`github.com`, `jarvis-agents.onrender.com`, local) y las apps permitidas (Notas, Safari).
 - **Esquina superior izquierda desactivada** solo en este modo.
 - El servicio lee órdenes nuevas de `~/.jarvis-control/autonomo/entrada.jsonl` (una orden JSON por línea), las ejecuta y las archiva. Toma y suelta su turno solo.
+- En la Mac, justo antes de mover o clicar se lee la app al frente. Solo Notes y Safari. En Safari se lee la URL dos veces: si la página cambió, no hay clic.
 
 Lo que **sigue igual** (redes de seguridad):
 

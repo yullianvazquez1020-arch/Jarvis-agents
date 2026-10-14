@@ -6493,6 +6493,7 @@ class Chat(BaseModel):
     message: str = Field(min_length=1, max_length=20000)
     session: str = Field(default="default", min_length=1, max_length=128)
     provider: str = Field(default="jarvis", max_length=16)   # "venice" = direct Venice chat (text only)
+    audio: bool = False   # voz y texto: true = además del texto, devuelve la respuesta hablada (Ald/Alan según idioma)
 
 def _key_ok(given, expected):
     return bool(expected) and secrets.compare_digest((given or "").encode(), expected.encode())
@@ -6531,7 +6532,20 @@ async def chat(req: Chat, x_api_key: str = Header(...)):
     except Exception as e:
         logger.exception("chat failed")
         reply = _fail_text(e)
-    return {"reply": reply}
+    if not req.audio:
+        return {"reply": reply}
+    return {"reply": reply, **(await _chat_audio(req.message, reply))}
+
+
+async def _chat_audio(message: str, reply: str) -> dict:
+    """Voz y texto: el texto siempre sale; el audio es opcional y nunca rompe la respuesta escrita."""
+    lang = _voz_c.idioma_turno(message, None)
+    try:
+        wav = await _voz_c_speak(reply, lang)
+    except Exception:
+        logger.warning("chat audio failed")
+        return {"idioma": lang, "audio_error": "voz no disponible" if lang == "es" else "voice unavailable"}
+    return {"idioma": lang, "voz": _voz_c.voz_de(lang), "audio_wav_b64": base64.b64encode(wav or b"").decode()}
 
 _seen_updates: set = set()
 # 4.0.5 (1.7): local-files mode (no Redis). The recent ids are kept in order, the OLDEST is evicted one by one
@@ -7678,3 +7692,81 @@ try:
 except Exception as _e:
     EVOLVE_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("evolve off: %s", type(_e).__name__)
+
+# ---------------------------------------------------------------------------
+# Voz continua (fase 2): conversación tipo llamada por WebSocket. Cerrado salvo VOZ_CONTINUA_ENABLED=true.
+# Auth: cabecera X-Jarvis-Secret (JARVIS_ENCARGO_SECRET) o X-API-Key (AGENT_API_KEY). Nunca por query string.
+# Nada se aprueba por voz: pagos y mensajes siguen con /aprobar o /confirmar y los topes $100/op y $300/día.
+# ---------------------------------------------------------------------------
+from fastapi import WebSocket, WebSocketDisconnect
+import jarvis_voz_continua as _voz_c
+
+
+def _voz_c_auth(ws) -> bool:
+    secret = ws.headers.get("x-jarvis-secret")
+    key = ws.headers.get("x-api-key")
+    if (secret and _key_ok(secret, ENCARGO_SECRET)) or (key and _key_ok(key, API_KEY)):
+        return True
+    # Token de dispositivo jd1 (emparejado con /emparejar): misma validación que /desktop/v1
+    # (vencimiento, revocación, permiso 'converse'). La voz sigue siendo solo lectura.
+    auth = ws.headers.get("authorization") or ""
+    if not auth.startswith("Bearer jd1."):
+        return False
+    try:
+        _desktop.authenticate(auth, "converse")
+        return True
+    except Exception:
+        return False
+
+
+async def _voz_c_transcribe(wav: bytes):
+    import jarvis_chat_voice                      # (texto, idioma que detectó Whisper o None)
+    return await jarvis_chat_voice.transcribe_local_detect(wav, language="auto")
+
+
+async def _voz_c_speak(text: str, language: str = "es") -> bytes:
+    import jarvis_chat_voice                      # Piper: Ald en español, Alan en inglés
+    return await jarvis_chat_voice.speak_local(text, _voz_c.voz_de(language))
+
+
+async def _voz_c_reply(text: str, language: str = "es") -> str:
+    if not _rate_ok("voz-continua"):
+        return f"More than {RATE_PER_MIN} turns per minute; wait a moment." if language == "en" else f"Más de {RATE_PER_MIN} turnos por minuto; espera un momento."
+    aviso = _voz_c.instruccion(language)
+    # read_only="voice": la voz no escribe nada ni ejecuta acciones; pagos/mensajes van por Telegram con /aprobar
+    return await run("voz:continua", aviso + "\n" + text, read_only="voice")
+
+
+@app.websocket("/ws/voz")
+async def ws_voz(ws: WebSocket):
+    if not _voz_c.enabled() or not _voz_c_auth(ws):
+        await ws.close(code=4401); return
+    await ws.accept()
+    sess = _voz_c.VozSession(
+        transcribe=_voz_c_transcribe, reply=_voz_c_reply, speak=_voz_c_speak,
+        send_json=ws.send_json, send_bytes=ws.send_bytes,
+        log=lambda s: logger.info(s), redact=lambda s: _redact_secrets(s)[0])
+    await ws.send_json({"type": "listo", "rate": _voz_c.RATE, "formato": "pcm16le-mono",
+                        "idiomas": ["es", "en"], "voces": {"es": "ald", "en": "alan"},
+                        "idioma_voz": __import__("jarvis_voz_continua").override() or "auto"})
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if msg.get("bytes"):
+                await sess.feed(msg["bytes"])
+            elif msg.get("text"):
+                t = msg["text"]
+                if '"interrumpir"' in t:
+                    await sess.interrupt()
+                elif '"fin"' in t:
+                    break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await sess.close()
+        try:
+            await ws.close()
+        except Exception:
+            pass

@@ -1,0 +1,24 @@
+/* Torre de Aincrad en canvas: reemplaza la imagen artística, debajo del texto y los controles. */
+#aincrad { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; display: block; }
+.stage .rig, .stage .fog, .stage .grade, .stage .grain { display: none; }
+.stage .title, .stage .hud, .stage .ctl { z-index: 30; }
+#aincrad.aincrad-mini { position: fixed; inset: auto; right: 16px; bottom: 16px; width: 420px; height: 320px; z-index: 40;
+  border: 1px solid rgba(90,210,255,.35); border-radius: 10px; box-shadow: 0 0 24px rgba(40,140,255,.25); }
+.pisos li { cursor: pointer; }
+.pisos li.sel { outline: 1px solid #5ad2ff; }
+.stage .title { top: 14px; bottom: auto; }
+.stage .title h1 { font-size: 30px; letter-spacing: .5em; }
+.stage .title p { margin-top: .3em; }
+.stage .pisos { left: 10px; right: auto; top: 140px; bottom: 80px; width: 188px; font-size: 11px; opacity: .88; }
+.stage .pisos h2 { cursor: pointer; font-size: 12px; }
+.stage .pisos.plegado { bottom: auto; }
+.stage .pisos.plegado ol, .stage .pisos.plegado .demo { display: none; }
+/* Versión cine (three.js): tapa la escena 2D; si no hay WebGL, la 2D sigue visible. */
+#cine { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 6; display: block; }
+body.cine #aincrad { display: none; }
+.cine-label { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 31; padding: 6px 12px;
+  font: 13px system-ui, sans-serif; color: #e6f4ff; background: rgba(4,14,30,.8); border: 1px solid rgba(90,210,255,.6);
+  border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.cine-label.on { opacity: 1; }
+/* legibilidad del título y etiquetas sobre la escena cine */
+body.cine .stage .title, body.cine .stage .hud { text-shadow: 0 0 6px #000, 0 0 14px #000; }
