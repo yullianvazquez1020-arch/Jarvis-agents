@@ -7644,10 +7644,9 @@ async def _voz_c_speak(text: str, language: str = "es") -> bytes:
 async def _voz_c_reply(text: str, language: str = "es") -> str:
     if not _rate_ok("voz-continua"):
         return f"More than {RATE_PER_MIN} turns per minute; wait a moment." if language == "en" else f"Más de {RATE_PER_MIN} turnos por minuto; espera un momento."
-    aviso = "Reply in English only. " if language == "en" else "Responde solo en español. "
+    aviso = _voz_c.instruccion(language)
     # read_only="voice": la voz no escribe nada ni ejecuta acciones; pagos/mensajes van por Telegram con /aprobar
-    return await run("voz:continua", aviso + "Do not approve, pay, or send anything.\n" + text if language == "en"
-                     else aviso + "No apruebes, no pagues y no envíes nada.\n" + text, read_only="voice")
+    return await run("voz:continua", aviso + "\n" + text, read_only="voice")
 
 
 @app.websocket("/ws/voz")

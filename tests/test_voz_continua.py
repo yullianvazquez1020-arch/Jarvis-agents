@@ -73,6 +73,9 @@ class VozContinua(unittest.TestCase):
         self.assertEqual(v.idioma('ok', 'en'), 'en')
         self.assertEqual(v.voz_de('es'), 'es')
         self.assertEqual(v.voz_de('en'), 'alan')
+        self.assertIn('English', v.instruccion('en'))
+        self.assertIn('español latinoamericano', v.instruccion('es'))
+        self.assertIn('precio', v.instruccion('es'))
         import jarvis_local_tts as tts
         self.assertEqual(tts.profile('es')[0], 'es_MX-ald-medium.onnx')
         self.assertEqual(tts.profile('alan')[0], 'en_GB-alan-medium.onnx')

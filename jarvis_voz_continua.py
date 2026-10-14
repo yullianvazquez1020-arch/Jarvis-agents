@@ -40,6 +40,17 @@ def voz_de(lang: str) -> str:
     return "alan" if lang == "en" else "es"
 
 
+def instruccion(lang: str) -> str:
+    """El cliente escucha su idioma. Corto, claro, y sin inventar."""
+    if lang == "en":
+        return ("You are speaking with a customer. Reply only in English, in one or two short sentences. "
+                "Be polite and answer what they asked. Do not invent a price, a time, or a promise. "
+                "If you do not know, say so and offer a person. Do not approve, pay, or send anything.")
+    return ("Estás hablando con un cliente. Responde solo en español latinoamericano, en una o dos frases. "
+            "Con respeto, y contesta lo que preguntó. No inventes un precio, una hora ni una promesa. "
+            "Si no sabes, dilo y ofrece a una persona. No apruebes, no pagues y no envíes nada.")
+
+
 def idioma(text: str, previo: str = "es") -> str:
     """Elige español o inglés según el turno. Si no hay señal, se queda el anterior."""
     words = re.findall(r"[a-z]+", _norm(text))
