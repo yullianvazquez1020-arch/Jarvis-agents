@@ -71,7 +71,7 @@ SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
-            "VOICE_TTS_BACKEND": "auto", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
+            "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
             "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
             "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
 
@@ -232,7 +232,7 @@ def load_config(path=None):
                     k, v = line.split("=", 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
-                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN"]:
+                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg

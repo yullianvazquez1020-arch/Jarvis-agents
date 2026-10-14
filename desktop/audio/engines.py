@@ -215,7 +215,32 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     return "none"
 
 
+ALAN = "en_GB-alan-medium.onnx"          # voz británica masculina (igual que "Alan" del PR #116)
+
+
+def default_voice(cfg, exists=None):
+    """Con JARVIS_REPLY_LANGUAGE=en-GB y sin voz elegida: Alan (Piper) o Daniel (say en la Mac)."""
+    exists = exists or os.path.isfile
+    if cfg.get("VOICE_TTS_VOICE"):
+        return cfg["VOICE_TTS_VOICE"]
+    if str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-") != "en-gb":
+        return ""
+    dirs = [cfg.get("VOICE_PIPER_DIR", ""), os.path.join(cfg.get("VOICE_HOME", ""), "voices"),
+            os.path.expanduser("~/piper-voices"), "/workspace/piper-voices"]
+    for d in dirs:
+        if d and exists(os.path.join(d, ALAN)):
+            return os.path.join(d, ALAN)
+    return ""
+
+
 def build(cfg):
+    cfg = dict(cfg)
+    if not cfg.get("VOICE_TTS_VOICE"):
+        v = default_voice(cfg)
+        if v:
+            cfg["VOICE_TTS_VOICE"] = v
+        elif str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en") and sys.platform == "darwin":
+            cfg["VOICE_TTS_VOICE"] = "Daniel"
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),

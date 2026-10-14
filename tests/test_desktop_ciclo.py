@@ -19,6 +19,14 @@ class Voz(unittest.TestCase):
         self.assertEqual(engines.pick_tts(cfg, platform="linux", which=lambda c: None, exists=lambda p: True), "piper")
         self.assertEqual(engines.pick_tts(cfg, platform="linux", which=lambda c: None, exists=lambda p: False), "none")
 
+    def test_alan_britanico_por_defecto(self):
+        cfg = {"JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_PIPER_DIR": "/v"}
+        self.assertEqual(engines.default_voice(cfg, exists=lambda p: p == "/v/" + engines.ALAN), "/v/" + engines.ALAN)
+        self.assertEqual(engines.default_voice(dict(cfg, VOICE_TTS_VOICE="/x.onnx")), "/x.onnx")
+        self.assertEqual(engines.default_voice({"JARVIS_REPLY_LANGUAGE": "es"}, exists=lambda p: True), "")
+        import app
+        self.assertEqual(app.DEFAULTS["JARVIS_REPLY_LANGUAGE"], "en-GB")
+
     def test_defaults_voz_encendida(self):
         import app
         self.assertEqual(app.DEFAULTS["VOICE_TTS_BACKEND"], "auto")
