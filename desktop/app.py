@@ -301,6 +301,22 @@ def core_mode(server_state, last_alert_at, now):
     return "jarvis"
 
 
+CRIPTO_RE = {"BTC": r"\b(btc|bitcoin)\b", "ETH": r"\b(eth|ether|ethereum)\b", "SOL": r"\b(sol|solana)\b"}
+
+
+def speech_topics(text):
+    """Temas de una frase para que los rayos del núcleo apunten (cripto o negocio). Devuelve solo etiquetas."""
+    t = str(text or "").lower(); out = [k for k, rx in CRIPTO_RE.items() if re.search(rx, t)]
+    try:
+        for n in negocios.torre().get("negocios", []):
+            name = str(n.get("nombre", "")).lower()
+            if name and name in t:
+                out.append("negocio:" + str(n.get("id")))
+    except Exception:
+        pass
+    return out[:4]
+
+
 class Companion:
     """All state of one running companion. Thread-safe; the HTTP handler only calls methods here."""
 
@@ -582,6 +598,7 @@ class Companion:
                                                    "error": p.get("error")},
                     "panels": list(PANELS), "server": self.health_view(), "avatar_ironman": self.avatar_ironman,
                     "speaking": time.time() < getattr(self, "speaking_until", 0),
+                    "speaking_topics": list(getattr(self, "speaking_topics", [])) if time.time() < getattr(self, "speaking_until", 0) else [],
                     "mode": core_mode(self.health_view().get("state"), self.last_alert_at, time.time()),
                     "alert": dict(self.last_alert) if self.last_alert and self.last_alert_at else None,
                     "windows": sum(1 for t in self.windows.values() if time.time() - t < WINDOW_STALE)}
@@ -677,6 +694,7 @@ class Companion:
 
     def speak(self, text, turn_id=None, sensitive=False):
         """Synthesize and tell the audio window to play it. Text stays on screen if voice fails."""
+        self.speaking_topics = speech_topics(text)          # solo etiquetas (BTC, id de negocio), nunca el texto
         with self.lock:
             discreet = self.prefs["discreet"]; rate = self.prefs["rate"]; owner = self.owner
         if discreet and (sensitive or re.search(r"\d", text or "")):

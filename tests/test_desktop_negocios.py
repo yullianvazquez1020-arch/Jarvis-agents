@@ -71,7 +71,7 @@ class TorreCine(unittest.TestCase):
         for k in ("./vendor/three/three.module.js", "UnrealBloomPass", "BokehPass", "OutputPass", "PCFSoftShadowMap",
                   "normalMap", "roughnessMap", "AdditiveBlending", "fresnel", "uGlitch", "prefers-reduced-motion",
                   "calidad", "webglOk", "focusOn", "JarvisAincradScene.stop", "GTAOPass", "HDRLoader", "PMREMGenerator",
-                  "transmission", "ORBIT_S", "TRANS_S", "speaking", "AfterimagePass", "resume"):
+                  "glassU", "ORBIT_S", "TRANS_S", "speaking", "AfterimagePass", "resume"):
             self.assertIn(k, js, k)
         self.assertNotIn("https://", js.split("*/", 1)[1])
         html = (ROOT / "desktop/ui/torre.html").read_text("utf-8")

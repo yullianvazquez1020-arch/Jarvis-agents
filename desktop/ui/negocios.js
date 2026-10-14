@@ -14,7 +14,7 @@
       box.appendChild(el("div", null, "Controlador: " + t.controlador + " · Pisos conquistados " + t.conquistados + "/" + t.total_pisos));
       var ul = el("ul");
       t.negocios.forEach(function (n) {
-        var li = el("li"); li.appendChild(el("span", null, "Piso " + n.piso + " · " + n.nombre + " (" + n.estado + ")"));
+        var li = el("li"); li.setAttribute("data-negocio", n.id); li.appendChild(el("span", null, "Piso " + n.piso + " · " + n.nombre + " (" + n.estado + ")"));
         var bar = el("span", "bar"), i = el("i"); i.style.width = (n.meta_mes_usd ? Math.min(100, 100 * n.real_mes_usd / n.meta_mes_usd) : 0) + "%";
         bar.appendChild(i); li.appendChild(bar); li.appendChild(el("span", null, money(n.real_mes_usd) + " / " + money(n.meta_mes_usd)));
         ul.appendChild(li);
@@ -30,13 +30,18 @@
     var mx = Math.max.apply(null, m.precios.map(function (p) { return p.usd || 0; }));
     var ul2 = el("ul");
     m.precios.forEach(function (p) {
-      var li = el("li"); li.appendChild(el("span", null, p.par));
+      var li = el("li"); li.setAttribute("data-cripto", String(p.par).split(/[-\/ ]/)[0].toUpperCase()); li.appendChild(el("span", null, p.par));
       var bar = el("span", "bar"), i = el("i"); i.style.width = (p.usd ? Math.max(4, 100 * Math.log10(p.usd) / Math.log10(mx)) : 0) + "%";
       bar.appendChild(i); li.appendChild(bar); li.appendChild(el("span", p.usd == null ? "off" : null, p.usd == null ? "sin conexión" : money(p.usd)));
       ul2.appendChild(li);
     });
     box.appendChild(ul2); box.appendChild(el("div", "demo", m.fuente));
   }
+  /* rayos del núcleo: resalta la entrada apuntada (escaneo + contorno), también desde otra ventana */
+  function marcar(sel) { try { var e = document.querySelector(sel); if (!e) return; e.classList.remove("jarvis-scan"); void e.offsetWidth; e.classList.add("jarvis-scan");
+    setTimeout(function () { e.classList.remove("jarvis-scan"); }, 4500); } catch (x) {} }
+  window.JarvisMarcar = marcar;
+  try { new BroadcastChannel("jarvis-rayos").onmessage = function (ev) { if (ev.data && ev.data.sel) marcar(ev.data.sel); }; } catch (x) {}
   function tick() {
     Promise.all([get("/api/negocios").catch(function () { return null; }), get("/api/cripto").catch(function () { return null; }),
                  get("/api/mouse-autonomo").catch(function () { return null; })])

@@ -92,5 +92,17 @@ class VozAlan(unittest.TestCase):
         engines.build(cfg)                                   # no debe fallar; la voz femenina se descarta
 
 
+
+class RayosObjetivo(unittest.TestCase):
+    def test_temas_de_voz_solo_etiquetas(self):
+        self.assertEqual(desk.speech_topics("Sir, BTC is up and Ethereum is flat"), ["BTC", "ETH"])
+        self.assertEqual(desk.speech_topics("Todo en orden"), [])
+        js = (Path(__file__).resolve().parents[1] / "desktop/ui/torre-cine.js").read_text("utf-8")
+        for k in ("raysMode", "cripto", "negocio", "jarvis-rayos", "drawBeam", "speaking_topics", "uLvl"):
+            self.assertIn(k, js, k)
+        neg = (Path(__file__).resolve().parents[1] / "desktop/ui/negocios.js").read_text("utf-8")
+        self.assertIn("data-negocio", neg); self.assertIn("data-cripto", neg); self.assertIn("jarvis-scan", neg)
+
+
 if __name__ == "__main__":
     unittest.main()

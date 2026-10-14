@@ -94,7 +94,7 @@ function start() {
   catch (e) { canvas.remove(); return false; }
   document.body.classList.add("cine");
   if (window.JarvisAincradScene && window.JarvisAincradScene.stop) window.JarvisAincradScene.stop();
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, ECO ? 1 : 1.5));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, ECO ? 1 : 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.82;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = !ECO; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -308,11 +308,11 @@ function start() {
   const holoFS = "uniform float uTime; uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying vec3 vW;" +
     " void main(){ float fr = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.4); float scan = pow(0.5+0.5*sin(vW.y*7.0 - uTime*4.0), 6.0);" +
     " float stripes = 0.6+0.4*sin(vW.y*40.0 + uTime*0.6); float a = clamp(fr*1.3 + scan*0.35 + 0.06, 0.0, 1.0)*stripes;" +
-    " gl_FragColor = vec4(uColor*(0.35 + fr*1.4 + scan*0.4), a*0.55); }";
+    " gl_FragColor = vec4(uColor*(0.3 + fr*1.4 + scan*0.4), a*0.28); }";
   const holo = new THREE.ShaderMaterial({ uniforms: coreU, vertexShader: holoVS, fragmentShader: holoFS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const core = new THREE.Group(); core.position.set(118, 80, 30); scene.add(core);
   core.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7, ECO ? 2 : 4), holo));
-  const inner = new THREE.Mesh(new THREE.SphereGeometry(3.6, 24, 16), new THREE.MeshBasicMaterial({ color: 0x9fdcff })); core.add(inner);
+  const inner = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 16), new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); core.add(inner);
   const coreLight = new THREE.PointLight(0x5ad2ff, 400, 120, 1.8); core.add(coreLight);
   const ringMatC = new THREE.MeshBasicMaterial({ color: 0x5ad2ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const rings = [];
@@ -328,10 +328,26 @@ function start() {
   const motes = points(ECO ? 120 : 320, new THREE.Vector3(60, 60, 60), 0x7fe3ff, 0.9); core.add(motes);
   /* núcleo libre: cristal físico (transmisión/IOR) + rayos + onda de choque; orbita la torre */
   coreLight.intensity = 500;
-  const glass = new THREE.Mesh(new THREE.SphereGeometry(8.2, 48, 32), new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, metalness: 0, roughness: 0.04, transmission: ECO ? 0 : 1, ior: 1.45, thickness: 3.5,
-    transparent: !!ECO, opacity: ECO ? 0.15 : 1, envMapIntensity: 0.35, clearcoat: 0.3, clearcoatRoughness: 0.2, attenuationColor: new THREE.Color(0x2f9bff), attenuationDistance: 12 }));
-  core.add(glass);
+  /* esfera holográfica translúcida: borde fresnel, centro transparente, bandas curvadas tipo refracción; capas internas visibles
+     (sin transmisión física: sobre cielo oscuro se veía sólida y con borde oscuro) */
+  const glassU = { uColor: coreU.uColor, uTime: coreU.uTime, uLvl: { value: 0 } };
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(8.2, 64, 48), new THREE.ShaderMaterial({ uniforms: glassU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: "varying vec3 vN; varying vec3 vV; varying vec3 vP; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vP = position; vN = normalize(mat3(modelMatrix)*normal); vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix*viewMatrix*w; }",
+    fragmentShader: "uniform vec3 uColor; uniform float uTime; uniform float uLvl; varying vec3 vN; varying vec3 vV; varying vec3 vP;" +
+      " void main(){ float ndv = abs(dot(normalize(vN), normalize(vV))); float rim = pow(1.0 - ndv, 2.6);" +
+      " float warp = sin(vP.y*1.6 + sin(vP.x*0.9 + uTime*0.7)*1.5 - uTime*0.9);" +
+      " float band = smoothstep(0.9, 1.0, warp) * 0.16 * (1.0 - ndv*0.5); float body = 0.025 + 0.05*uLvl;" +
+      " vec3 c = uColor*(rim*1.5 + band + body) + vec3(0.75,0.9,1.0)*pow(rim, 6.0)*0.5;" +
+      " gl_FragColor = vec4(c, clamp(rim*0.9 + band + body, 0.0, 1.0)); }" }));
+  glass.renderOrder = 3; core.add(glass);
+  const shells = [];
+  [[5.8, 1, 0.2, 0.25], [4.4, 2, 0.28, -0.4], [3.0, 1, 0.38, 0.7]].forEach(([r, det, op, sp]) => {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, det), new THREE.MeshBasicMaterial({ color: 0x4fd8ff, wireframe: true, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
+    m.userData.sp = sp; core.add(m); shells.push(m); });
+  const glowS = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0x4fb8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glowS.scale.setScalar(13); core.add(glowS);
+  const orbP = points(ECO ? 200 : 700, new THREE.Vector3(1, 1, 1), 0x8fe6ff, 0.5); core.add(orbP);              // partículas en órbita (anillo toroidal)
+  { const pa = orbP.geometry.attributes.position; for (let i = 0; i < pa.count; i++) { const a = rnd() * 6.283, r = 9.5 + rnd() * 4, h = (rnd() - 0.5) * 1.6; pa.setXYZ(i, Math.cos(a) * r, h, Math.sin(a) * r); } orbP.rotation.x = 1.2; }
   const rayMat = new THREE.ShaderMaterial({ uniforms: { uColor: coreU.uColor, uI: { value: 0.2 }, uTime: coreU.uTime }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     vertexShader: "varying vec2 vU; void main(){ vU = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
     fragmentShader: "uniform vec3 uColor; uniform float uI; uniform float uTime; varying vec2 vU; void main(){ float a = (1.0 - vU.y) * smoothstep(0.0, 0.5, 1.0 - abs(vU.x - 0.5) * 2.0);" +
@@ -387,7 +403,7 @@ function start() {
   let mode = qs.get("modo") === "ultron" ? "ultron" : "jarvis", k = mode === "ultron" ? 1 : 0, shown = mode, trans = -1;
   let speaking = false;
   if (!qs.get("modo")) {
-    const poll = () => fetch("/api/state", { credentials: "same-origin" }).then(r => r.json()).then(j => { mode = j.mode || "jarvis"; speaking = !!j.speaking; }).catch(() => {});
+    const poll = () => fetch("/api/state", { credentials: "same-origin" }).then(r => r.json()).then(j => { mode = j.mode || "jarvis"; speaking = !!j.speaking; if (window.__cineTopics) window.__cineTopics(j.speaking_topics); }).catch(() => {});
     poll(); setInterval(poll, 3000);
   }
   const TRANS_S = 1.2;
@@ -431,13 +447,13 @@ function start() {
     fragmentShader: "uniform vec3 uC; varying vec2 vP; void main(){ vec2 p = vP/3.0; vec2 r = vec2(1.0,1.732); vec2 h = r*0.5; vec2 a = mod(p,r)-h; vec2 b = mod(p-h,r)-h; vec2 g = dot(a,a)<dot(b,b)?a:b;" +
       " float e = smoothstep(0.42,0.5,max(abs(g.x)*0.866+abs(g.y)*0.5, abs(g.y))); float f = 1.0 - smoothstep(20.0,60.0,length(vP)); gl_FragColor = vec4(uC, e*f*0.07); }" })); hex.position.z = -2; hud.add(hex);
   const txtC = document.createElement("canvas"); txtC.width = 512; txtC.height = 128; const txtX = txtC.getContext("2d"), txtT = new THREE.CanvasTexture(txtC);
-  const readout = new THREE.Sprite(new THREE.SpriteMaterial({ map: txtT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); readout.scale.set(34, 8.5, 1); readout.position.set(-34, 38, 0); hud.add(readout);
+  const readout = new THREE.Sprite(new THREE.SpriteMaterial({ map: txtT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); readout.scale.set(26, 6.5, 1); readout.position.set(-24, 27, 0); hud.add(readout);
   let btc = "--", lastTxt = -1;
-  fetch("/api/cripto", { credentials: "same-origin" }).then(r => r.json()).then(j => { const c = (j.monedas || j.coins || j.activos || []).find(x => /btc|bitcoin/i.test(JSON.stringify(x))); if (c) btc = String(c.precio || c.price || c.usd || "--"); }).catch(() => {});
-  function drawReadout(t, lvl, colCss) { txtX.clearRect(0, 0, 512, 128); txtX.font = "24px monospace"; txtX.fillStyle = colCss;
+  fetch("/api/cripto", { credentials: "same-origin" }).then(r => r.json()).then(j => { const c = (j.precios || j.monedas || []).find(x => /btc|bitcoin/i.test(JSON.stringify(x))); if (c && c.usd != null) btc = "$" + Number(c.usd).toLocaleString("en-US", { maximumFractionDigits: 0 }); }).catch(() => {});
+  function drawReadout(t, lvl, colCss) { txtX.clearRect(0, 0, 512, 128); txtX.font = "bold 26px monospace"; txtX.fillStyle = colCss;
     const d = new Date(); txtX.fillText("T " + d.toTimeString().slice(0, 8) + "   CPU " + (navigator.hardwareConcurrency || "--") + " hilos", 8, 40);
     txtX.fillText("BTC " + btc + "   VOZ " + String(Math.round(lvl * 100)).padStart(3, "0") + "%", 8, 84); txtX.fillRect(8, 100, 496 * Math.min(1, lvl), 3); txtT.needsUpdate = true; }
-  const flareS = new THREE.Sprite(new THREE.SpriteMaterial({ map: lantTex, color: 0x6fd8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })); flareS.scale.set(70, 3, 1); hud.add(flareS);   // destello anamórfico
+  const flareS = new THREE.Sprite(new THREE.SpriteMaterial({ map: lantTex, color: 0x6fd8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false })); flareS.scale.set(110, 3.5, 1); hud.add(flareS);   // destello anamórfico
   function updHud(t, dt, lvl, col, k) {
     hud.position.copy(core.position); hud.quaternion.copy(camera.quaternion);
     if (!reduce) { hud.rotateX(Math.sin(t * 0.23) * 0.12 + 0.18); hud.rotateY(Math.cos(t * 0.17) * 0.1); }   // inclinación 3D sutil
@@ -450,6 +466,7 @@ function start() {
     sweep.rotation.z = reduce ? 0.8 : -t * 1.4; flareS.material.opacity = 0.25 + lvl * 0.5;
     if (t - lastTxt > 0.25) { lastTxt = t; drawReadout(t, lvl, "#" + col.getHexString()); }
   }
+  rays.parent.remove(rays); hud.add(rays); rays.scale.set(0.9, 2, 0.9);      // rayos en el plano de pantalla: apuntan de verdad
   rings.forEach(g => g.parent.remove(g)); ultronRings.parent.remove(ultronRings);   // los anillos 3D antiguos dan paso al HUD
 
   /* la torre es decorado de fondo: sin pisos clicables ni anillos de negocio en 3D (los datos viven en el panel principal) */
@@ -457,7 +474,41 @@ function start() {
   /* foco de cámara: el núcleo manda; focusOn("core" | "tower" | {x,y,z}) desplaza la mirada */
   let focusT = "core"; const focusP = new THREE.Vector3(), camLook = new THREE.Vector3(0, 80, 0), camPos = new THREE.Vector3(0, 60, 300);
   const focusOn = (target) => { focusT = (target === "tower" || target === "core" || (target && isFinite(target.x))) ? target : "core"; return focusT; };
-  let push = 0, camInit = false;
+  let push = 0, camInit = false, raysM = "idle", raysA = 0;
+  /* objetivo de los rayos: {cripto:"BTC"}, {negocio:id}, selector CSS / elemento DOM, o {x,y} en pantalla */
+  const beam = document.createElement("canvas"); beam.id = "rayo"; host.appendChild(beam); const bx = beam.getContext("2d");
+  let chip = null, target = null, datos = { negocios: [], cripto: [] }; const chan = (() => { try { return new BroadcastChannel("jarvis-rayos"); } catch (e) { return null; } })();
+  fetch("/api/negocios", { credentials: "same-origin" }).then(r => r.json()).then(t => { datos.negocios = t.negocios || []; }).catch(() => {});
+  fetch("/api/cripto", { credentials: "same-origin" }).then(r => r.json()).then(m => { datos.cripto = m.precios || []; }).catch(() => {});
+  const selOf = (tg) => tg && tg.cripto ? '[data-cripto="' + String(tg.cripto).toUpperCase().replace(/[^A-Z]/g, "") + '"]' : tg && tg.negocio != null ? '[data-negocio="' + String(tg.negocio).replace(/[^\w-]/g, "") + '"]' : typeof tg === "string" ? tg : null;
+  const labelOf = (tg) => { if (tg && tg.cripto) { const c = datos.cripto.find(p => String(p.par).toUpperCase().startsWith(String(tg.cripto).toUpperCase())); return tg.cripto.toUpperCase() + (c && c.usd != null ? "  $" + Number(c.usd).toLocaleString("en-US", { maximumFractionDigits: 2 }) : ""); }
+    if (tg && tg.negocio != null) { const n = datos.negocios.find(x => String(x.id) === String(tg.negocio)); return n ? "PISO " + n.piso + " · " + n.nombre : "NEGOCIO " + tg.negocio; } return ""; };
+  function aimAt(tg) {                                   // devuelve el punto de pantalla del objetivo (y crea un rótulo si no está en esta página)
+    if (!tg) return null; if (isFinite(tg.x) && isFinite(tg.y)) return { x: tg.x, y: tg.y };
+    let e = tg instanceof Element ? tg : null; const sel = selOf(tg); if (!e && sel) { try { e = document.querySelector(sel); } catch (x) { e = null; } }
+    if (e) { const r = e.getBoundingClientRect(), h = host.getBoundingClientRect(); return { x: r.left + r.width / 2 - h.left, y: r.top + r.height / 2 - h.top }; }
+    if (!chip) { chip = document.createElement("div"); chip.className = "rayo-chip jarvis-scan"; host.appendChild(chip); }
+    chip.textContent = labelOf(tg) || String(sel || ""); chip.style.left = "76%"; chip.style.top = "30%"; chip.hidden = false;
+    const r = chip.getBoundingClientRect(), h = host.getBoundingClientRect(); return { x: r.left + r.width / 2 - h.left, y: r.top + r.height / 2 - h.top };
+  }
+  const raysMode = (m, tg) => { raysM = ["idle", "speak", "scan", "point"].includes(m) ? m : "idle"; target = raysM === "point" ? (tg === undefined ? target : tg) : null;
+    if (chip && !target) chip.hidden = true;
+    if (target) { const sel = selOf(target); if (sel) { if (window.JarvisMarcar) window.JarvisMarcar(sel); if (chan) chan.postMessage({ sel }); } }
+    return raysM; };
+  function drawBeam(t, col) {                            // haz 2D que se estira del núcleo al objetivo
+    const w = beam.clientWidth, h = beam.clientHeight; if (beam.width !== w || beam.height !== h) { beam.width = w; beam.height = h; }
+    bx.clearRect(0, 0, w, h); if (raysM !== "point" || !target) return;
+    const p = aimAt(target); if (!p) return; const c = core.position.clone().project(camera), cx = (c.x * 0.5 + 0.5) * w, cy = (-c.y * 0.5 + 0.5) * h;
+    raysA = Math.atan2(-(p.y - cy), p.x - cx) - Math.PI / 2; const css = "#" + col.getHexString();
+    bx.globalCompositeOperation = "lighter"; [[14, 0.10], [6, 0.25], [2, 0.9]].forEach(([lw, al]) => { bx.strokeStyle = css; bx.globalAlpha = al; bx.lineWidth = lw; bx.beginPath(); bx.moveTo(cx, cy); bx.lineTo(p.x, p.y); bx.stroke(); });
+    const u = reduce ? 0.6 : (t * 0.9) % 1; bx.globalAlpha = 1; bx.fillStyle = "#e8fbff"; bx.beginPath(); bx.arc(cx + (p.x - cx) * u, cy + (p.y - cy) * u, 3, 0, 6.283); bx.fill();
+    bx.globalAlpha = 0.9; bx.lineWidth = 1.5; bx.beginPath(); bx.arc(p.x, p.y, 18 + (reduce ? 0 : Math.sin(t * 5) * 3), 0, 6.283); bx.stroke(); bx.globalAlpha = 1; }
+  addEventListener("jarvis-accion", e => raysMode("point", e.detail && (e.detail.objetivo || e.detail)));   // acción u orden -> apunta
+  addEventListener("jarvis-escanear", () => raysMode("scan"));
+  addEventListener("jarvis-reposo", () => raysMode("idle"));
+  let lastTopic = "";
+  function onTopics(tp) { const k = (tp || [])[0] || ""; if (k === lastTopic) return; lastTopic = k;      // la voz menciona BTC o un negocio -> apunta
+    if (!k) { if (raysM === "point") raysMode("idle"); return; } raysMode("point", k.startsWith("negocio:") ? { negocio: k.slice(8) } : { cripto: k }); }
 
   /* animación */
   const clock = new THREE.Clock(); let last = 0;
@@ -479,7 +530,7 @@ function start() {
     } else k += ((shown === "ultron" ? 1 : 0) - k) * Math.min(1, dt * 3);
     const lvl = voiceLevel(t, dt * 1000), breath = reduce ? 0 : 0.5 + 0.5 * Math.sin(t * 1.3);
     const col = BLUE.clone().lerp(RED, k);
-    coreU.uColor.value.copy(col); inner.material.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.3); glass.material.attenuationColor.copy(col); starU.uTime.value = reduce ? 0 : t;
+    coreU.uColor.value.copy(col); inner.material.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.3); glassU.uLvl.value = lvl; shells.forEach(m => { m.material.color.copy(col); if (!reduce) { m.rotation.y += dt * m.userData.sp; m.rotation.x += dt * m.userData.sp * 0.5; } }); glowS.material.color.copy(col); glowS.material.opacity = 0.55 + 0.25 * breath + 0.4 * lvl; orbP.material.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.3); if (!reduce) orbP.rotation.z += dt * (0.15 + lvl); starU.uTime.value = reduce ? 0 : t;
     torches.forEach(o => { const fl = reduce ? 1 : 0.75 + 0.25 * Math.sin(t * 13 + o.ph) * Math.sin(t * 7.3 + o.ph * 2); o.L.intensity = 160 * fl; o.f.scale.setScalar(4.2 + fl * 1.6); });
     if (!reduce) { const ep = brasas.geometry.attributes.position; for (let i = 0; i < emberN; i++) { const b = emberB[i % emberB.length]; let y = ep.getY(i) + dt * (3 + (i % 5)); if (y > b.y + 14) y = b.y; ep.setXYZ(i, b.x + Math.sin(t * 2 + i) * 0.8, y, b.z + Math.cos(t * 1.7 + i) * 0.8); } ep.needsUpdate = true; }
     runes.forEach(m => m.material.uniforms.uC.value.copy(col));
@@ -495,11 +546,18 @@ function start() {
     ultronRings.visible = k >= 0.6; if (!reduce) { ultronRings.rotation.z -= dt * 1.2; ultronRings.children[1].rotation.z += dt * 2.0; }
     inner.scale.setScalar(1 + 0.06 * breath + 0.35 * lvl + 0.4 * flare);
     glass.scale.setScalar(1 + 0.02 * breath + 0.06 * lvl);
-    rayMat.uniforms.uI.value = 0.04 + 0.06 * breath + lvl * 0.4 + flare * 1.0; if (!reduce) rays.rotation.z += dt * (0.1 + lvl);
+    rayMat.uniforms.uI.value = 0.05 + 0.06 * breath + lvl * 0.5 + flare * 1.0 + (raysM === "idle" ? 0 : 0.35);
+    { const pts = raysM === "speak" || (raysM === "idle" && lvl > 0.15) ? "speak" : raysM;            // idle: deriva; speak: haz barrido; scan: arco; point: apunta
+      rays.children.forEach((r, i) => { const n = rays.children.length, base = i / n * 6.283; let a;
+        if (pts === "speak") a = (reduce ? 0 : Math.sin(t * 1.6) * 0.5) + (i / n - 0.5) * (0.35 + lvl * 0.5);
+        else if (pts === "scan") a = (reduce ? 0 : Math.sin(t * 1.1) * 1.3) + (i / n - 0.5) * 0.9;
+        else if (pts === "point") a = raysA + (i / n - 0.5) * 0.12;
+        else a = base + (reduce ? 0 : t * 0.08);
+        const dA = Math.atan2(Math.sin(a - r.rotation.z), Math.cos(a - r.rotation.z)); r.rotation.z += dA * (reduce ? 1 : Math.min(1, dt * 6 + (pts === "point" ? 0.35 : 0))); r.scale.y = pts === "idle" ? 0.8 : 1.15 + lvl * 0.4; }); }
     if (sh >= 0) { shock.visible = true; shock.scale.setScalar(4 + sh * 70); shock.material.opacity = (1 - sh) * 0.9; shock.material.color.copy(col).lerp(new THREE.Color(1, 1, 1), 0.5); } else shock.visible = false;
     film.uniforms.uTime.value = t; film.uniforms.uFlash.value = flash; film.uniforms.uCA.value = 0.0015 + glitch * 0.004;
     film.uniforms.uTint.value.copy(new THREE.Color(1, 1, 1).lerp(col, 0.4));
-    bloom.strength = (ECO ? 0.55 : 0.5) + flare * 1.0 + lvl * 0.2;
+    bloom.strength = (ECO ? 0.7 : 0.75) + flare * 1.0 + lvl * 0.35;
     /* órbita del núcleo alrededor de la torre (~60 s por vuelta), mirando a la torre */
     const oa = reduce ? 0.9 : (t / ORBIT_S) * 6.283 + 0.9;
     core.position.set(Math.cos(oa) * ORBIT_R, 80 + (reduce ? 0 : Math.sin(t * 0.8) * 3), Math.sin(oa) * ORBIT_R);
@@ -515,16 +573,17 @@ function start() {
     push += (Math.min(1, lvl * 1.4 + k * 0.6 + flare * 0.5) - push) * Math.min(1, dt * (push < lvl ? 4 : 1.2));
     if (focusT === "core") focusP.copy(core.position); else if (focusT === "tower") focusP.copy(towerC).setY(70); else focusP.set(focusT.x, focusT.y, focusT.z);
     const out = new THREE.Vector3(core.position.x, 0, core.position.z).normalize();          // hacia fuera de la torre
-    const side = new THREE.Vector3(-out.z, 0, out.x), dist = 150 - push * 55;
+    const side = new THREE.Vector3(-out.z, 0, out.x), dist = 62 - push * 8;                                        // primer plano: núcleo+HUD ~75% del alto
     const want = core.position.clone().addScaledVector(out, dist * 0.92).addScaledVector(side, dist * 0.38).add(new THREE.Vector3(0, -dist * 0.12 + (reduce ? 0 : Math.sin(t * 0.21) * 3), 0));
     const ease2 = (reduce || !camInit) ? 1 : Math.min(1, dt * 2.2); camInit = true;
     camPos.lerp(want, ease2); camLook.lerp(focusP, focusT === "core" ? 1 : ease2);
-    camera.position.copy(camPos); camera.lookAt(camLook); camera.updateMatrixWorld(); updHud(t, dt, lvl, col, k);
+    camera.position.copy(camPos); camera.lookAt(camLook); camera.updateMatrixWorld(); updHud(t, dt, lvl, col, k); drawBeam(t, col);
     if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(focusP);            // torre fuera de foco detrás
     composer.render(dt);
   }
   frame();
-  window.JarvisTorreCine = { mode: () => mode, focusOn };
+  window.JarvisTorreCine = { mode: () => mode, focusOn, raysMode }; window.__cineTopics = onTopics;
+  { const rm = qs.get("rayos"), ob = qs.get("objetivo"); if (rm) raysMode(rm, ob ? (/^[A-Z]{3,4}$/.test(ob) ? { cripto: ob } : { negocio: ob }) : undefined); }
   return true;
 }
 
