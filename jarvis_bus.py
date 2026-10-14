@@ -56,10 +56,11 @@ class Bus:
         if negocio not in self._estado: raise KeyError(f"negocio desconocido: {negocio}")
         if estado is not None and estado not in ESTADOS: raise ValueError(f"estado inválido: {estado}")
         if fuente not in FUENTES: raise ValueError(f"fuente inválida: {fuente}")
-        tipo = re.sub(r"[^a-z0-9_.-]", "", str(tipo).lower())[:40] or "nota"
+        tipo_crudo = re.sub(r"[^a-z0-9_.-]", "", str(tipo).lower())[:40] or "nota"
         with self._lock:
             self._seq += 1
             if _REDACTOR is None: raise RuntimeError("redactor completo no instalado; evento rechazado")
+            tipo = "redactado" if redactar(tipo_crudo) != tipo_crudo else tipo_crudo
             ev = {"seq": self._seq, "ts": self._now(), "negocio": negocio, "tipo": tipo,
                   "texto": redactar(texto), "estado": estado, "fuente": fuente}
             self._ev.append(ev)
