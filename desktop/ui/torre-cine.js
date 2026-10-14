@@ -308,11 +308,11 @@ function start() {
   const holoFS = "uniform float uTime; uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying vec3 vW;" +
     " void main(){ float fr = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.4); float scan = pow(0.5+0.5*sin(vW.y*7.0 - uTime*4.0), 6.0);" +
     " float stripes = 0.6+0.4*sin(vW.y*40.0 + uTime*0.6); float a = clamp(fr*1.3 + scan*0.35 + 0.06, 0.0, 1.0)*stripes;" +
-    " gl_FragColor = vec4(uColor*(0.3 + fr*1.4 + scan*0.4), a*0.28); }";
+    " gl_FragColor = vec4(uColor*(0.3 + fr*1.4 + scan*0.4), a*0.12); }";
   const holo = new THREE.ShaderMaterial({ uniforms: coreU, vertexShader: holoVS, fragmentShader: holoFS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const core = new THREE.Group(); core.position.set(118, 80, 30); scene.add(core);
   core.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7, ECO ? 2 : 4), holo));
-  const inner = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 16), new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); core.add(inner);
+  const inner = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 16), new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); core.add(inner); inner.visible = false;
   const coreLight = new THREE.PointLight(0x5ad2ff, 400, 120, 1.8); core.add(coreLight);
   const ringMatC = new THREE.MeshBasicMaterial({ color: 0x5ad2ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const rings = [];
@@ -341,11 +341,11 @@ function start() {
       " gl_FragColor = vec4(c, clamp(rim*0.9 + band + body, 0.0, 1.0)); }" }));
   glass.renderOrder = 3; core.add(glass);
   const shells = [];
-  [[5.8, 1, 0.2, 0.25], [4.4, 2, 0.28, -0.4], [3.0, 1, 0.38, 0.7]].forEach(([r, det, op, sp]) => {
+  [[6.2, 1, 0.1, 0.25], [5.0, 1, 0.08, -0.4]].forEach(([r, det, op, sp]) => {
     const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, det), new THREE.MeshBasicMaterial({ color: 0x4fd8ff, wireframe: true, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
     m.userData.sp = sp; core.add(m); shells.push(m); });
   const glowS = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0x4fb8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
-  glowS.scale.setScalar(13); core.add(glowS);
+  glowS.scale.setScalar(9); core.add(glowS);
   const orbP = points(ECO ? 200 : 700, new THREE.Vector3(1, 1, 1), 0x8fe6ff, 0.5); core.add(orbP);              // partículas en órbita (anillo toroidal)
   { const pa = orbP.geometry.attributes.position; for (let i = 0; i < pa.count; i++) { const a = rnd() * 6.283, r = 9.5 + rnd() * 4, h = (rnd() - 0.5) * 1.6; pa.setXYZ(i, Math.cos(a) * r, h, Math.sin(a) * r); } orbP.rotation.x = 1.2; }
   const rayMat = new THREE.ShaderMaterial({ uniforms: { uColor: coreU.uColor, uI: { value: 0.2 }, uTime: coreU.uTime }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
@@ -408,8 +408,8 @@ function start() {
   }
   const TRANS_S = 1.2;
   const freezeTrans = qs.get("trans") !== null ? Math.max(0, Math.min(1, parseFloat(qs.get("trans")) || 0.5)) : -1;
-  const fakeTalk = qs.get("habla") !== null;
-  const BLUE = new THREE.Color(0x1f8fff), RED = new THREE.Color(0xff4a12), WARM = new THREE.Color(0xff9a50), WARM_R = new THREE.Color(0xff3a14);
+  const fakeTalk = qs.get("habla") !== null, DEMO = qs.get("demo") !== null;      // demo: 0-2.5 reposo, 2.5-5 habla, 5-7.5 apunta BTC, 7.5+ Ultron
+  const BLUE = new THREE.Color(0x0a84ff), RED = new THREE.Color(0xff3a00), WARM = new THREE.Color(0xff9a50), WARM_R = new THREE.Color(0xff3a14);
   const CL = new THREE.Color(0x56607a), CL_R = new THREE.Color(0x5a3a34);
 
   /* voz de Alan: nivel real por BroadcastChannel (lipsync.js de la ventana de conversación); si no, estado del servidor */
@@ -418,7 +418,7 @@ function start() {
   try { if (L && "BroadcastChannel" in window) { const ch = new BroadcastChannel(L.CHANNEL); ch.onmessage = (ev) => { const m = ev.data; if (!L.valid(m)) return;
     if (m.k === "env") voice.env = m; else if (m.k === "clock") { voice.clock = m; voice.filter.push(m); } else if (m.k === "stop") voice.clock = null; }; } } catch (e) { /* sin canal */ }
   function voiceLevel(t, dtMs) {
-    if (fakeTalk) return 0.55 + 0.45 * Math.abs(Math.sin(t * 9.0) * Math.sin(t * 3.1 + 1.0));
+    if (fakeTalk || (DEMO && t >= 2.5 && t < 5)) return 0.55 + 0.45 * Math.abs(Math.sin(t * 9.0) * Math.sin(t * 3.1 + 1.0));
     const c = voice.clock, env = voice.env;
     if (c && env && c.id === env.id && voice.follower) { const pos = voice.filter.position(performance.now());
       const target = c.playing && pos <= env.duration + 0.05 ? L.level(env, pos + L.LOOKAHEAD_S) : 0; return (voice.level = voice.follower.step(target, dtMs)); }
@@ -466,6 +466,72 @@ function start() {
     sweep.rotation.z = reduce ? 0.8 : -t * 1.4; flareS.material.opacity = 0.25 + lvl * 0.5;
     if (t - lastTxt > 0.25) { lastTxt = t; drawReadout(t, lvl, "#" + col.getHexString()); }
   }
+  /* reactor de arco dentro del cristal (geometría original): disco central, anillos, 10 bobinas trapezoidales, triángulo tenue, bisel metálico con pernos */
+  const reactor = new THREE.Group(); hud.add(reactor); reactor.position.z = 0.5;
+  const emi = (op) => new THREE.MeshBasicMaterial({ color: 0xbfeaff, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const rDisc = new THREE.Mesh(new THREE.CircleGeometry(2.6, 48), emi(1)); reactor.add(rDisc);
+  const rRings = [[3.1, 3.5, 0.9], [8.9, 9.25, 0.85], [9.6, 9.75, 0.6]].map(([a, b, op]) => { const m = new THREE.Mesh(new THREE.RingGeometry(a, b, 96), emi(op)); reactor.add(m); return m; });
+  const coilMat = emi(0.8), windMat = new THREE.LineBasicMaterial({ color: 0x0a2a44, transparent: true, opacity: 0.55 });
+  const coils = new THREE.Group(); reactor.add(coils);
+  for (let i = 0; i < 10; i++) { const a = i / 10 * 6.283, g = new THREE.Group(); g.rotation.z = a;
+    const sh = new THREE.Shape(); sh.moveTo(4.0, -0.75); sh.lineTo(8.5, -1.45); sh.lineTo(8.5, 1.45); sh.lineTo(4.0, 0.75); sh.lineTo(4.0, -0.75);
+    g.add(new THREE.Mesh(new THREE.ShapeGeometry(sh), coilMat));
+    const w = []; for (let k = 0; k <= 9; k++) { const x = 4.2 + k * 0.47, h = 0.75 + (x - 4.0) / 4.5 * 0.7; w.push(new THREE.Vector3(x, -h, 0.05), new THREE.Vector3(x, h, 0.05)); }   // devanado
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(w), windMat)); coils.add(g); }
+  const tri = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([0, 1, 2].map(i => new THREE.Vector3(Math.cos(i * 2.094 + 1.571) * 3.0, Math.sin(i * 2.094 + 1.571) * 3.0, 0.1))), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 }));
+  reactor.add(tri);
+  const metal = new THREE.MeshStandardMaterial({ color: 0x9aa6b4, metalness: 0.95, roughness: 0.28, emissive: 0x0a1c2c, emissiveIntensity: 1 });
+  const bezel = new THREE.Mesh(new THREE.TorusGeometry(10.4, 0.55, 16, 128), metal); reactor.add(bezel);
+  const bolts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.28, 0.28, 0.3, 10), metal, 10);
+  for (let i = 0; i < 10; i++) { const a = (i + 0.5) / 10 * 6.283; dummy.position.set(Math.cos(a) * 10.4, Math.sin(a) * 10.4, 0.55); dummy.rotation.set(Math.PI / 2, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); bolts.setMatrixAt(i, dummy.matrix); }
+  reactor.add(bolts);
+  const rLight = new THREE.PointLight(0x9fdcff, 60, 40, 2); rLight.position.z = 6; reactor.add(rLight);   // ilumina el bisel
+  reactor.scale.setScalar(1.25);
+  function updReactor(t, lvl, breath, col) {
+    const hot = col.clone().lerp(new THREE.Color(1, 1, 1), 0.55), p = 0.75 + 0.15 * breath + 0.6 * lvl;
+    rDisc.material.color.copy(hot); rDisc.material.opacity = Math.min(1, 0.85 + 0.15 * lvl); rDisc.scale.setScalar(1 + 0.05 * breath + 0.18 * lvl);
+    rRings.forEach((m, i) => { m.material.color.copy(i ? col : hot); m.material.opacity = Math.min(1, (i ? 0.55 : 0.9) * p); });
+    coilMat.color.copy(col.clone().lerp(new THREE.Color(1, 1, 1), 0.35)); coilMat.opacity = Math.min(1, 0.55 * p);
+    tri.material.color.copy(hot); rLight.color.copy(col); rLight.intensity = 50 + 120 * lvl;
+    if (!reduce) coils.rotation.z = Math.sin(t * 0.3) * 0.02;
+  }
+  /* rayos eléctricos: rayos finos dentados con ramas y parpadeo, núcleo blanco-cian + halo; siguen la dirección de cada rayo (idle/speak/scan/point) */
+  const BOLT_MAX = 6000, boltP = new Float32Array(BOLT_MAX * 3), boltG = new THREE.BufferGeometry(); boltG.setAttribute("position", new THREE.BufferAttribute(boltP, 3)); boltG.setDrawRange(0, 0);
+  const boltCore = new THREE.LineSegments(boltG, new THREE.LineBasicMaterial({ color: 0xeefcff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const boltGlow = []; [[0.25, 0.6], [-0.25, 0.6], [0.6, 0.3], [-0.6, 0.3]].forEach(([o, op]) => { const m = new THREE.LineSegments(boltG, new THREE.LineBasicMaterial({ color: 0x4fd8ff, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false })); m.position.set(o, o * 0.5, -0.1); boltGlow.push(m); });
+  const boltGrp = new THREE.Group(); boltGrp.add(boltCore, ...boltGlow); hud.add(boltGrp);
+  let boltN = 0, boltNext = 0;
+  function seg(ax, ay, bx2, by2) { if (boltN + 2 > BOLT_MAX) return; boltP.set([ax, ay, 0.3, bx2, by2, 0.3], boltN * 3); boltN += 2; }
+  function bolt(x0, y0, ang, len, jag, depth) {
+    const n = 9 + Math.floor(rnd() * 5); let px = x0, py = y0; const nx = -Math.sin(ang), ny = Math.cos(ang);
+    for (let i = 1; i <= n; i++) { const f = i / n, off = (rnd() - 0.5) * jag * (1 - f * 0.4), x = x0 + Math.cos(ang) * len * f + nx * off, y = y0 + Math.sin(ang) * len * f + ny * off;
+      seg(px, py, x, y); if (depth < 2 && rnd() < 0.15) bolt(x, y, ang + (rnd() - 0.5) * 1.3, len * (0.25 + rnd() * 0.3), jag * 0.6, depth + 1); px = x; py = y; }
+  }
+  function updBolts(t, lvl, col, flare) {
+    boltGlow.forEach(m => m.material.color.copy(col));
+    if (t < boltNext && !reduce) return; boltNext = t + 0.05 + rnd() * 0.05; boltN = 0;                       // parpadeo ~15 Hz
+    const pts = raysM === "speak" || (raysM === "idle" && lvl > 0.15) ? "speak" : raysM, n = rays.children.length;
+    rays.children.forEach((r, i) => { const on = pts === "idle" ? rnd() < 0.35 : pts === "speak" ? rnd() < 0.55 : rnd() < 0.85; if (!on) return;
+      const ang = r.rotation.z + Math.PI / 2, L = (pts === "idle" ? 14 + rnd() * 10 : pts === "point" ? 46 + rnd() * 10 : 26 + lvl * 26 + rnd() * 8) + flare * 20;
+      bolt(Math.cos(ang) * 11, Math.sin(ang) * 11, ang, L, pts === "point" ? 2.2 : 3.6, 0); });
+    boltG.attributes.position.needsUpdate = true; boltG.setDrawRange(0, boltN);
+    const fl = 0.65 + 0.35 * rnd(); boltCore.material.opacity = Math.min(1, fl * (0.6 + lvl * 0.8 + flare)); boltGlow.forEach(m => { m.material.opacity = Math.min(1, fl * (0.25 + lvl * 0.5 + flare * 0.5)); });
+  }
+  /* detalle high-tech: anillo de micro-texto/glifos y pistas de circuito (canvas original) + líneas de escaneo holográficas */
+  const glyC = document.createElement("canvas"); glyC.width = glyC.height = 1024; { const g = glyC.getContext("2d"); g.translate(512, 512); g.strokeStyle = g.fillStyle = "#fff";
+    g.font = "15px monospace"; g.textAlign = "center"; const hex = "0123456789ABCDEF";
+    for (let i = 0; i < 72; i++) { g.save(); g.rotate(i / 72 * 6.283); let w = ""; for (let k = 0; k < 4; k++) w += hex[Math.floor(rnd() * 16)]; g.globalAlpha = 0.85; g.fillText(w, 0, -470); g.restore(); }
+    g.lineWidth = 1.5; for (let i = 0; i < 40; i++) { const a = rnd() * 6.283, r0 = 300 + rnd() * 60, r1 = r0 + 50 + rnd() * 70, a2 = a + (rnd() - 0.5) * 0.25;   // pistas: radial + quiebre + vía
+      g.globalAlpha = 0.6; g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * (r0 + r1) / 2, Math.sin(a) * (r0 + r1) / 2); g.lineTo(Math.cos(a2) * r1, Math.sin(a2) * r1); g.stroke();
+      g.beginPath(); g.arc(Math.cos(a2) * r1, Math.sin(a2) * r1, 3.5, 0, 6.283); g.stroke(); }
+    for (let i = 0; i < 180; i++) { const a = i / 180 * 6.283; g.globalAlpha = i % 6 ? 0.35 : 0.9; g.fillRect(Math.cos(a) * 430 - 1, Math.sin(a) * 430 - 1, i % 6 ? 2 : 4, i % 6 ? 2 : 4); } }
+  const glyT = new THREE.CanvasTexture(glyC); glyT.anisotropy = 4;
+  const glyph = new THREE.Mesh(new THREE.PlaneGeometry(64, 64), new THREE.MeshBasicMaterial({ map: glyT, color: 0x4fd8ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false })); glyph.position.z = -0.5; hud.add(glyph);
+  const scanU = { uC: { value: new THREE.Color(0x4fd8ff) }, uT: { value: 0 } };
+  const scanl = new THREE.Mesh(new THREE.CircleGeometry(17, 64), new THREE.ShaderMaterial({ uniforms: scanU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: "varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+    fragmentShader: "uniform vec3 uC; uniform float uT; varying vec2 vP; void main(){ float l = 0.5+0.5*sin(vP.y*9.0 - uT*6.0); float sw = exp(-pow(mod(vP.y + uT*12.0, 40.0) - 20.0, 2.0)*0.08); float e = smoothstep(17.0, 12.0, length(vP));" +
+      " gl_FragColor = vec4(uC, (pow(l, 8.0)*0.07 + sw*0.25) * e); }" })); scanl.position.z = 1; hud.add(scanl);
   rays.parent.remove(rays); hud.add(rays); rays.scale.set(0.9, 2, 0.9);      // rayos en el plano de pantalla: apuntan de verdad
   rings.forEach(g => g.parent.remove(g)); ultronRings.parent.remove(ultronRings);   // los anillos 3D antiguos dan paso al HUD
 
@@ -521,12 +587,14 @@ function start() {
     const t = clock.getElapsedTime() + t0; if (t - last < minDt) return; const dt = Math.min(0.1, Math.max(0.001, t - last)); last = t;
     if (mode !== shown && trans < 0) { trans = 0; shown = mode; }
     let flash = 0, glitch = 0, flare = 0, sh = -1;
-    if (freezeTrans >= 0) { trans = freezeTrans * TRANS_S; shown = "ultron"; }
+    if (DEMO) { if (t >= 5 && t < 7.5 && raysM !== "point") raysMode("point", { cripto: "BTC" }); if (t >= 7.5 && raysM === "point") raysMode("idle"); }
+    const ft = DEMO ? (t >= 7.5 ? Math.min(1, (t - 7.5) / TRANS_S) : -1) : freezeTrans;
+    if (ft >= 0) { trans = ft * TRANS_S; shown = "ultron"; }
     if (trans >= 0) {
       const p = Math.min(1, trans / TRANS_S), target = shown === "ultron" ? 1 : 0;
       k = target ? ease(p) : 1 - ease(p);
       flash = Math.max(0, 1 - Math.abs(p - 0.18) / 0.18) * 0.55; glitch = Math.sin(p * Math.PI) * 1.6; flare = Math.sin(p * Math.PI); sh = p;
-      if (freezeTrans < 0) { trans += reduce ? TRANS_S : dt; if (trans >= TRANS_S) trans = -1; }
+      if (ft < 0) { trans += reduce ? TRANS_S : dt; if (trans >= TRANS_S) trans = -1; }
     } else k += ((shown === "ultron" ? 1 : 0) - k) * Math.min(1, dt * 3);
     const lvl = voiceLevel(t, dt * 1000), breath = reduce ? 0 : 0.5 + 0.5 * Math.sin(t * 1.3);
     const col = BLUE.clone().lerp(RED, k);
@@ -549,7 +617,7 @@ function start() {
     rayMat.uniforms.uI.value = 0.05 + 0.06 * breath + lvl * 0.5 + flare * 1.0 + (raysM === "idle" ? 0 : 0.35);
     { const pts = raysM === "speak" || (raysM === "idle" && lvl > 0.15) ? "speak" : raysM;            // idle: deriva; speak: haz barrido; scan: arco; point: apunta
       rays.children.forEach((r, i) => { const n = rays.children.length, base = i / n * 6.283; let a;
-        if (pts === "speak") a = (reduce ? 0 : Math.sin(t * 1.6) * 0.5) + (i / n - 0.5) * (0.35 + lvl * 0.5);
+        if (pts === "speak") a = (reduce ? 0 : Math.sin(t * 1.6) * 0.5) + (i / n - 0.5) * (1.4 + lvl * 0.8);
         else if (pts === "scan") a = (reduce ? 0 : Math.sin(t * 1.1) * 1.3) + (i / n - 0.5) * 0.9;
         else if (pts === "point") a = raysA + (i / n - 0.5) * 0.12;
         else a = base + (reduce ? 0 : t * 0.08);
@@ -577,7 +645,7 @@ function start() {
     const want = core.position.clone().addScaledVector(out, dist * 0.92).addScaledVector(side, dist * 0.38).add(new THREE.Vector3(0, -dist * 0.12 + (reduce ? 0 : Math.sin(t * 0.21) * 3), 0));
     const ease2 = (reduce || !camInit) ? 1 : Math.min(1, dt * 2.2); camInit = true;
     camPos.lerp(want, ease2); camLook.lerp(focusP, focusT === "core" ? 1 : ease2);
-    camera.position.copy(camPos); camera.lookAt(camLook); camera.updateMatrixWorld(); updHud(t, dt, lvl, col, k); drawBeam(t, col);
+    camera.position.copy(camPos); camera.lookAt(camLook); camera.updateMatrixWorld(); updHud(t, dt, lvl, col, k); drawBeam(t, col); updReactor(t, lvl, breath, col); updBolts(t, lvl, col, flare); glyph.material.color.copy(col); if (!reduce) glyph.rotation.z = -t * 0.04; scanU.uC.value.copy(col); scanU.uT.value = reduce ? 0 : t; rayMat.uniforms.uI.value *= 0.35;
     if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(focusP);            // torre fuera de foco detrás
     composer.render(dt);
   }
