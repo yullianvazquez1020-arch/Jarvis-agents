@@ -7638,7 +7638,7 @@ async def _voz_c_transcribe(wav: bytes) -> str:
 
 async def _voz_c_speak(text: str, language: str = "es") -> bytes:
     import jarvis_chat_voice                      # Piper: Ald en español, Alan en inglés
-    return await jarvis_chat_voice.speak_local(text, language)
+    return await jarvis_chat_voice.speak_local(text, _voz_c.voz_de(language))
 
 
 async def _voz_c_reply(text: str, language: str = "es") -> str:
@@ -7660,7 +7660,7 @@ async def ws_voz(ws: WebSocket):
         send_json=ws.send_json, send_bytes=ws.send_bytes,
         log=lambda s: logger.info(s), redact=lambda s: _redact_secrets(s)[0])
     await ws.send_json({"type": "listo", "rate": _voz_c.RATE, "formato": "pcm16le-mono",
-                        "idiomas": ["es", "en"],
+                        "idiomas": ["es", "en"], "voces": {"es": "ald", "en": "alan"},
                         "idioma_voz": __import__("jarvis_chat_voice").reply_language()})
     try:
         while True:

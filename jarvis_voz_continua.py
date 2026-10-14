@@ -35,6 +35,11 @@ _EN_WORDS = ("the", "what", "how", "please", "call", "hello", "thanks", "thank",
 _ES_WORDS = ("el", "la", "los", "las", "que", "como", "por", "favor", "hola", "gracias", "cita", "precio", "puedes", "quiero", "para", "una", "bueno", "manana")
 
 
+def voz_de(lang: str) -> str:
+    """Cada turno usa una de las dos voces: Ald (español latinoamericano) o Alan (inglés)."""
+    return "alan" if lang == "en" else "es"
+
+
 def idioma(text: str, previo: str = "es") -> str:
     """Elige español o inglés según el turno. Si no hay señal, se queda el anterior."""
     words = re.findall(r"[a-z]+", _norm(text))

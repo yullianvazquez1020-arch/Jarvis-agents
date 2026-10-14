@@ -71,6 +71,11 @@ class VozContinua(unittest.TestCase):
         self.assertIn('voz', v.refusal('aprobar el pago'))
         self.assertEqual(v.idioma('¿Cómo van las ventas?'), 'es')
         self.assertEqual(v.idioma('ok', 'en'), 'en')
+        self.assertEqual(v.voz_de('es'), 'es')
+        self.assertEqual(v.voz_de('en'), 'alan')
+        import jarvis_local_tts as tts
+        self.assertEqual(tts.profile('es')[0], 'es_MX-ald-medium.onnx')
+        self.assertEqual(tts.profile('alan')[0], 'en_GB-alan-medium.onnx')
 
     def test_short_noise_is_not_a_turn(self):
         h = Harness()
