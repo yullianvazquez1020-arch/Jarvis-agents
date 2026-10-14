@@ -109,7 +109,7 @@ class RunTests(Base):
             {"agent": "claude", "action": "double_click", "x": 300, "y": 200},
             {"agent": "claude", "action": "scroll", "dy": -3},
             {"agent": "claude", "action": "type", "text": "hola mundo"},
-        ])
+        ], front="Notes")                                           # app verificada (no navegador)
         names = [c[0] for c in p.calls]
         self.assertEqual(names, ["move", "click", "double_click", "scroll", "write"])
         estado = json.loads((au.auto_dir() / "estado.json").read_text())
@@ -171,7 +171,7 @@ class RunTests(Base):
         class Boom(FakePointer):
             def click(self, x, y):
                 raise RuntimeError("FailSafeException")
-        p = Boom("Safari", [{"agent": "claude", "action": "click", "x": 100, "y": 100}])
+        p = Boom("Notes", [{"agent": "claude", "action": "click", "x": 100, "y": 100}])
         quiet(au.run, p, sleep=lambda s: None, max_steps=1)
         self.assertTrue(ae.stopped())
 

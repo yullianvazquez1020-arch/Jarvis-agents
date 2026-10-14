@@ -30,6 +30,7 @@ _spec.loader.exec_module(ae)
 
 AUTO_ACTIONS = {"move", "click", "double_click", "scroll", "screenshot", "wait", "type", "open_url", "open_app"}
 POINTER_ACTIONS = {"click", "double_click", "type"}
+BROWSERS = {"safari"}
 MAX_STEPS = 300
 MAX_TEXT = 200
 POLL_SECONDS = 0.5
@@ -97,7 +98,7 @@ def start(agent: str, minutes: int, *, ask=None, tty=None) -> int:
 MAX_SCROLL = 50
 
 
-def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> str | None:
+def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx: dict | None = None) -> str | None:
     """None = se puede ejecutar. Si no, el motivo (sin repetir el texto de la orden)."""
     if not isinstance(action, dict):
         return "formato"
@@ -126,6 +127,7 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> 
             return "desplazamiento"
         if not math.isfinite(dyf) or dyf != int(dyf) or abs(dyf) > MAX_SCROLL:
             return "desplazamiento"
+        action["dy"] = int(dyf)                    # normalizado: perform() recibe exactamente lo validado
     if kind == "wait":
         sec = action.get("seconds", 0)
         if isinstance(sec, bool) or not isinstance(sec, (int, float, str)):
@@ -136,6 +138,7 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> 
             return "espera"
         if not math.isfinite(secf) or not 0 <= secf <= 10:
             return "espera"
+        action["seconds"] = secf
     if kind == "type":
         text = str(action.get("text") or "")
         if not text or len(text) > MAX_TEXT:
@@ -149,6 +152,13 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str) -> 
             return "app_frente_desconocida"
         if ae.norm(front) in ae.DENY_APPS or ae.denied_text(front):
             return "app_frente"
+        if ae.norm(front) not in ae.ALLOW_APPS:    # falla cerrado: solo apps verificadas (Outlook, Slack, etc. nunca)
+            return "app_frente"
+        if ae.norm(front) in BROWSERS:             # navegador: puede ser webmail; nunca escribir, y clic solo en un sitio permitido abierto por la sesión
+            if kind == "type":
+                return "texto_en_navegador"
+            if not (ctx or {}).get("web_ok"):
+                return "sitio_no_verificado"
     return None
 
 
@@ -204,6 +214,7 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
     recent = ae.load_rate()
     last: dict = {"resultado": "inicio"}
     step = 0
+    ctx = {"web_ok": False}                        # True solo tras abrir una URL de la lista permitida en esta sesión
     try:
         while step < max_steps:
             if ae.stopped():
@@ -222,7 +233,7 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             step += 1
             moment = ae.now()
             recent[:] = [t for t in recent if (moment - t).total_seconds() < 60]
-            why = "ritmo" if len(recent) >= ae.MAX_PER_MINUTE else validate(action, session, size, front)
+            why = "ritmo" if len(recent) >= ae.MAX_PER_MINUTE else validate(action, session, size, front, ctx)
             safe = action if isinstance(action, dict) else {}
             if why:
                 ae.audit(safe, "BLOQUEADO", f"autonomo:{why}", dry=False)
@@ -231,6 +242,10 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             recent.append(moment)
             ae.save_rate(recent)
             ae.perform(action, pointer)
+            if action.get("action") == "open_url":
+                ctx["web_ok"] = True
+            elif action.get("action") == "open_app":
+                ctx["web_ok"] = False
             ae.audit(action, "HECHO", "autonomo", dry=False)
             last = {"resultado": "HECHO", "accion": action.get("action")}
     except KeyboardInterrupt:

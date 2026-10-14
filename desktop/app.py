@@ -704,6 +704,7 @@ class Companion:
             text = "Te lo dejé en pantalla."
         if (not owner and not self._playback_native()) or self.tts.problem():
             return None                                      # sin ventana dueña: en auto suena por los altavoces
+        gen0 = getattr(self, "_voz_gen", 0)                  # generación tomada ANTES de sintetizar: un stop posterior la invalida
         try:
             audio, ctype = self.tts.synthesize(text, rate=rate)
         except engines.EngineError as e:
@@ -717,7 +718,7 @@ class Companion:
                 self.audio.pop(old, None)
             self.last["audio"] = aid
         if self._playback_native():                       # una sola salida: altavoces si no hay ventana del panel viva
-            self._play_local(audio)
+            self._play_local(audio, gen0)
         else:
             self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
         try:                                                    # "hablando" para la torre (respaldo sin BroadcastChannel)
@@ -744,7 +745,7 @@ class Companion:
             live = bool(owner) and now - getattr(self, "windows", {}).get(owner, 0) < WINDOW_STALE
         return not live
 
-    def _play_local(self, audio):
+    def _play_local(self, audio, gen=None):
         """Voz siempre activa sin depender del autoplay del navegador: reproduce en los altavoces de este equipo.
         Solo habla en local; nunca envía nada. VOICE_SERVER_PLAYBACK=false lo apaga."""
         if str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).lower() in ("false", "0", "no", "off"):
@@ -755,9 +756,10 @@ class Companion:
         with _VOZ_INIT_LOCK:                              # inicialización única aunque hablen dos hilos a la vez
             if not hasattr(self, "_voz_q"):
                 import queue
-                self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0; self._voz_lock = threading.Lock()
+                self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_lock = threading.Lock()
+                self._voz_gen = getattr(self, "_voz_gen", 0)
                 threading.Thread(target=self._voz_worker, args=(player,), daemon=True).start()
-        self._voz_q.put((self._voz_gen, audio))           # cola: una frase cada vez, sin solaparse
+            self._voz_q.put((self._voz_gen if gen is None else gen, audio))   # cola: una frase cada vez; gen previa al stop
         return True
 
     def _voz_worker(self, player):
@@ -785,10 +787,11 @@ class Companion:
 
     def stop_local_audio(self):
         """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
-        if not hasattr(self, "_voz_q"):
-            return
+        with _VOZ_INIT_LOCK:                             # siempre invalida la generación, aunque la cola no exista aún
+            self._voz_gen = getattr(self, "_voz_gen", 0) + 1
+            if not hasattr(self, "_voz_q"):
+                return
         with self._voz_lock:
-            self._voz_gen += 1
             proc = self._voz_proc
             if proc and proc.poll() is None:
                 try:

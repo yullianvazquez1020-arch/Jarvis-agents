@@ -176,7 +176,7 @@ class Revision3(unittest.TestCase):
                 def synthesize(self, text, rate=1.0):
                     from audio.wav import make_wav
                     return make_wav(b"\x00\x00" * 1600), "audio/wav"
-            c.tts = T(); played, ev = [], []; c._play_local = played.append; c.emit = ev.append
+            c.tts = T(); played, ev = [], []; c._play_local = lambda a, g=None: played.append(a); c.emit = ev.append
             self.assertIsNotNone(c.speak("Hola, señor"))
             self.assertEqual(len(played), 1); self.assertFalse(any(e.get("type") == "audio.play" for e in ev))
 
@@ -215,6 +215,46 @@ class Revision4(unittest.TestCase):
                 [orig(h) for h in hs]; [h.join() for h in hs]
             self.assertEqual(len(arranques), 1)                                              # un solo worker
             c.stop_local_audio()
+
+
+
+class Revision5(unittest.TestCase):
+    """Codex PR #118, revisión de 379fa3c."""
+
+    def au(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autonomo_r5", Path(__file__).resolve().parents[1] / "desktop/mac/autonomo.py")
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+    def test_puntero_solo_en_apps_verificadas(self):
+        au = self.au(); ses = {"agent": "jarvis"}; sz = (1440, 900)
+        with patch.object(au.ae, "denial", return_value=None):
+            click = {"agent": "jarvis", "action": "click", "x": 500, "y": 400}
+            for app in ("Microsoft Outlook", "Slack", "Mail", "Messages"):
+                self.assertEqual(au.validate(dict(click), ses, sz, app), "app_frente", app)
+            self.assertEqual(au.validate(dict(click), ses, sz, "Safari"), "sitio_no_verificado")
+            self.assertIsNone(au.validate(dict(click), ses, sz, "Safari", {"web_ok": True}))
+            self.assertEqual(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, "Safari", {"web_ok": True}), "texto_en_navegador")
+            self.assertIsNone(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, "Notes"))
+
+    def test_scroll_normalizado(self):
+        au = self.au(); ses = {"agent": "jarvis"}
+        with patch.object(au.ae, "denial", return_value=None):
+            for v in ("1.0", "1e0", 1.0):
+                a = {"agent": "jarvis", "action": "scroll", "dy": v}
+                self.assertIsNone(au.validate(a, ses, (1440, 900), "Safari")); self.assertEqual(a["dy"], 1); self.assertIs(type(a["dy"]), int)
+
+    def test_stop_antes_de_encolar_invalida_audio(self):
+        FakeProc.vivos = []
+        with tempfile.TemporaryDirectory() as d, patch.object(desk, "local_player", return_value=["fakeplay"]), \
+                patch.object(desk.subprocess, "Popen", FakeProc):
+            c = desk.Companion.__new__(desk.Companion); c.cfg = {"VOICE_SERVER_PLAYBACK": "auto"}; c.home = Path(d)
+            gen0 = getattr(c, "_voz_gen", 0)
+            c.stop_local_audio()                                   # stop llega antes de que exista la cola
+            c._play_local(b"RIFF", gen0); time.sleep(0.3)
+            self.assertEqual(FakeProc.vivos, [])
+            c._play_local(b"RIFF2"); time.sleep(0.3)
+            self.assertEqual(len(FakeProc.vivos), 1); c.stop_local_audio()
 
 
 if __name__ == "__main__":
