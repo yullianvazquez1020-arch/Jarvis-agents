@@ -65,6 +65,17 @@ def idioma(text: str, previo: str = "es") -> str:
     return "es" if previo not in ("es", "en") else previo
 
 
+def override() -> Optional[str]:
+    """Solo para el admin: JARVIS_REPLY_LANGUAGE=es|en fuerza el idioma. Por defecto (vacío/auto) se detecta solo."""
+    v = os.getenv("JARVIS_REPLY_LANGUAGE", "auto").strip().lower()
+    return "en" if v in ("en", "en-gb", "en_gb") else "es" if v in ("es", "es-mx", "es_mx") else None
+
+
+def idioma_turno(text: str, stt_lang: Optional[str], previo: str = "es") -> str:
+    """Idioma de este turno: override de admin > idioma que detectó el STT > heurística offline del texto."""
+    return override() or (stt_lang if stt_lang in ("es", "en") else idioma(text, previo))
+
+
 def enabled() -> bool:
     return os.getenv("VOZ_CONTINUA_ENABLED", "false").strip().lower() in ("1", "true", "yes", "si", "sí")
 
@@ -191,12 +202,13 @@ class VozSession:
 
     async def _turn(self, pcm: bytes) -> None:
         try:
-            text = await self.transcribe(pcm_to_wav(pcm))
+            res = await self.transcribe(pcm_to_wav(pcm))
         except asyncio.CancelledError:
             raise
         except Exception:
             await self.send_json({"type": "error", "texto": self._aviso("audio")}); return
-        self.idioma = idioma(text, self.idioma)
+        text, stt_lang = res if isinstance(res, tuple) else (res, None)
+        self.idioma = idioma_turno(text, stt_lang, self.idioma)
         clean = self.redact(text or "")
         await self.send_json({"type": "transcripcion", "texto": clean, "idioma": self.idioma})
         why = refusal(text, self.idioma)

@@ -66,6 +66,41 @@ class VozContinua(unittest.TestCase):
         self.assertEqual(h.events[1]['idioma'], 'en')
         self.assertTrue(h.audio[0].startswith(b'RIFFen'))
 
+    def test_stt_language_wins_over_text_heuristic(self):
+        h = Harness(text='ok ok', answer='Very good, sir.')
+        async def tr(wav): return ('ok ok', 'en')
+        h.s.transcribe = tr
+        async def go():
+            await h.s.feed(speech() + quiet()); await h.s.task
+        run(go())
+        self.assertEqual(h.langs, ['en'])
+
+    def test_language_switches_mid_call(self):
+        h = Harness()
+        turns = iter([('Hola, quiero una cita para Cliente Ficticio', None),
+                      ('Please call me tomorrow about the price', None),
+                      ('Gracias, hasta luego', 'es')])
+        async def tr(wav): return next(turns)
+        h.s.transcribe = tr
+        async def go():
+            for _ in range(3):
+                await h.s.feed(speech() + quiet()); await h.s.task
+        run(go())
+        self.assertEqual(h.langs, ['es', 'en', 'es'])
+        starts = [a[:6] for a in h.audio if a[:6] in (b'RIFFes', b'RIFFen')]
+        self.assertIn(b'RIFFen', starts); self.assertEqual(starts[0], b'RIFFes')
+
+    def test_admin_override_only_when_set(self):
+        with patch.dict(os.environ, {'JARVIS_REPLY_LANGUAGE': 'auto'}):
+            self.assertEqual(v.idioma_turno('hola', 'en'), 'en')
+        with patch.dict(os.environ, {'JARVIS_REPLY_LANGUAGE': 'es'}):
+            self.assertEqual(v.idioma_turno('hello', 'en'), 'es')
+
+    def test_voices_alan_english_ald_spanish(self):
+        import jarvis_local_tts as t
+        self.assertEqual(t.profile(v.voz_de('en'))[0], 'en_GB-alan-medium.onnx')
+        self.assertEqual(t.profile(v.voz_de('es'))[0], 'es_MX-ald-medium.onnx')
+
     def test_english_refusal_is_in_english(self):
         self.assertIn('Telegram', v.refusal('approve the payment', 'en'))
         self.assertIn('voz', v.refusal('aprobar el pago'))

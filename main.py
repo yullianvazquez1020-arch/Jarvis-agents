@@ -7631,9 +7631,9 @@ def _voz_c_auth(ws) -> bool:
     return bool((secret and _key_ok(secret, ENCARGO_SECRET)) or (key and _key_ok(key, API_KEY)))
 
 
-async def _voz_c_transcribe(wav: bytes) -> str:
-    import jarvis_chat_voice
-    return await jarvis_chat_voice.transcribe_local(wav, language="auto")
+async def _voz_c_transcribe(wav: bytes):
+    import jarvis_chat_voice                      # (texto, idioma que detectó Whisper o None)
+    return await jarvis_chat_voice.transcribe_local_detect(wav, language="auto")
 
 
 async def _voz_c_speak(text: str, language: str = "es") -> bytes:
@@ -7660,7 +7660,7 @@ async def ws_voz(ws: WebSocket):
         log=lambda s: logger.info(s), redact=lambda s: _redact_secrets(s)[0])
     await ws.send_json({"type": "listo", "rate": _voz_c.RATE, "formato": "pcm16le-mono",
                         "idiomas": ["es", "en"], "voces": {"es": "ald", "en": "alan"},
-                        "idioma_voz": __import__("jarvis_chat_voice").reply_language()})
+                        "idioma_voz": __import__("jarvis_voz_continua").override() or "auto"})
     try:
         while True:
             msg = await ws.receive()

@@ -58,10 +58,11 @@ try:
     lang = req.get("language", "es")
     if lang not in ("es", "en"):
         lang = None
-    segs, _ = m.transcribe(req["wav"], language=lang, vad_filter=True, beam_size=int(req.get("beam", 1)),
+    segs, info = m.transcribe(req["wav"], language=lang, vad_filter=True, beam_size=int(req.get("beam", 1)),
                           initial_prompt=req.get("hint", "")[:200], condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segs)
-    print(json.dumps({"text": text, "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
+    print(json.dumps({"text": text, "language": getattr(info, "language", None),
+                      "language_probability": getattr(info, "language_probability", None), "peak_memory_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)}))
 except Exception as exc:
     # Never serialize exception messages, tracebacks, paths, URLs or credentials.
     kind = type(exc).__name__
@@ -175,6 +176,11 @@ async def _ffmpeg(args, timeout=FFMPEG_TIMEOUT) -> int:
 
 
 async def transcribe_local(raw: bytes, language: str = "es") -> str:
+    return (await transcribe_local_detect(raw, language))[0]
+
+
+async def transcribe_local_detect(raw: bytes, language: str = "auto") -> tuple:
+    """(texto, idioma detectado por Whisper o None). Con language='auto' Whisper detecta el idioma del turno."""
     if not raw or len(raw) > MAX_AUDIO:
         raise ValueError("audio vacío o mayor de 1.5 MB")
     with tempfile.TemporaryDirectory(prefix="jarvis-voz-") as tmp:
@@ -202,7 +208,12 @@ async def transcribe_local(raw: bytes, language: str = "es") -> str:
         text = " ".join(str(result.get("text", "")).split())
         if not text:
             raise ValueError("no entendí el audio")
-        return text[:4000]
+        det = result.get("language")
+        try:
+            prob = float(result.get("language_probability") or 0)
+        except (TypeError, ValueError):
+            prob = 0.0
+        return text[:4000], (det if det in ("es", "en") and prob >= 0.6 else None)
 
 
 def reply_language():
