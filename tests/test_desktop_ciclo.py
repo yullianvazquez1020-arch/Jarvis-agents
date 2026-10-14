@@ -189,6 +189,33 @@ class Ciclo(unittest.TestCase):
         self.assertEqual(c.vuelta(), [])
         self.assertEqual(llamadas, [])
 
+    def test_el_id_nuevo_no_se_publica_sin_el_hecho(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        encargo = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(encargo) + "\n")
+        (home / "encargos_hechos.json").write_text(json.dumps([json.dumps(encargo, sort_keys=True)]))
+        visto = {}
+        real = os.replace
+
+        def reemplazo(src, dst):
+            if str(dst).endswith("encargos.jsonl"):
+                linea = json.loads(pathlib.Path(src).read_text(encoding="utf-8").splitlines()[0])
+                visto["id"] = linea["id"]
+                visto["hechos"] = json.loads((home / "encargos_hechos.json").read_text(encoding="utf-8"))
+            return real(src, dst)
+
+        from unittest.mock import patch
+        with patch("ciclo.os.replace", reemplazo):
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False,
+                            mouse=lambda o: {"ok": True, "orden": "scroll"})
+            self.assertEqual(c.vuelta(), [])
+        self.assertIn(visto["id"], visto["hechos"])
+
+    def test_el_ciclo_apagado_no_dice_que_esta_activo(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+        self.assertFalse(c.estado_view()["activo"])
+
     def test_no_borra_lo_que_llego_mientras_guardaba(self):
         home = pathlib.Path(tempfile.mkdtemp())
         cola = home / "encargos.jsonl"

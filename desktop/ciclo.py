@@ -143,7 +143,7 @@ class Ciclo:
         self.base, self.emit, self.speak, self.stopped = base, emit, speak, stopped
         self.mouse, self.estado, self.intervalo, self.fetch = mouse, estado, intervalo, fetch
         self.resolver = resolver
-        self.ultimo = None; self.vueltas = 0
+        self.ultimo = None; self.vueltas = 0; self.activo = False
 
     def _hechos(self):
         """Cuenta cuántas veces se completó cada clave. Una lista guarda las repeticiones."""
@@ -234,14 +234,21 @@ class Ciclo:
             if ahora != crudo:
                 tmp.unlink(missing_ok=True)
                 continue
-            os.replace(tmp, self.cola)
+            marcas = {}
             for contenido, nuevo_id in traspaso:
-                n = hechos.get(contenido, 0)
-                if n > 0:
-                    hechos[contenido] = n - 1
-                    if hechos[contenido] <= 0:
-                        hechos.pop(contenido, None)
-                    hechos[nuevo_id] = hechos.get(nuevo_id, 0) + 1
+                if hechos.get(contenido, 0) > 0:
+                    marcas[nuevo_id] = contenido
+            if marcas:
+                junto = dict(hechos)
+                for nuevo_id in marcas:
+                    junto[nuevo_id] = junto.get(nuevo_id, 0) + 1
+                self._guardar_hechos(junto)
+            os.replace(tmp, self.cola)
+            for nuevo_id, contenido in marcas.items():
+                hechos[nuevo_id] = hechos.get(nuevo_id, 0) + 1
+                hechos[contenido] = hechos.get(contenido, 0) - 1
+                if hechos[contenido] <= 0:
+                    hechos.pop(contenido, None)
             return [e for e in entradas if "__raw__" not in e]
         return None
 
@@ -271,17 +278,23 @@ class Ciclo:
         vigentes = {k: n for k, n in vigentes.items() if n > 0}
         lista = [k for k, n in sorted(vigentes.items()) for _ in range(n)]
         if lista != previo:
-            self.home.mkdir(parents=True, exist_ok=True)
-            tmp = self.hechos.with_name(self.hechos.name + ".tmp")
-            tmp.write_text(json.dumps(lista), encoding="utf-8"); os.replace(tmp, self.hechos)
+            self._guardar_hechos(vigentes)
         self.ultimo = out[-1] if out else self.ultimo
         return out
 
+    def _guardar_hechos(self, counts):
+        lista = [k for k, n in sorted(counts.items()) for _ in range(int(n)) if int(n) > 0]
+        self.home.mkdir(parents=True, exist_ok=True)
+        tmp = self.hechos.with_name(self.hechos.name + ".tmp")
+        tmp.write_text(json.dumps(lista), encoding="utf-8")
+        os.replace(tmp, self.hechos)
+
     def estado_view(self):
-        return {"activo": True, "vueltas": self.vueltas, "ultimo": self.ultimo, "cola": str(self.cola),
+        return {"activo": bool(self.activo), "vueltas": self.vueltas, "ultimo": self.ultimo, "cola": str(self.cola),
                 "intervalo_s": self.intervalo}
 
     def arrancar(self):
+        self.activo = True
         def loop():
             while True:
                 try:
