@@ -7388,10 +7388,10 @@ async def bus_negocios(x_jarvis_secret: str = Header(None)):
 
 @app.get("/api/bus/eventos")
 async def bus_eventos(desde: int = 0, negocio: str | None = None, limite: int = 100,
-                      x_jarvis_secret: str = Header(None)):
+                      epoch: str | None = None, x_jarvis_secret: str = Header(None)):
     if not jarvis_bus.secreto_usable(BUS_READ_SECRET) or not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
         raise HTTPException(401, "Bad secret")
-    return {"eventos": jarvis_bus.BUS.eventos(desde, negocio, limite)}
+    return jarvis_bus.BUS.consultar(desde, negocio, limite, epoch)
 
 @app.post("/api/bus/eventos")
 async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):

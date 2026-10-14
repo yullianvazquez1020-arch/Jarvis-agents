@@ -82,6 +82,18 @@ class BusTest(unittest.TestCase):
         src = (ROOT / "main.py").read_text("utf-8")
         self.assertEqual(src.count("jarvis_bus.secreto_usable("), 3)
 
+    def test_cursor_de_otro_arranque_no_esconde_lo_nuevo(self):
+        self.b.emitir("amazon", "nota", "antes")
+        self.b._ev.clear(); self.b._seq = 0; self.b._epoch = "ciclo-nuevo"
+        nuevo = self.b.emitir("amazon", "nota", "despues")
+        r = self.b.consultar(desde=450, epoch="ciclo-viejo")
+        self.assertTrue(r["reinicio"])
+        self.assertEqual(r["epoch"], "ciclo-nuevo")
+        self.assertEqual([e["seq"] for e in r["eventos"]], [nuevo["seq"]])
+        seguido = self.b.consultar(desde=nuevo["seq"], epoch="ciclo-nuevo")
+        self.assertFalse(seguido["reinicio"])
+        self.assertEqual(seguido["eventos"], [])
+
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")
         for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)

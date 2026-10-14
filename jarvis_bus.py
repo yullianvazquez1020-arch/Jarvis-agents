@@ -4,7 +4,7 @@ Cada negocio emite eventos de estado; Grok Bot los lee con X-Jarvis-Secret.
 Solo lectura/registro: ningún evento ejecuta pagos, envíos ni publicaciones.
 Memoria acotada (se pierde al reiniciar; persistencia en Redis = paso siguiente).
 """
-import re, threading, time
+import re, secrets, threading, time
 from collections import deque
 
 ESTADOS = ("idea", "plan", "codigo", "pr", "live", "pausado")
@@ -60,6 +60,7 @@ def secreto_usable(value):
 class Bus:
     def __init__(self, now=time.time):
         self._now, self._lock, self._seq = now, threading.Lock(), 0
+        self._epoch = secrets.token_hex(8)          # cambia en cada arranque; el cursor viejo no sirve
         self._ev = deque(maxlen=MAX_EVENTOS)
         self._estado = {k: {"id": k, "nombre": v, "estado": "idea", "nota": "", "ts": None}
                         for k, v in NEGOCIOS.items()}
@@ -85,16 +86,26 @@ class Bus:
             if estado: n["estado"] = estado
             return dict(ev)
 
-    def eventos(self, desde=0, negocio=None, limite=100):
+    def consultar(self, desde=0, negocio=None, limite=100, epoch=None):
+        """Lectura con época. Un cursor de otro arranque no esconde los eventos nuevos."""
         limite = max(1, min(int(limite), MAX_EVENTOS))
         with self._lock:
-            out = [dict(e) for e in self._ev if e["seq"] > int(desde) and (negocio is None or e["negocio"] == negocio)]
-        return out[:limite]
+            cursor = int(desde)
+            otro_ciclo = epoch is not None and epoch != self._epoch
+            reinicio = otro_ciclo or cursor > self._seq
+            if reinicio:
+                cursor = 0
+            out = [dict(e) for e in self._ev if e["seq"] > cursor and (negocio is None or e["negocio"] == negocio)]
+            return {"eventos": out[:limite], "epoch": self._epoch, "reinicio": reinicio,
+                    "ultimo_seq": self._seq}
+
+    def eventos(self, desde=0, negocio=None, limite=100):
+        return self.consultar(desde, negocio, limite)["eventos"]
 
     def tablero(self):
         with self._lock:
             return {"negocios": [dict(v) for v in self._estado.values()], "ultimo_seq": self._seq,
-                    "solo_lectura": True}
+                    "epoch": self._epoch, "solo_lectura": True}
 
 
 BUS = Bus()
