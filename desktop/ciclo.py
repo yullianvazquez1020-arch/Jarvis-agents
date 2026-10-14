@@ -171,22 +171,79 @@ class Ciclo:
                 counts[key] = counts.get(key, 0) + n
         return counts
 
-    def _con_id(self, entradas):
-        """Cada línea guarda su propio id. Dos textos iguales no comparten el hecho de una sola."""
-        cambio, out = False, []
-        for e in entradas:
-            e = dict(e)
-            if not str(e.get("id") or "").strip():
+    def _foto_cola(self):
+        """Lee la cola sin tirar una línea a medias ni una línea que no es JSON."""
+        try:
+            crudo = self.cola.read_bytes()
+        except OSError:
+            return b"", [], ""
+        texto = crudo.decode("utf-8", "replace")
+        suelto = ""
+        if texto and not texto.endswith("\n"):
+            cuerpo, separado, ultima = texto.rpartition("\n")
+            candidato = ultima if separado else texto
+            try:
+                json.loads(candidato)
+                completo = True
+            except ValueError:
+                completo = False
+            if not completo:
+                suelto = candidato
+                texto = cuerpo if separado else ""
+        entradas = []
+        for ln in texto.splitlines():
+            try:
+                e = json.loads(ln)
+                entradas.append(dict(e) if isinstance(e, dict) else {"__raw__": ln})
+            except ValueError:
+                entradas.append({"__raw__": ln})
+        return crudo, entradas, suelto
+
+    def _con_id(self, hechos):
+        """Pone un id a cada línea y pasa el 'ya hecho' viejo a ese id. No pisa un añadido nuevo."""
+        for _ in range(5):
+            crudo, entradas, suelto = self._foto_cola()
+            cambio, vistos, traspaso = False, set(), []
+            for e in entradas:
+                if "__raw__" in e:
+                    continue
+                actual = str(e.get("id") or "").strip()
+                if actual and actual not in vistos:
+                    vistos.add(actual)
+                    continue
+                contenido = json.dumps(e, sort_keys=True) if not actual else None
                 e["id"] = "c-" + secrets.token_hex(8)
+                while e["id"] in vistos:
+                    e["id"] = "c-" + secrets.token_hex(8)
+                vistos.add(e["id"])
                 cambio = True
-            out.append(e)
-        if not cambio:
-            return out
-        self.home.mkdir(parents=True, exist_ok=True)
-        tmp = self.cola.with_name(self.cola.name + ".tmp")
-        tmp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in out), encoding="utf-8")
-        os.replace(tmp, self.cola)
-        return out
+                if contenido is not None:
+                    traspaso.append((contenido, e["id"]))
+            if not cambio:
+                return [e for e in entradas if "__raw__" not in e]
+            nuevo = "".join((e["__raw__"] if "__raw__" in e else json.dumps(
+                {k: v for k, v in e.items() if k != "__raw__"}, ensure_ascii=False)) + "\n" for e in entradas)
+            nuevo += suelto
+            self.home.mkdir(parents=True, exist_ok=True)
+            tmp = self.cola.with_name(self.cola.name + ".tmp")
+            tmp.write_text(nuevo, encoding="utf-8")
+            try:
+                ahora = self.cola.read_bytes()
+            except OSError:
+                ahora = b""
+            if ahora != crudo:
+                tmp.unlink(missing_ok=True)
+                continue
+            os.replace(tmp, self.cola)
+            for contenido, nuevo_id in traspaso:
+                n = hechos.get(contenido, 0)
+                if n > 0:
+                    hechos[contenido] = n - 1
+                    if hechos[contenido] <= 0:
+                        hechos.pop(contenido, None)
+                    hechos[nuevo_id] = hechos.get(nuevo_id, 0) + 1
+            return [e for e in entradas if "__raw__" not in e]
+        return None
 
     def vuelta(self):
         self.vueltas += 1
@@ -194,7 +251,11 @@ class Ciclo:
             self.ultimo = "STOP activo: ciclo en pausa"; return []
         hechos, out, vistos = self._hechos(), [], {}
         previo = [k for k, n in sorted(hechos.items()) for _ in range(n)]
-        for e in self._con_id(leer_cola(self.cola)):
+        entradas = self._con_id(hechos)
+        if entradas is None:
+            self.ultimo = "cola en uso: se reintenta"
+            return []
+        for e in entradas:
             key = str(e.get("id"))
             vistos[key] = vistos.get(key, 0) + 1
             if vistos[key] <= hechos.get(key, 0):

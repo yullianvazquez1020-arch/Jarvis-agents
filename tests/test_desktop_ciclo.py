@@ -173,6 +173,54 @@ class Ciclo(unittest.TestCase):
         self.assertEqual(c.vuelta(), [])
         self.assertEqual(len(dichas), 1)
 
+    def test_lo_ya_hecho_sigue_hecho_al_ponerle_id(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        encargo = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(encargo) + "\n")
+        (home / "encargos_hechos.json").write_text(json.dumps([json.dumps(encargo, sort_keys=True)]))
+        llamadas = []
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None,
+                        speak=lambda t: None, stopped=lambda: False,
+                        mouse=lambda o: llamadas.append(o) or {"ok": True, "orden": "scroll"})
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(llamadas, [])
+        guardado = json.loads((home / "encargos.jsonl").read_text())
+        self.assertTrue(str(guardado.get("id", "")).startswith("c-"))
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(llamadas, [])
+
+    def test_no_borra_lo_que_llego_mientras_guardaba(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        cola = home / "encargos.jsonl"
+        original = (json.dumps({"tipo": "shell", "n": 1}) + "\n").encode()
+        cola.write_bytes(original)
+        extra = (json.dumps({"id": "nuevo", "tipo": "shell"}) + "\n").encode()
+        veces = {"n": 0}
+        real = pathlib.Path.read_bytes
+        from unittest.mock import patch
+
+        def leer(self):
+            veces["n"] += 1
+            if self == cola and veces["n"] == 2:
+                cola.write_bytes(original + extra)
+                return original + extra
+            return real(self)
+
+        with patch.object(pathlib.Path, "read_bytes", leer):
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+            c.vuelta()
+        texto = cola.read_text(encoding="utf-8")
+        self.assertIn('"id": "nuevo"', texto)
+        self.assertIn('"n": 1', texto)
+
+    def test_una_linea_a_medias_no_se_borra(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        cola = home / "encargos.jsonl"
+        cola.write_text(json.dumps({"id": "a", "tipo": "shell"}) + '\n{"tipo":"web"', encoding="utf-8")
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+        self.assertEqual(len(c.vuelta()), 1)
+        self.assertTrue(cola.read_text(encoding="utf-8").endswith('{"tipo":"web"'))
+
     def test_no_lee_ruta_sensible_ni_red_privada(self):
         home = pathlib.Path(tempfile.mkdtemp()); base = home / "archivos"
         (base / "privado").mkdir(parents=True)
