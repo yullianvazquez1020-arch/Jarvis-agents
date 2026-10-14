@@ -129,8 +129,10 @@ class Bus:
                     publico = dict(e)
                     publico.pop("_previo", None)
                     out.append(publico)
-            return {"eventos": out[:limite], "epoch": self._epoch, "reinicio": reinicio,
-                    "ultimo_seq": self._seq}
+            page = out[:limite]
+            siguiente = page[-1]["seq"] if page else cursor
+            return {"eventos": page, "epoch": self._epoch, "reinicio": reinicio,
+                    "cursor": siguiente, "ultimo_seq": siguiente, "seq_alto": self._seq}
 
     def eventos(self, desde=0, negocio=None, limite=100):
         return self.consultar(desde, negocio, limite)["eventos"]

@@ -109,6 +109,18 @@ class BusTest(unittest.TestCase):
         self.assertLess(vida.index("fence_take_leadership"), vida.index("_restaurar_seq_bus"))
         self.assertIn("secuencia del bus no guardada", src)
         self.assertNotIn("bus seq not saved", src)
+        self.assertNotIn("bus seq not restored", src)
+
+    def test_el_cursor_de_la_pagina_no_se_salta_eventos(self):
+        for i in range(5):
+            self.b.emitir("amazon", "nota", str(i))
+        pagina = self.b.consultar(limite=2)
+        self.assertEqual([e["seq"] for e in pagina["eventos"]], [1, 2])
+        self.assertEqual(pagina["cursor"], 2)
+        self.assertEqual(pagina["ultimo_seq"], 2)
+        self.assertEqual(pagina["seq_alto"], 5)
+        sigue = self.b.consultar(desde=pagina["cursor"], limite=2)
+        self.assertEqual([e["seq"] for e in sigue["eventos"]], [3, 4])
 
     def test_si_no_se_guarda_el_numero_se_puede_repetir(self):
         primero = self.b.emitir("amazon", "nota", "uno", estado="plan")

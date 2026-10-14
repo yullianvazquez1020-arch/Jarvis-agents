@@ -7347,12 +7347,10 @@ ENCARGO_MAX = 4000
 def _bus_seq_guardada():
     if not USE_REDIS:
         return 0
-    try:
-        n = kv_get(BUS_SEQ_KEY, 0)
-        return int(n)
-    except (TypeError, ValueError, RuntimeError):
-        logger.warning("bus seq not restored")
+    n = kv_get(BUS_SEQ_KEY, 0)
+    if n is None or n == "":
         return 0
+    return int(n)
 
 def _guardar_seq_bus(seq):
     if not USE_REDIS:
