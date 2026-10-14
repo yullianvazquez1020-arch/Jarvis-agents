@@ -501,7 +501,8 @@ function start() {
   const boltGlow = []; [[0.25, 0.6], [-0.25, 0.6], [0.6, 0.3], [-0.6, 0.3]].forEach(([o, op]) => { const m = new THREE.LineSegments(boltG, new THREE.LineBasicMaterial({ color: 0x4fd8ff, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false })); m.position.set(o, o * 0.5, -0.1); boltGlow.push(m); });
   const boltGrp = new THREE.Group(); boltGrp.add(boltCore, ...boltGlow); hud.add(boltGrp);
   let boltN = 0, boltNext = 0;
-  function seg(ax, ay, bx2, by2) { if (boltN + 2 > BOLT_MAX) return; boltP.set([ax, ay, 0.3, bx2, by2, 0.3], boltN * 3); boltN += 2; }
+  let boltR = 27;                                                                  // recorte: los rayos no cruzan el título ni las etiquetas de agentes
+  function seg(ax, ay, bx2, by2) { if (boltN + 2 > BOLT_MAX || Math.hypot(bx2, by2) > boltR || by2 > 21 || Math.hypot(ax, ay) > boltR || ay > 21) return; boltP.set([ax, ay, 0.3, bx2, by2, 0.3], boltN * 3); boltN += 2; }
   function bolt(x0, y0, ang, len, jag, depth) {
     const n = 9 + Math.floor(rnd() * 5); let px = x0, py = y0; const nx = -Math.sin(ang), ny = Math.cos(ang);
     for (let i = 1; i <= n; i++) { const f = i / n, off = (rnd() - 0.5) * jag * (1 - f * 0.4), x = x0 + Math.cos(ang) * len * f + nx * off, y = y0 + Math.sin(ang) * len * f + ny * off;
@@ -511,6 +512,7 @@ function start() {
     boltGlow.forEach(m => m.material.color.copy(col));
     if (t < boltNext && !reduce) return; boltNext = t + 0.05 + rnd() * 0.05; boltN = 0;                       // parpadeo ~15 Hz
     const pts = raysM === "speak" || (raysM === "idle" && lvl > 0.15) ? "speak" : raysM, n = rays.children.length;
+    boltR = pts === "point" ? 44 : 27;
     rays.children.forEach((r, i) => { const on = pts === "idle" ? rnd() < 0.35 : pts === "speak" ? rnd() < 0.55 : rnd() < 0.85; if (!on) return;
       const ang = r.rotation.z + Math.PI / 2, L = (pts === "idle" ? 14 + rnd() * 10 : pts === "point" ? 46 + rnd() * 10 : 26 + lvl * 26 + rnd() * 8) + flare * 20;
       bolt(Math.cos(ang) * 11, Math.sin(ang) * 11, ang, L, pts === "point" ? 2.2 : 3.6, 0); });

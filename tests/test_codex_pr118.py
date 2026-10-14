@@ -98,7 +98,7 @@ class RayosObjetivo(unittest.TestCase):
         self.assertEqual(desk.speech_topics("Sir, BTC is up and Ethereum is flat"), ["BTC", "ETH"])
         self.assertEqual(desk.speech_topics("Todo en orden"), [])
         js = (Path(__file__).resolve().parents[1] / "desktop/ui/torre-cine.js").read_text("utf-8")
-        for k in ("raysMode", "cripto", "negocio", "jarvis-rayos", "drawBeam", "speaking_topics", "uLvl", "updReactor", "bezel", "updBolts", "DEMO"):
+        for k in ("raysMode", "cripto", "negocio", "jarvis-rayos", "drawBeam", "speaking_topics", "uLvl", "updReactor", "bezel", "updBolts", "DEMO", "boltR"):
             self.assertIn(k, js, k)
         neg = (Path(__file__).resolve().parents[1] / "desktop/ui/negocios.js").read_text("utf-8")
         self.assertIn("data-negocio", neg); self.assertIn("data-cripto", neg); self.assertIn("jarvis-scan", neg)

@@ -20,3 +20,5 @@ body.cine #aincrad { display: none; }
   font: 13px system-ui, sans-serif; color: #e6f4ff; background: rgba(4,14,30,.8); border: 1px solid rgba(90,210,255,.6);
   border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .cine-label.on { opacity: 1; }
+/* legibilidad del título y etiquetas sobre la escena cine */
+body.cine .stage .title, body.cine .stage .hud { text-shadow: 0 0 6px #000, 0 0 14px #000; }
