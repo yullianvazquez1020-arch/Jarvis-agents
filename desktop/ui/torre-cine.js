@@ -447,7 +447,7 @@ function start() {
     fragmentShader: "uniform vec3 uC; varying vec2 vP; void main(){ vec2 p = vP/3.0; vec2 r = vec2(1.0,1.732); vec2 h = r*0.5; vec2 a = mod(p,r)-h; vec2 b = mod(p-h,r)-h; vec2 g = dot(a,a)<dot(b,b)?a:b;" +
       " float e = smoothstep(0.42,0.5,max(abs(g.x)*0.866+abs(g.y)*0.5, abs(g.y))); float f = 1.0 - smoothstep(20.0,60.0,length(vP)); gl_FragColor = vec4(uC, e*f*0.07); }" })); hex.position.z = -2; hud.add(hex);
   const txtC = document.createElement("canvas"); txtC.width = 512; txtC.height = 128; const txtX = txtC.getContext("2d"), txtT = new THREE.CanvasTexture(txtC);
-  const readout = new THREE.Sprite(new THREE.SpriteMaterial({ map: txtT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); readout.scale.set(26, 6.5, 1); readout.position.set(-24, 27, 0); hud.add(readout);
+  const readout = new THREE.Sprite(new THREE.SpriteMaterial({ map: txtT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); readout.scale.set(26, 6.5, 1); readout.position.set(-27, -22, 0); hud.add(readout);
   let btc = "--", lastTxt = -1;
   fetch("/api/cripto", { credentials: "same-origin" }).then(r => r.json()).then(j => { const c = (j.precios || j.monedas || []).find(x => /btc|bitcoin/i.test(JSON.stringify(x))); if (c && c.usd != null) btc = "$" + Number(c.usd).toLocaleString("en-US", { maximumFractionDigits: 0 }); }).catch(() => {});
   function drawReadout(t, lvl, colCss) { txtX.clearRect(0, 0, 512, 128); txtX.font = "bold 26px monospace"; txtX.fillStyle = colCss;
@@ -584,7 +584,7 @@ function start() {
   const ease = (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   function frame() {
     requestAnimationFrame(frame);
-    const t = clock.getElapsedTime() + t0; if (t - last < minDt) return; const dt = Math.min(0.1, Math.max(0.001, t - last)); last = t;
+    const t = DEMO ? t0 + Math.min(clock.getElapsedTime(), 0.4) : clock.getElapsedTime() + t0; if (DEMO) last = t - 0.04; if (t - last < minDt) return; const dt = Math.min(0.1, Math.max(0.001, t - last)); last = t;
     if (mode !== shown && trans < 0) { trans = 0; shown = mode; }
     let flash = 0, glitch = 0, flare = 0, sh = -1;
     if (DEMO) { if (t >= 5 && t < 7.5 && raysM !== "point") raysMode("point", { cripto: "BTC" }); if (t >= 7.5 && raysM === "point") raysMode("idle"); }
@@ -641,7 +641,7 @@ function start() {
     push += (Math.min(1, lvl * 1.4 + k * 0.6 + flare * 0.5) - push) * Math.min(1, dt * (push < lvl ? 4 : 1.2));
     if (focusT === "core") focusP.copy(core.position); else if (focusT === "tower") focusP.copy(towerC).setY(70); else focusP.set(focusT.x, focusT.y, focusT.z);
     const out = new THREE.Vector3(core.position.x, 0, core.position.z).normalize();          // hacia fuera de la torre
-    const side = new THREE.Vector3(-out.z, 0, out.x), dist = 62 - push * 8;                                        // primer plano: núcleo+HUD ~75% del alto
+    const side = new THREE.Vector3(-out.z, 0, out.x), dist = 100 - push * 14;                                        // primer plano: núcleo+HUD ~75% del alto
     const want = core.position.clone().addScaledVector(out, dist * 0.92).addScaledVector(side, dist * 0.38).add(new THREE.Vector3(0, -dist * 0.12 + (reduce ? 0 : Math.sin(t * 0.21) * 3), 0));
     const ease2 = (reduce || !camInit) ? 1 : Math.min(1, dt * 2.2); camInit = true;
     camPos.lerp(want, ease2); camLook.lerp(focusP, focusT === "core" ? 1 : ease2);
