@@ -37,7 +37,7 @@ class FakePointer:
         return self.front
 
     def page_url(self):
-        return ""
+        return ""  # leer la página no es una orden: no entra en calls
 
     def __getattr__(self, name):
         return lambda *a: self.calls.append((name,) + a)
@@ -161,6 +161,37 @@ class RunTests(Base):
         (ae.control_dir() / "STOP").touch()
         p = self.go([{"agent": "claude", "action": "click", "x": 100, "y": 100}])
         self.assertEqual(p.calls, [])
+
+    def test_ftp_no_apaga_la_sesion(self):
+        self.open()
+        p = self.go([{"agent": "claude", "action": "open_url", "url": "ftp://github.com/x"}])
+        self.assertEqual(p.calls, [])
+        self.assertFalse(ae.stopped())
+
+    def test_cada_clic_revisa_la_url_de_safari(self):
+        self.open()
+
+        class Pages(FakePointer):
+            def __init__(self):
+                super().__init__("Safari", [
+                    {"agent": "claude", "action": "open_url", "url": "https://github.com/x"},
+                    {"agent": "claude", "action": "click", "x": 100, "y": 100},
+                    {"agent": "claude", "action": "click", "x": 120, "y": 120},
+                ])
+                self.urls = iter([
+                    "",
+                    "https://github.com/x",
+                    "https://github.com/x",
+                    "https://mail.google.com/mail",
+                ])
+
+            def page_url(self):
+                return next(self.urls)
+
+        p = Pages()
+        quiet(au.run, p, sleep=lambda s: None, max_steps=3)
+        self.assertEqual([c[0] for c in p.calls], ["open_url", "click"])
+        self.assertFalse(ae.stopped())
 
     def test_rate_limit(self):
         self.open()

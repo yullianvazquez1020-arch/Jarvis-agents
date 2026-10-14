@@ -16,8 +16,8 @@ VOICE_STT_BACKEND=none
 # VOICE_STT_MODEL_PATH=/Users/YOU/whisper.cpp/models/ggml-base.bin   (multilingual; never a .en model)
 # VOICE_STT_THREADS=4
 
-# Text-to-speech. "macos_say" uses voices already in macOS (offline). "piper" needs the piper program + a voice.
-VOICE_TTS_BACKEND=none
+# Text-to-speech. "auto" usa Piper si hay una voz .onnx, y si no la voz de macOS.
+VOICE_TTS_BACKEND=auto
 # VOICE_TTS_VOICE=Juan                 (macos_say: Juan es el español latino de doblaje. Paulina también. Jorge y Monica son de España.)
 # VOICE_PIPER_BIN=/usr/local/bin/piper
 

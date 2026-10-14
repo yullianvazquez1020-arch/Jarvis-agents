@@ -91,7 +91,8 @@ class Ciclo(unittest.TestCase):
         (home / "encargos.jsonl").write_text("\n".join(json.dumps(c) for c in cola))
         ev, voz = [], []
         c = ciclo.Ciclo(home, base=base, emit=ev.append, speak=voz.append, stopped=lambda: False,
-                        fetch=lambda u: "<title>Prueba</title><p>texto ficticio</p>")
+                        fetch=lambda u: "<title>Prueba</title><p>texto ficticio</p>",
+                        resolver=lambda host, port: [(None, None, None, None, ("1.1.1.1", 0))])
         out = c.vuelta()
         self.assertIn("Prueba", out[0]); self.assertIn("nota.md: 2 líneas", out[1])
         self.assertIn("sensible", out[2]); self.assertIn("fuera", out[3])
@@ -100,34 +101,165 @@ class Ciclo(unittest.TestCase):
         c2 = ciclo.Ciclo(home, base=base, emit=ev.append, speak=voz.append, stopped=lambda: True)
         self.assertEqual(c2.vuelta(), []); self.assertIn("STOP", c2.ultimo)
 
-    def test_dos_mouse_iguales_se_ejecutan_y_el_fallo_no_cuenta(self):
+    def test_el_segundo_mouse_queda_pendiente(self):
         home = pathlib.Path(tempfile.mkdtemp())
-        orden = {"tipo": "mouse", "orden": {"action": "scroll", "dy": -1}}
-        (home / "encargos.jsonl").write_text(json.dumps(orden) + "\n" + json.dumps(orden))
-        vistos = []
+        cola = [{"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}},
+                {"tipo": "mouse", "orden": {"action": "scroll", "dy": 2}}]
+        (home / "encargos.jsonl").write_text("\n".join(json.dumps(c) for c in cola))
+        n = {"v": 0}
 
-        def mouse(o):
-            vistos.append(o)
-            if len(vistos) == 1:
-                return {"ok": False, "motivo": "ya hay una orden pendiente"}
-            return {"ok": True, "orden": "scroll"}
+        def mouse(orden):
+            n["v"] += 1
+            if n["v"] == 1:
+                return {"ok": True, "orden": orden["action"]}
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
 
         c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
-        primero = c.vuelta()
-        self.assertEqual(len(vistos), 2)
-        self.assertIn("pendiente", primero[0])
-        self.assertIn("en cola", primero[1])
-        segundo = c.vuelta()
-        self.assertEqual(len(segundo), 1)
-        self.assertIn("en cola", segundo[0])
-        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(len(c.vuelta()), 2)
+        hechos = json.loads((home / "encargos_hechos.json").read_text())
+        self.assertEqual(len(hechos), 1)
+        c.mouse = lambda orden: {"ok": True, "orden": orden["action"]}
+        otra = c.vuelta()
+        self.assertEqual(len(otra), 1)
+        self.assertIn("en cola", otra[0])
 
-        home2 = pathlib.Path(tempfile.mkdtemp())
-        (home2 / "encargos.jsonl").write_text(json.dumps(orden))
-        falla = ciclo.Ciclo(home2, base=home2, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False,
-                            mouse=lambda o: {"ok": False, "motivo": "sin verificar"})
-        self.assertIn("sin verificar", falla.vuelta()[0])
-        self.assertIn("sin verificar", falla.vuelta()[0])
+    def test_dos_ordenes_iguales_no_se_funden(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        orden = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(orden) + "\n" + json.dumps(orden))
+        n = {"v": 0}
+
+        def mouse(o):
+            n["v"] += 1
+            if n["v"] == 1:
+                return {"ok": True, "orden": "scroll"}
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
+
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
+        self.assertEqual(len(c.vuelta()), 2)
+        self.assertEqual(n["v"], 2)
+        c.mouse = lambda o: {"ok": True, "orden": "scroll"}
+        otra = c.vuelta()
+        self.assertEqual(len(otra), 1)
+        self.assertIn("en cola", otra[0])
+
+    def test_borrar_la_hecha_no_condona_la_rechazada(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        orden = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(orden) + "\n" + json.dumps(orden))
+        n = {"v": 0}
+
+        def mouse(o):
+            n["v"] += 1
+            if n["v"] == 1:
+                return {"ok": True, "orden": "scroll"}
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
+
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
+        self.assertEqual(len(c.vuelta()), 2)
+        lineas = (home / "encargos.jsonl").read_text(encoding="utf-8").splitlines()
+        (home / "encargos.jsonl").write_text(lineas[1] + "\n", encoding="utf-8")
+        c.mouse = lambda o: {"ok": True, "orden": "scroll"}
+        otra = c.vuelta()
+        self.assertEqual(len(otra), 1)
+        self.assertIn("en cola", otra[0])
+
+    def test_un_id_con_numero_no_se_recorta(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        (home / "encargos.jsonl").write_text(json.dumps({"id": "1:task", "tipo": "shell"}) + "\n")
+        dichas = []
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=dichas.append, stopped=lambda: False)
+        self.assertEqual(len(c.vuelta()), 1)
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(len(dichas), 1)
+
+    def test_lo_ya_hecho_sigue_hecho_al_ponerle_id(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        encargo = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(encargo) + "\n")
+        (home / "encargos_hechos.json").write_text(json.dumps([json.dumps(encargo, sort_keys=True)]))
+        llamadas = []
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None,
+                        speak=lambda t: None, stopped=lambda: False,
+                        mouse=lambda o: llamadas.append(o) or {"ok": True, "orden": "scroll"})
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(llamadas, [])
+        guardado = json.loads((home / "encargos.jsonl").read_text())
+        self.assertTrue(str(guardado.get("id", "")).startswith("c-"))
+        self.assertEqual(c.vuelta(), [])
+        self.assertEqual(llamadas, [])
+
+    def test_el_id_nuevo_no_se_publica_sin_el_hecho(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        encargo = {"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}}
+        (home / "encargos.jsonl").write_text(json.dumps(encargo) + "\n")
+        (home / "encargos_hechos.json").write_text(json.dumps([json.dumps(encargo, sort_keys=True)]))
+        visto = {}
+        real = os.replace
+
+        def reemplazo(src, dst):
+            if str(dst).endswith("encargos.jsonl"):
+                linea = json.loads(pathlib.Path(src).read_text(encoding="utf-8").splitlines()[0])
+                visto["id"] = linea["id"]
+                visto["hechos"] = json.loads((home / "encargos_hechos.json").read_text(encoding="utf-8"))
+            return real(src, dst)
+
+        from unittest.mock import patch
+        with patch("ciclo.os.replace", reemplazo):
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False,
+                            mouse=lambda o: {"ok": True, "orden": "scroll"})
+            self.assertEqual(c.vuelta(), [])
+        self.assertIn(visto["id"], visto["hechos"])
+
+    def test_el_ciclo_apagado_no_dice_que_esta_activo(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+        self.assertFalse(c.estado_view()["activo"])
+
+    def test_no_borra_lo_que_llego_mientras_guardaba(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        cola = home / "encargos.jsonl"
+        original = (json.dumps({"tipo": "shell", "n": 1}) + "\n").encode()
+        cola.write_bytes(original)
+        extra = (json.dumps({"id": "nuevo", "tipo": "shell"}) + "\n").encode()
+        veces = {"n": 0}
+        real = pathlib.Path.read_bytes
+        from unittest.mock import patch
+
+        def leer(self):
+            veces["n"] += 1
+            if self == cola and veces["n"] == 2:
+                cola.write_bytes(original + extra)
+                return original + extra
+            return real(self)
+
+        with patch.object(pathlib.Path, "read_bytes", leer):
+            c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+            c.vuelta()
+        texto = cola.read_text(encoding="utf-8")
+        self.assertIn('"id": "nuevo"', texto)
+        self.assertIn('"n": 1', texto)
+
+    def test_una_linea_a_medias_no_se_borra(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        cola = home / "encargos.jsonl"
+        cola.write_text(json.dumps({"id": "a", "tipo": "shell"}) + '\n{"tipo":"web"', encoding="utf-8")
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
+        self.assertEqual(len(c.vuelta()), 1)
+        self.assertTrue(cola.read_text(encoding="utf-8").endswith('{"tipo":"web"'))
+
+    def test_no_lee_ruta_sensible_ni_red_privada(self):
+        home = pathlib.Path(tempfile.mkdtemp()); base = home / "archivos"
+        (base / "privado").mkdir(parents=True)
+        (base / "privado" / "clientes.txt").write_text("dato\n")
+        (base / "secrets").mkdir()
+        (base / "secrets" / "notes.md").write_text("dato\n")
+        self.assertIn("sensible", ciclo.archivo("privado/clientes.txt", base))
+        self.assertIn("sensible", ciclo.archivo("secrets/notes.md", base))
+        vistos = []
+        self.assertEqual(ciclo.web("https://127.0.0.1/a", lambda u: vistos.append(u) or "<title>x</title>"), "solo https público")
+        self.assertEqual(ciclo.web("https://10.1.2.3/a", lambda u: vistos.append(u) or "x"), "solo https público")
+        self.assertEqual(vistos, [])
 
 
 if __name__ == "__main__":

@@ -129,6 +129,7 @@ python3 autonomo.py --start claude --minutes 15 --run   # te pide un código; es
 - La sesión vive en `~/.jarvis-owner/autonomo.json`, fuera del alcance de los agentes. Tope: 30 min, 20 acciones/min, 300 pasos.
 - Parada: mouse a la esquina superior izquierda, Ctrl+C, `python3 autonomo.py --stop` o `touch ~/.jarvis-control/STOP`.
 - La bitácora `audit.jsonl` guarda tipo y veredicto, nunca el texto escrito (solo su largo y hash).
+- Al terminar suelta solo su propio turno. Si el turno ya es de otro agente, no lo borra.
 
 ## Modo mouse autónomo 24/7 (opcional, apagado por defecto)
 

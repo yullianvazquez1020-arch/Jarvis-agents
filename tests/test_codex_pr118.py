@@ -192,7 +192,8 @@ class Revision4(unittest.TestCase):
             (home / "encargos.jsonl").write_text("\n".join(json.dumps(e) for e in cola), encoding="utf-8")
             c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False)
             self.assertEqual(len(c.vuelta()), 2)
-            (home / "encargos.jsonl").write_text(json.dumps(cola[1]), encoding="utf-8")      # se quita la primera línea
+            lineas = (home / "encargos.jsonl").read_text(encoding="utf-8").splitlines()
+            (home / "encargos.jsonl").write_text(lineas[1] + "\n", encoding="utf-8")
             self.assertEqual(c.vuelta(), [])                                                 # la segunda no se repite
 
     def test_dueno_caducado_con_otra_ventana_viva_usa_altavoces(self):
@@ -247,6 +248,30 @@ class Revision5(unittest.TestCase):
         self.assertEqual(engines.pick_tts(cfg, platform="darwin", which=lambda c: c == "say", exists=lambda p: p.endswith(".onnx") or p == "piper"), "piper")
         css = (Path(__file__).resolve().parents[1] / "desktop/ui/torre-aincrad.css").read_text(encoding="utf-8")
         self.assertIn("#aincrad.aincrad-mini", css)
+
+    def test_no_suelta_el_turno_de_otro_agente(self):
+        au = self.au()
+        soltados = []
+        with patch.object(au, "read_session", return_value={"agent": "jarvis"}), \
+                patch.object(au, "end_session"), \
+                patch.object(au.ae, "stopped", return_value=False), \
+                patch.object(au.ae, "load_rate", return_value=[]), \
+                patch.object(au.ae, "read_lock", return_value={"agent": "claude"}), \
+                patch.object(au.ae, "release_lock", side_effect=lambda n: soltados.append(n)):
+            self.assertEqual(au.run(object(), max_steps=1), 0)
+        self.assertEqual(soltados, [])
+
+    def test_suelta_solo_su_propio_turno(self):
+        au = self.au()
+        soltados = []
+        with patch.object(au, "read_session", return_value={"agent": "jarvis"}), \
+                patch.object(au, "end_session"), \
+                patch.object(au.ae, "stopped", return_value=True), \
+                patch.object(au.ae, "load_rate", return_value=[]), \
+                patch.object(au.ae, "read_lock", return_value={"agent": "jarvis"}), \
+                patch.object(au.ae, "release_lock", side_effect=lambda n: soltados.append(n)):
+            au.run(object(), max_steps=1)
+        self.assertEqual(soltados, ["jarvis"])
 
     def test_scroll_normalizado(self):
         au = self.au(); ses = {"agent": "jarvis"}
