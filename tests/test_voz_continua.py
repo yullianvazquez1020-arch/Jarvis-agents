@@ -244,6 +244,32 @@ class Endpoint(unittest.TestCase):
         finally:
             j.ENCARGO_SECRET = old
 
+    def test_voice_turn_also_returns_text(self):
+        h = Harness(text='Hola, quiero una cita', answer='Con gusto.')
+        async def go():
+            await h.s.feed(speech() + quiet()); await h.s.task
+        run(go())
+        r = [e for e in h.events if e['type'] == 'respuesta'][0]
+        self.assertEqual((r['texto'], r['pregunta'], r['idioma']), ('Con gusto.', 'Hola, quiero una cita', 'es'))
+
+    def test_chat_text_with_optional_audio_bilingual(self):
+        j = self.j
+        from fastapi.testclient import TestClient
+        old = j.API_KEY; j.API_KEY = 'clave-ficticia-chat-123'
+        async def fake_run(session, message, **kw): return 'Very good, sir.' if 'please' in message.lower() else 'Muy bien, señor.'
+        async def sp(t, lang="es"): return b'RIFF' + lang.encode()
+        try:
+            c = TestClient(j.app); hd = {'x-api-key': 'clave-ficticia-chat-123'}
+            with patch.object(j, 'run', fake_run), patch.object(j, '_voz_c_speak', sp):
+                self.assertEqual(c.post('/chat', json={'message': 'Hola'}, headers=hd).json(), {'reply': 'Muy bien, señor.'})
+                en = c.post('/chat', json={'message': 'Please call me tomorrow', 'audio': True}, headers=hd).json()
+                es = c.post('/chat', json={'message': '¿Cómo van las ventas por favor?', 'audio': True}, headers=hd).json()
+            import base64
+            self.assertEqual((en['idioma'], en['voz'], base64.b64decode(en['audio_wav_b64'])), ('en', 'alan', b'RIFFen'))
+            self.assertEqual((es['idioma'], es['voz'], es['reply']), ('es', 'es', 'Muy bien, señor.'))
+        finally:
+            j.API_KEY = old
+
     def test_reply_is_read_only_voice(self):
         j = self.j; seen = {}
         async def fake_run(session, message, **kw): seen.update(kw); return 'ok'
