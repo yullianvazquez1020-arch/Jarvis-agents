@@ -233,9 +233,20 @@ class Revision5(unittest.TestCase):
             for app in ("Microsoft Outlook", "Slack", "Mail", "Messages"):
                 self.assertEqual(au.validate(dict(click), ses, sz, app), "app_frente", app)
             self.assertEqual(au.validate(dict(click), ses, sz, "Safari"), "sitio_no_verificado")
-            self.assertIsNone(au.validate(dict(click), ses, sz, "Safari", {"web_ok": True}))
+            self.assertEqual(au.validate(dict(click), ses, sz, "Safari", {"web_ok": True}), "sitio_no_verificado")
+            ok = {"opened_host": "github.com", "page_url": "https://github.com/ejemplo/repo"}
+            self.assertIsNone(au.validate(dict(click), ses, sz, "Safari", ok))
+            otra = {"opened_host": "github.com", "page_url": "https://mail.google.com/mail"}
+            self.assertEqual(au.validate(dict(click), ses, sz, "Safari", otra), "sitio_no_verificado")
             self.assertEqual(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, "Safari", {"web_ok": True}), "texto_en_navegador")
             self.assertIsNone(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, "Notes"))
+
+    def test_piper_si_la_voz_es_onnx_y_la_torre_mini_gana(self):
+        import audio.engines as engines
+        cfg = {"VOICE_TTS_VOICE": "/tmp/en_GB-alan-medium.onnx", "VOICE_PIPER_BIN": "piper"}
+        self.assertEqual(engines.pick_tts(cfg, platform="darwin", which=lambda c: c == "say", exists=lambda p: p.endswith(".onnx") or p == "piper"), "piper")
+        css = (Path(__file__).resolve().parents[1] / "desktop/ui/torre-aincrad.css").read_text(encoding="utf-8")
+        self.assertIn("#aincrad.aincrad-mini", css)
 
     def test_scroll_normalizado(self):
         au = self.au(); ses = {"agent": "jarvis"}

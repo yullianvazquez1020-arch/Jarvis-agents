@@ -2,7 +2,7 @@
 #aincrad { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; display: block; }
 .stage .rig, .stage .fog, .stage .grade, .stage .grain { display: none; }
 .stage .title, .stage .hud, .stage .ctl { z-index: 30; }
-.aincrad-mini { position: fixed; right: 16px; bottom: 16px; width: 420px; height: 320px; z-index: 40;
+#aincrad.aincrad-mini { position: fixed; inset: auto; right: 16px; bottom: 16px; width: 420px; height: 320px; z-index: 40;
   border: 1px solid rgba(90,210,255,.35); border-radius: 10px; box-shadow: 0 0 24px rgba(40,140,255,.25); }
 .pisos li { cursor: pointer; }
 .pisos li.sel { outline: 1px solid #5ad2ff; }

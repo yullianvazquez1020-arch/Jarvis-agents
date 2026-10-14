@@ -212,9 +212,12 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     """auto: macOS -> say; si hay piper y voz .onnx -> piper; si no, none (la respuesta queda en pantalla)."""
     platform = platform or sys.platform; which = which or shutil.which
     exists = exists or (lambda p: bool(p) and os.path.isfile(p))
+    voice = str(cfg.get("VOICE_TTS_VOICE") or "")
+    binary = cfg.get("VOICE_PIPER_BIN", "piper")
+    if voice.endswith(".onnx") and exists(voice) and (which(binary) or exists(binary)):
+        return "piper"
     if platform == "darwin" and which("say"):
         return "macos_say"
-    binary = cfg.get("VOICE_PIPER_BIN", "piper")
     if (which(binary) or exists(binary)) and exists(cfg.get("VOICE_TTS_VOICE", "")):
         return "piper"
     return "none"

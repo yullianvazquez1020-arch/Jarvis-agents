@@ -154,11 +154,14 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
             return "app_frente"
         if ae.norm(front) not in ae.ALLOW_APPS:    # falla cerrado: solo apps verificadas (Outlook, Slack, etc. nunca)
             return "app_frente"
-        if ae.norm(front) in BROWSERS:             # navegador: puede ser webmail; nunca escribir, y clic solo en un sitio permitido abierto por la sesión
+        if ae.norm(front) in BROWSERS:             # el clic solo vale si la página actual es el mismo sitio permitido que abrió esta sesión
             if kind == "type":
                 return "texto_en_navegador"
-            if not (ctx or {}).get("web_ok"):
-                return "sitio_no_verificado"
+            if kind in {"click", "double_click"}:
+                opened = str((ctx or {}).get("opened_host") or "")
+                host = ae.host_of(str((ctx or {}).get("page_url") or ""))
+                if not opened or host != opened or not ae.allowed_host(host):
+                    return "sitio_no_verificado"
     return None
 
 
@@ -178,6 +181,16 @@ class AutoPointer(ae.MacPointer):
         out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
                               'application process whose frontmost is true'], capture_output=True, text=True, timeout=5)
         return out.stdout.strip()
+
+    def page_url(self) -> str:
+        """URL actual de Safari. Vacía si no se puede probar (otra pestaña, redirección o fallo)."""
+        if sys.platform != "darwin":
+            return ""
+        import subprocess
+        out = subprocess.run(
+            ["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
+            capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
 
 
 def observe(pointer, step: int, last: dict) -> tuple[tuple[int, int], str]:
@@ -226,6 +239,13 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             if lock is None or lock["agent"] != session["agent"]:
                 last = {"resultado": "turno"}; break
             size, front = observe(pointer, step, last)
+            if ae.norm(front) in BROWSERS and hasattr(pointer, "page_url"):
+                try:
+                    ctx["page_url"] = pointer.page_url() or ""
+                except Exception:
+                    ctx["page_url"] = ""
+            else:
+                ctx["page_url"] = ""
             action = next_action()
             if action is None:
                 sleep(POLL_SECONDS)
@@ -243,8 +263,10 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             ae.save_rate(recent)
             ae.perform(action, pointer)
             if action.get("action") == "open_url":
+                ctx["opened_host"] = ae.host_of(str(action.get("url") or ""))
                 ctx["web_ok"] = True
             elif action.get("action") == "open_app":
+                ctx["opened_host"] = ""
                 ctx["web_ok"] = False
             ae.audit(action, "HECHO", "autonomo", dry=False)
             last = {"resultado": "HECHO", "accion": action.get("action")}
