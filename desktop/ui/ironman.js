@@ -1,4 +1,4 @@
-/* Holograma: núcleo azul con shaders + Torre de Aincrad de 100 pisos. Solo visualiza.
+/* Holograma: núcleo azul (reactor) como pieza central; la torre de 100 pisos queda en la lista lateral. Solo visualiza.
    No mueve dinero, no aprueba nada, no envía mensajes y no cambia ninguna lógica del servidor.
    Three.js va servido desde esta misma Mac (desktop/ui/vendor/three): sin CDN.
    La voz es Piper local: el núcleo sigue la amplitud (RMS) que publica la ventana de conversación
@@ -77,7 +77,7 @@ function selectFloor(n, fromUser) {
   if (marker) {
     marker.position.y = floorY(n);
     marker.scale.setScalar(A.floorRadius(n) * RADIUS + 0.06);
-    marker.visible = true;
+    marker.visible = !marker.userData.hidden;
   }
   if (fromUser) {
     const row = listHost.querySelector('[data-floor="' + n + '"]');
@@ -87,7 +87,57 @@ function selectFloor(n, fromUser) {
 }
 
 /* ---------------------------------------------------------------- escena */
-const RADIUS = 1.35, TOWER_H = 3.4;
+const RADIUS = 1.35, TOWER_H = 3.4, CORE_R = 1.56;
+const RING_SPEC = [
+  { r: 2.25, ticks: 72, major: 6, label: "JARVIS · ARC REACTOR", w: 3 },
+  { r: 2.7, ticks: 120, major: 10, label: "MARK VII · OUTPUT", w: 2 },
+  { r: 3.15, ticks: 36, major: 3, label: "STARK INDUSTRIES", w: 4 }
+];
+
+/* Anillo con marcas: trazado en un lienzo 2D una sola vez (barato para el Mac 2015). */
+function ringTexture(spec) {
+  const S = 1024, c = document.createElement("canvas"); c.width = c.height = S;
+  const g = c.getContext("2d"), cx = S / 2, R = S / 2 / 1.1;
+  g.strokeStyle = "rgba(87,215,255,0.85)"; g.fillStyle = "rgba(140,220,255,0.9)";
+  g.lineWidth = spec.w; g.beginPath(); g.arc(cx, cx, R, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 1; g.beginPath(); g.arc(cx, cx, R - 26, 0, Math.PI * 2); g.stroke();
+  for (let i = 0; i < spec.ticks; i++) {
+    const a = i / spec.ticks * Math.PI * 2, big = i % spec.major === 0, len = big ? 22 : 10;
+    g.lineWidth = big ? 3 : 1.2;
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * (R - 3), cx + Math.sin(a) * (R - 3));
+    g.lineTo(cx + Math.cos(a) * (R - 3 - len), cx + Math.sin(a) * (R - 3 - len));
+    g.stroke();
+  }
+  g.font = "bold 22px Menlo, monospace"; g.textAlign = "center";
+  for (let k = 0; k < 4; k++) {                          // rótulos y grados en cuatro puntos del anillo
+    const a = k * Math.PI / 2 + Math.PI / 4;
+    g.save(); g.translate(cx + Math.cos(a) * (R - 46), cx + Math.sin(a) * (R - 46)); g.rotate(a + Math.PI / 2);
+    g.fillText(k % 2 ? String(k * 90 + 45).padStart(3, "0") + "°" : spec.label, 0, 0); g.restore();
+  }
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 1; return t;
+}
+
+/* Estrellas: esfera lejana; con band=true se concentran en una franja inclinada (Vía Láctea). */
+function starField(n, size, opacity, band) {
+  const pos = new Float32Array(n * 3), colr = new Float32Array(n * 3), tilt = 0.5;
+  for (let i = 0; i < n; i++) {
+    const lon = Math.random() * Math.PI * 2;
+    let lat = Math.asin(Math.random() * 2 - 1);
+    if (band) lat = (Math.random() + Math.random() + Math.random() - 1.5) * 0.16;
+    const rr = 30 + Math.random() * 20;
+    let x = Math.cos(lat) * Math.cos(lon) * rr, y = Math.sin(lat) * rr, z = Math.cos(lat) * Math.sin(lon) * rr;
+    const y2 = y * Math.cos(tilt) - x * Math.sin(tilt); x = x * Math.cos(tilt) + y * Math.sin(tilt); y = y2;
+    pos.set([x, y, z], i * 3);
+    const w = 0.7 + Math.random() * 0.3, warm = band && Math.random() < 0.3;
+    colr.set(warm ? [w, w * 0.85, w * 0.95] : [w * 0.75, w * 0.88, w], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(colr, 3));
+  return new THREE.Points(g, new THREE.PointsMaterial({ size: size * 4, vertexColors: true, transparent: true,
+                                                        opacity: opacity, depthWrite: false, sizeAttenuation: true }));
+}
 const floorY = (n) => -TOWER_H / 2 + A.floorHeight(n) * TOWER_H;
 
 let renderer = null, scene = null, camera = null, controls = null, core = null, coreMat = null;
@@ -105,19 +155,19 @@ function startScene() {
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(46, 16 / 9, 0.1, 100);
-  camera.position.set(0, 0.9, 7.4);
+  camera.position.set(0, 0, 8.6);
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = false;                 // amortiguar obliga a dibujar siempre: en el Mac 2015 no
   controls.enablePan = false;
   controls.minDistance = 3.2;
   controls.maxDistance = 13;
-  controls.target.set(0, 0.8, 0);
+  controls.target.set(0, 0, 0);
   controls.addEventListener("change", draw);
 
   /* Núcleo: icosaedro de malla fina con shader propio (fresnel + barrido + parpadeo). Sin bloom. */
   coreMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide,
     uniforms: { uTime: { value: 0 }, uLevel: { value: 0 }, uGlow: { value: A.IDLE_GLOW }, uBlink: { value: 0 } },
     vertexShader: [
       // La misma precisión en los dos shaders: si difieren, el programa no enlaza y el lienzo sale negro.
@@ -139,42 +189,45 @@ function startScene() {
       "uniform float uTime; uniform float uGlow; uniform float uBlink; uniform float uLevel;",
       "varying vec3 vN; varying vec3 vView; varying float vY;",
       "void main() {",
-      "  float fres = pow(1.0 - clamp(dot(normalize(vN), normalize(vView)), 0.0, 1.0), 2.2);",
+      // Borde limpio: el fresnel sube y se desvanece suave en la silueta (sin destello blanco ni aro oscuro).
+      "  float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vView))), 2.2);",
+      "  float edge = 1.0 - smoothstep(0.82, 1.0, fres);",
       "  float scan = 0.55 + 0.45 * sin(vY * 46.0 - uTime * 2.4);",
       "  float flick = 0.94 + 0.06 * sin(uTime * 37.0);",
-      "  float a = (fres * 0.85 + 0.12) * scan * flick * uGlow * (1.0 - uBlink);",
-      "  vec3 cold = vec3(0.16, 0.62, 1.0), warm = vec3(0.62, 0.92, 1.0);",
-      "  vec3 col = mix(cold, warm, clamp(fres + uLevel * 0.5, 0.0, 1.0));",
+      "  float a = (fres * 0.7 + 0.22) * edge * (0.75 + 0.25 * scan) * flick * uGlow * (1.0 - uBlink);",
+      "  vec3 cold = vec3(0.16, 0.62, 1.0), warm = vec3(0.36, 0.80, 1.0);",
+      "  vec3 col = mix(cold, warm, clamp(fres * 0.6 + uLevel * 0.5, 0.0, 1.0));",
       "  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));",
       "}"
     ].join("\n")
   });
-  core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.78, 3), coreMat);
-  core.position.y = TOWER_H / 2 + 0.78;
+  /* Diseño aprobado: solo el núcleo, al centro y al doble del tamaño anterior (0.78 → 1.56). */
+  core = new THREE.Mesh(new THREE.IcosahedronGeometry(CORE_R, 4), coreMat);
+  core.position.set(0, 0, 0);
   scene.add(core);
 
-  const heart = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 2),
-                               new THREE.MeshBasicMaterial({ color: 0xbfe9ff, transparent: true, opacity: 0.55,
+  const heart = new THREE.Mesh(new THREE.IcosahedronGeometry(CORE_R * 0.44, 2),
+                               new THREE.MeshBasicMaterial({ color: 0x5fc8ff, transparent: true, opacity: 0.35,
                                                              blending: THREE.AdditiveBlending, depthWrite: false }));
   heart.position.copy(core.position);
   core.add(heart);                                       // late con el núcleo
   heart.position.set(0, 0, 0);
 
   const wire = new THREE.LineSegments(
-    new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(0.98, 1)),
-    new THREE.LineBasicMaterial({ color: 0x4fc3ff, transparent: true, opacity: 0.3 })
+    new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(CORE_R * 1.26, 1)),
+    new THREE.LineBasicMaterial({ color: 0x4fc3ff, transparent: true, opacity: 0.18 })
   );
   wire.position.copy(core.position);
   scene.add(wire);
   rings.push(wire);
 
-  for (let i = 0; i < 2; i++) {
-    const r = new THREE.Mesh(
-      new THREE.TorusGeometry(1.18 + i * 0.26, 0.009, 5, 72),
-      new THREE.MeshBasicMaterial({ color: 0x57d7ff, transparent: true, opacity: 0.45 })
-    );
-    r.position.copy(core.position);
-    r.rotation.x = Math.PI / 2 + (i ? 0.5 : -0.35);
+  /* Anillos concéntricos estilo Iron Man, de cara a la cámara, con marcas y rótulos (textura de lienzo). */
+  for (let i = 0; i < RING_SPEC.length; i++) {
+    const spec = RING_SPEC[i];
+    const r = new THREE.Mesh(new THREE.PlaneGeometry(spec.r * 2.2, spec.r * 2.2),
+      new THREE.MeshBasicMaterial({ map: ringTexture(spec), transparent: true, depthWrite: false,
+                                    blending: THREE.AdditiveBlending, opacity: 0.9 }));
+    r.position.set(0, 0, -0.01 * i);
     scene.add(r);
     rings.push(r);
   }
@@ -195,6 +248,7 @@ function startScene() {
   }
   tower.instanceMatrix.needsUpdate = true;
   if (tower.instanceColor) tower.instanceColor.needsUpdate = true;
+  tower.visible = false;                                 // la torre sale de la vista principal (diseño aprobado)
   scene.add(tower);
 
   const edgeGeo = new THREE.TorusGeometry(1, 0.0055, 4, 40);
@@ -215,6 +269,7 @@ function startScene() {
 
   const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, TOWER_H + 0.5, 6),
                                new THREE.MeshBasicMaterial({ color: 0x57d7ff, transparent: true, opacity: 0.35 }));
+  spine.visible = false;
   scene.add(spine);
 
   marker = new THREE.Mesh(
@@ -223,19 +278,13 @@ function startScene() {
   );
   marker.rotation.x = Math.PI / 2;
   marker.visible = false;
+  marker.userData.hidden = true;                         // sin torre no hay piso que marcar
   scene.add(marker);
 
-  /* Polvo holográfico: puntos baratos, sin textura. */
-  const N = 420, pos = new Float32Array(N * 3);
-  for (let i = 0; i < N; i++) {
-    const a = Math.random() * Math.PI * 2, rr = 1.8 + Math.random() * 2.6;
-    pos[i * 3] = Math.cos(a) * rr;
-    pos[i * 3 + 1] = -TOWER_H / 2 + Math.random() * (TOWER_H + 2.4);
-    pos[i * 3 + 2] = Math.sin(a) * rr;
-  }
-  const dg = new THREE.BufferGeometry();
-  dg.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  dust = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0x2f8fd0, size: 0.018, transparent: true, opacity: 0.5 }));
+  /* Cielo: muchas más estrellas + banda de la Vía Láctea. Puntos sin textura, un solo dibujo. */
+  dust = new THREE.Group();
+  dust.add(starField(2600, 0.05, 0.9, false));
+  dust.add(starField(5200, 0.035, 0.55, true));
   scene.add(dust);
 
   resize();
@@ -328,9 +377,10 @@ function frame(now) {
     core.rotation.y += 0.0024 * dt / 16;
     core.rotation.x = Math.sin(t * 0.35) * 0.12;
     rings[0].rotation.y = core.rotation.y * -0.6;
-    rings[1].rotation.z = t * 0.22;
-    rings[2].rotation.z = -t * 0.17;
-    dust.rotation.y = t * 0.03;
+    rings[1].rotation.z = t * 0.12;
+    rings[2].rotation.z = -t * 0.08;
+    rings[3].rotation.z = t * 0.05;
+    dust.rotation.y = t * 0.004;
     tower.rotation.y = Math.sin(t * 0.08) * 0.22;
     if (marker) marker.rotation.z = t * 0.6;
   }
@@ -371,8 +421,8 @@ motionButton.addEventListener("click", () => {
 
 el("reset-view").addEventListener("click", () => {
   if (!camera) return;
-  camera.position.set(0, 0.9, 7.4);
-  if (controls) { controls.target.set(0, 0.8, 0); controls.update(); }
+  camera.position.set(0, 0, 8.6);
+  if (controls) { controls.target.set(0, 0, 0); controls.update(); }
   draw();
 });
 

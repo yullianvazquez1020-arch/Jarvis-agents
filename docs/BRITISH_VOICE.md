@@ -1,5 +1,9 @@
 # British conversational voice
 
+**Bilingual Jarvis (current):** English replies use Piper `en_GB-alan-medium` (Alan, male British, `length_scale=1.18` so he speaks slower); Spanish replies use `es_MX-ald-medium`. The desktop app defaults to `JARVIS_REPLY_LANGUAGE=en-GB` (`desktop/app.py`). On the server, `JARVIS_REPLY_LANGUAGE=en-GB` makes the fallback voice Alan; continuous voice (`/ws/voz`) picks Alan or Ald per turn from the detected language. Alan is a synthetic voice, not the film actor's voice.
+
+The notes below describe the older Telegram female voice, kept for explicit `en-GB` requests.
+
 Set `JARVIS_REPLY_LANGUAGE=en-GB` for British English conversational responses and the local Telegram voice. Spanish input transcription remains available. Product and video scripts retain their selected language. The default without this variable remains Spanish.
 
 Telegram uses Piper `en_GB-southern_english_female-low`, a 16 kHz voice. Source: https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/southern_english_female/low . Dataset: OpenSLR 83 (http://www.openslr.org/83/), CC-BY-SA 4.0 International (https://creativecommons.org/licenses/by-sa/4.0/). Model and configuration downloads are SHA-256 pinned; model files are cached locally. It is a synthetic British voice, not the film actor's voice.

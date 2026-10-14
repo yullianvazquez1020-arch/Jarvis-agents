@@ -13,6 +13,8 @@ incorrectamente que siempre es femenina.
 Piper pasa de length_scale=1.16 a 1.0 (ritmo normal); afecta también la narración local
 de video que comparte el sintetizador. La frase de recepción usa una nueva caché para
 no reproducir el audio generado con el ritmo anterior. No se descargan nuevas voces.
+Actualización (feat/core-display): Alan (en_GB-alan) vuelve a hablar más pausado, length_scale=1.18,
+tanto en el escritorio (desktop/audio/engines.py) como en el servidor (jarvis_local_tts.ALAN_LENGTH_SCALE).
 
 Las consultas automáticas por voz reciben una indicación de estilo: español latino
 natural, tono cálido y directo, primera frase breve y completa, sin adornos repetitivos

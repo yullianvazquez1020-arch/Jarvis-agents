@@ -19,6 +19,7 @@ BRITISH_BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/
 BRITISH_HASHES={BRITISH_MODEL:'f2f37aed1b3a093476f719d1379ba0c0b1b1cf6f1ef99288e2ebf502971a07c3',BRITISH_MODEL+'.json':'a1af43310f8756161506e849a2863d342a98b0853af9e2437581d39e9922d0e5'}
 # Alan: la voz inglesa masculina que ya usa Jarvis. No sustituye a Ald.
 ALAN_MODEL='en_GB-alan-medium.onnx'
+ALAN_LENGTH_SCALE=1.18  # Alan habla más pausado (mayor que 1 ralentiza)
 ALAN_BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/'
 ALAN_HASHES={ALAN_MODEL:'0a309668932205e762801f1efc2736cd4b0120329622adf62be09e56339d3330',ALAN_MODEL+'.json':'c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e'}
 # Voice dataset: OpenSLR 83, CC-BY-SA 4.0 International.
@@ -78,7 +79,7 @@ def synthesize(texts,destination,root,language='es'):
     for i,text in enumerate(texts):
         path=dest/f'{i}.wav'
         with wave.open(str(path),'wb') as wav:
-            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=1.0))
+            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=ALAN_LENGTH_SCALE if Path(str(model)).name==ALAN_MODEL else 1.0))
         with wave.open(str(path),'rb') as wav:
             seconds=wav.getnframes()/wav.getframerate()
             if not 0<seconds<=45:raise ValueError('Narración local demasiado larga')
