@@ -94,6 +94,20 @@ class BusTest(unittest.TestCase):
         self.assertFalse(seguido["reinicio"])
         self.assertEqual(seguido["eventos"], [])
 
+    def test_la_secuencia_no_vuelve_a_empezar(self):
+        self.b.emitir("amazon", "nota", "uno")
+        guardado = self.b._seq
+        nuevo = jb.Bus(now=lambda: 2.0)
+        nuevo.continuar_desde(guardado)
+        ev = nuevo.emitir("amazon", "nota", "dos")
+        self.assertEqual(ev["seq"], guardado + 1)
+        r = nuevo.consultar(desde=guardado)
+        self.assertFalse(r["reinicio"])
+        self.assertEqual([e["seq"] for e in r["eventos"]], [ev["seq"]])
+        src = (ROOT / "main.py").read_text("utf-8")
+        self.assertIn("_guardar_seq_bus(ev[\"seq\"])", src)
+        self.assertIn("jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())", src)
+
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")
         for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)

@@ -86,6 +86,18 @@ class Bus:
             if estado: n["estado"] = estado
             return dict(ev)
 
+    def continuar_desde(self, seq):
+        """El siguiente evento sigue al último que ya se guardó. Un reinicio no vuelve a 1."""
+        try:
+            n = int(seq)
+        except (TypeError, ValueError):
+            return
+        if n < 0:
+            return
+        with self._lock:
+            if n > self._seq:
+                self._seq = n
+
     def consultar(self, desde=0, negocio=None, limite=100, epoch=None):
         """Lectura con época. Un cursor de otro arranque no esconde los eventos nuevos."""
         limite = max(1, min(int(limite), MAX_EVENTOS))

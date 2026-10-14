@@ -7340,7 +7340,28 @@ async def _tg_route(msg, background):
 ENCARGO_SECRET = os.getenv("JARVIS_ENCARGO_SECRET", "").strip()
 BUS_READ_SECRET = os.getenv("JARVIS_BUS_READ_SECRET", "").strip()
 BUS_WRITE_SECRET = os.getenv("JARVIS_BUS_WRITE_SECRET", "").strip()
+BUS_SEQ_KEY = "jarvis:bus:seq"
 ENCARGO_MAX = 4000
+
+def _bus_seq_guardada():
+    if not USE_REDIS:
+        return 0
+    try:
+        n = kv_get(BUS_SEQ_KEY, 0)
+        return int(n)
+    except (TypeError, ValueError, RuntimeError):
+        logger.warning("bus seq not restored")
+        return 0
+
+def _guardar_seq_bus(seq):
+    if not USE_REDIS:
+        return
+    try:
+        kv_set(BUS_SEQ_KEY, int(seq))
+    except (TypeError, ValueError, RuntimeError, ReadOnlyViolation):
+        logger.warning("bus seq not saved")
+
+jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
 
 class Encargo(BaseModel):
     texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
@@ -7400,9 +7421,11 @@ async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
     if not _rate_ok("bus"):
         raise HTTPException(429, "Demasiados eventos por minuto")
     try:
-        return jarvis_bus.BUS.emitir(req.negocio, req.tipo, req.texto, req.estado, req.fuente)
+        ev = jarvis_bus.BUS.emitir(req.negocio, req.tipo, req.texto, req.estado, req.fuente)
     except (KeyError, ValueError) as e:
         raise HTTPException(422, str(e))
+    _guardar_seq_bus(ev["seq"])
+    return ev
 
 
 @app.get("/backup")
