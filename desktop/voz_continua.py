@@ -81,6 +81,15 @@ def hud_endpoint(base: str) -> str:
     return f"http://{shown}:{port}/api/voz"
 
 
+def hud_token(home: str | None = None) -> str:
+    """Token que el panel deja en ~/.jarvis-desktop/voz-token. Vacío si el panel nunca ha corrido."""
+    carpeta = Path(home or os.getenv("VOICE_HOME") or (Path.home() / ".jarvis-desktop"))
+    try:
+        return carpeta.joinpath("voz-token").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def hud_notice(ev: dict) -> dict | None:
     """Traduce un evento de /ws/voz a lo que el HUD sabe dibujar. No aprueba ni envía nada."""
     if not isinstance(ev, dict):
@@ -111,14 +120,18 @@ def hud_notice(ev: dict) -> dict | None:
     return notice
 
 
-def post_hud(notice: dict, base: str | None = None, timeout: float = 0.4) -> bool:
-    """Avisa al display. Si el HUD está cerrado, no es un error: la voz sigue."""
+def post_hud(notice: dict, base: str | None = None, timeout: float = 0.4, token: str | None = None) -> bool:
+    """Avisa al display. Si el HUD está cerrado o no hay token, no es un error: la voz sigue."""
     if not notice:
+        return False
+    tok = hud_token() if token is None else token
+    if not tok:
         return False
     try:
         url = hud_endpoint(base if base is not None else os.getenv("JARVIS_HUD", ""))
         body = json.dumps(notice).encode()
-        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type": "application/json", "X-Jarvis-Voz": tok})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return 200 <= getattr(resp, "status", 200) < 300
     except (OSError, urllib.error.URLError, ValueError):
@@ -207,6 +220,9 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
     hdr = auth_headers()
     player = Player()
     link = HudLink()
+    if not hud_token():
+        print("El panel local no ha dejado su token (~/.jarvis-desktop/voz-token): la conversación no se "
+              "verá en la pantalla. Abre el panel y vuelve a arrancar la voz. La llamada funciona igual.")
     loop = asyncio.get_running_loop()
     mic: asyncio.Queue = asyncio.Queue()
     def cb(indata, frames, t, status):

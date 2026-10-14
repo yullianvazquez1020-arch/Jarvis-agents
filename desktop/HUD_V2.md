@@ -8,6 +8,7 @@ Abre HUD desde la ventana principal del escritorio. El diseño usa un reactor di
 - Seguridad: emparejamiento, almacenamiento y operaciones reales según las respuestas existentes. El HUD consulta; no aprueba ni ejecuta operaciones.
 - Las tarjetas conservan sus detalles y el control Mostrar montos. Avatar y conversación abren sus vistas existentes.
 - Voz continua: el cliente de la Mac avisa a `http://127.0.0.1:8765/api/voz`. El HUD muestra escucha, pensamiento, habla, el idioma (ES/EN) y el texto. La silueta mueve la boca mientras Jarvis habla. Si el HUD está cerrado, la voz sigue por los altavoces. Desde aquí no se aprueba ni se envía nada.
+- Ese aviso lleva un token local. El panel lo escribe en `~/.jarvis-desktop/voz-token` (permisos 600) y el cliente lo manda en `X-Jarvis-Voz`. Hace falta porque el aviso no usa la cookie del navegador, y una página abierta en este equipo también sale de 127.0.0.1. Sin el token, esa página podría poner texto falso en la pantalla. El token no va a git, no sale en `/api/voz` ni en `/api/state` y no abre el panel.
 
 El servidor añade `jobs`, `jobs_count` y `as_of` al HUD autenticado. La consulta de trabajos usa el bloqueo de escritura existente y una lista explícita de campos. Un servidor antiguo puede seguir dando tarjetas: los trabajos aparecerán como «sin dato».
 

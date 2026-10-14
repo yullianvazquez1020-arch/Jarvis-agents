@@ -361,6 +361,7 @@ class Companion:
         self.last_alert = None; self.last_alert_at = 0.0
         self.alerts_seen = self._load_seen()
         self.voz = {"estado": "idle", "idioma": "es", "lineas": [], "corte": False}
+        self._voz_token = ""
 
     # --- secrets and prefs ---
     def _token(self):
@@ -571,6 +572,35 @@ class Companion:
                     return {"events": new, "seq": self.seq, "owner": self.owner == window}
                 self.cond.wait(max(0.1, end - time.time()))
                 self._seen(window)
+
+    def voz_token(self):
+        """Token del aviso al HUD. Vive en ~/.jarvis-desktop/voz-token, permisos 600.
+
+        El POST llega sin cookie: el cliente de voz corre en la terminal. Una página abierta en el
+        navegador también sale de 127.0.0.1, y sin este token podría escribir texto falso en la pantalla.
+        No va a git, no sale en /api/voz ni en /api/state y no abre la sesión del panel.
+        """
+        with self.lock:
+            if self._voz_token:
+                return self._voz_token
+            path = self.home / "voz-token"
+            try:
+                tok = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                tok = ""
+            if len(tok) < 32:
+                tok = secrets.token_urlsafe(32)
+                self.home.mkdir(parents=True, exist_ok=True)
+                path.write_text(tok, encoding="utf-8")
+                try:
+                    os.chmod(path, 0o600)
+                except OSError:
+                    pass
+            self._voz_token = tok
+            return tok
+
+    def voz_ok(self, given):
+        return bool(given) and secrets.compare_digest(str(given), self.voz_token())
 
     def voz_view(self):
         with self.lock:
@@ -1123,8 +1153,10 @@ def make_handler(app, host, port):
             if u.path == "/api/voz":
                 if self.headers.get("Host") not in allowed_hosts:
                     return self._send(400, {"error": "host no permitido"})
-                if not loopback_host(self.client_address[0]):
+                if not loopback_host(self.client_address[0] if self.client_address else ""):
                     return self._send(403, {"error": "solo el equipo local"})
+                if not app.voz_ok(self.headers.get("X-Jarvis-Voz")):
+                    return self._send(401, {"error": "token de voz no válido"})
                 try:
                     return self._send(200, app.voz_aviso(self._json(limit=4096)))
                 except ValueError as e:

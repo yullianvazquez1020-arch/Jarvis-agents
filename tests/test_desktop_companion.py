@@ -858,17 +858,21 @@ class HudV2(CompanionBase):
         self.assertFalse(desk.loopback_host("192.168.1.20"))
         body = self.req("GET", "/hud")[3]
         self.assertIn(b'id="hx-voz-lines"', body)
+        voz = {"X-Jarvis-Voz": self.app.voz_token()}
+        self.assertEqual(self.req("POST", "/api/voz", {"estado": "escuchando"}, cookie=False)[0], 401)
         st, j, _, _ = self.req("POST", "/api/voz", {"estado": "pensando", "idioma": "es",
-                                                    "linea": {"quien": "tu", "texto": "Hola, Jarvis."}}, cookie=False)
+                                                    "linea": {"quien": "tu", "texto": "Hola, Jarvis."}},
+                               headers=voz, cookie=False)
         self.assertEqual(st, 200, j)
         self.assertEqual(j["estado"], "pensando")
         self.assertEqual(j["lineas"], [{"quien": "tu", "texto": "Hola, Jarvis."}])
         st, j, _, _ = self.req("POST", "/api/voz", {"estado": "hablando", "idioma": "en",
-                                                    "linea": {"quien": "jarvis", "texto": "At your service."}})
+                                                    "linea": {"quien": "jarvis", "texto": "At your service."}},
+                               headers=voz)
         self.assertEqual(j["idioma"], "en")
         self.assertEqual(j["lineas"][-1]["quien"], "jarvis")
         self.assertTrue(any(e["type"] == "voz" and e["voz"]["estado"] == "hablando" for e in self.app.events))
-        self.assertEqual(self.req("POST", "/api/voz", {"estado": "aprobar"})[0], 400)
+        self.assertEqual(self.req("POST", "/api/voz", {"estado": "aprobar"}, headers=voz)[0], 400)
         view = self.req("GET", "/api/voz")[1]
         self.assertEqual(view["estado"], "hablando")
         self.assertNotIn("secret", json.dumps(view))
