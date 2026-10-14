@@ -196,7 +196,7 @@ class Client(unittest.TestCase):
         self.assertEqual(seen[0]['idioma'], 'en')
         link.event({'type': 'audio_fin'})
         self.assertEqual(seen[-1]['estado'], 'idle')
-        self.assertFalse(client.post_hud({'estado': 'idle'}, base='http://127.0.0.1:9', timeout=0.2))
+        self.assertFalse(client.post_hud({'estado': 'idle'}, base='http://127.0.0.1:9', timeout=0.2, token='token-ficticio'))
         with self.assertRaises(ValueError):
             client.hud_endpoint('https://jarvis.ejemplo.invalid')
         with self.assertRaises(ValueError):

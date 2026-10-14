@@ -96,9 +96,9 @@
     if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width=Math.round(w*dpr); canvas.height=Math.round(h*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
     var cx=w/2, cy=h/2, radius=Math.min(w,h)*0.22, t=paused?0:time/1800;
-    if (window.JarvisMecanismo) {   // núcleo azul: bobinas, escala y anillos que giran (mecanismo.js)
-      if (V2 && window.JarvisMecanismo.reactor)   // HUD v2: reactor con volumen, del alto disponible
-        window.JarvisMecanismo.reactor(ctx, cx, cy, Math.min(w * 0.3, h * 0.36), paused ? 0 : time / 1000, cards.slice(0, 8).map(gemState));
+    if (window.JarvisMecanismo) {   // núcleo: reactor de arco (mecanismo.js)
+      if (V2 && window.JarvisMecanismo.reactor)
+        window.JarvisMecanismo.reactor(ctx, cx, cy, Math.min(w * 0.36, h * 0.42), paused ? 0 : time / 1000, cards.slice(0, 8).map(gemState));
       else
         window.JarvisMecanismo.draw(ctx, cx, cy, Math.max(radius * 1.9, 150), paused ? 0 : time / 1000, true, cards.slice(0, 8).map(gemState));
     } else {

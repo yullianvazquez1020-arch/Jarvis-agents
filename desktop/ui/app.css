@@ -330,5 +330,30 @@ header,.top,.foot{background-image:linear-gradient(90deg,transparent,rgba(63,180
 .hx-voz h2 small{letter-spacing:.12em}
 .hud-v2 .hx-gantt .hx-span{background:linear-gradient(90deg,#1d6fb8,#5fc4ff)}
 .hud-v2 .hx-center .hx-gauge{position:relative}
-.hud-v2 .hx-center .hx-gauge-text strong{position:absolute;left:0;right:0;top:calc(clamp(84px,6vw,112px) / 2 - .65em);
-  text-align:center;padding:0 14px;font-size:clamp(12px,.85vw,16px)}
+.hud-v2 .hx-center .hx-gauge-text strong{position:static;padding:0;font-size:13px;text-shadow:none}
+
+/* Una sola pantalla. El reactor usa el alto que sobra; los lados se desplazan dentro, no empujan la página.
+   Por debajo de 1500 px el centro ya no salta encima de las columnas: en el monitor de 1440 seguía en tres. */
+body.hud-v2{height:100vh;overflow:hidden;display:flex;flex-direction:column}
+body.hud-v2>.top{flex:none}
+body.hud-v2>.hudx{flex:1;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:8px}
+body.hud-v2>.hud-note{flex:none;margin:0;padding:2px 16px 6px}
+body.hud-v2 .hx-title{font-size:clamp(14px,1.3vw,22px);letter-spacing:.16em}
+body.hud-v2 .hudx-body{min-height:0;height:100%;grid-template-columns:minmax(220px,.9fr) minmax(0,1.6fr) minmax(220px,.9fr)}
+body.hud-v2 .hx-col{min-height:0;overflow:auto;align-content:start}
+body.hud-v2 .hx-center{min-height:0;grid-column:auto;order:0}
+body.hud-v2 .deck-stage{flex:1 1 auto;height:auto;min-height:160px;max-height:none}
+body.hud-v2 .hx-figure canvas{height:clamp(120px,18vh,200px)}
+body.hud-v2 .hx-center .hx-gauges{padding-bottom:6px}
+.deck-nucleo{position:absolute;left:0;right:0;bottom:8px;margin:0;text-align:center;pointer-events:none;
+  letter-spacing:.46em;font-size:12px;color:#e7f6ff;text-shadow:0 0 14px rgba(63,180,255,.9)}
+@media (max-width:1100px){
+  body.hud-v2{height:auto;overflow:auto}
+  body.hud-v2 .hudx-body{grid-template-columns:1fr;height:auto}
+  body.hud-v2 .hx-center{grid-column:1/-1;order:-1}
+  body.hud-v2 .deck-stage{height:280px;flex:none}
+}
+
+/* Ventana principal: la torre no empuja la conversación fuera de la pantalla. */
+body:not(.hud-page){height:100vh;overflow:hidden;display:flex;flex-direction:column}
+body:not(.hud-page)>.layout{flex:1;min-height:0;overflow:auto}
