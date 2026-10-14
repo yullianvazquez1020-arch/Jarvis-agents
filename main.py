@@ -6491,6 +6491,7 @@ class Chat(BaseModel):
     message: str = Field(min_length=1, max_length=20000)
     session: str = Field(default="default", min_length=1, max_length=128)
     provider: str = Field(default="jarvis", max_length=16)   # "venice" = direct Venice chat (text only)
+    audio: bool = False   # voz y texto: true = además del texto, devuelve la respuesta hablada (Ald/Alan según idioma)
 
 def _key_ok(given, expected):
     return bool(expected) and secrets.compare_digest((given or "").encode(), expected.encode())
@@ -6529,7 +6530,20 @@ async def chat(req: Chat, x_api_key: str = Header(...)):
     except Exception as e:
         logger.exception("chat failed")
         reply = _fail_text(e)
-    return {"reply": reply}
+    if not req.audio:
+        return {"reply": reply}
+    return {"reply": reply, **(await _chat_audio(req.message, reply))}
+
+
+async def _chat_audio(message: str, reply: str) -> dict:
+    """Voz y texto: el texto siempre sale; el audio es opcional y nunca rompe la respuesta escrita."""
+    lang = _voz_c.idioma_turno(message, None)
+    try:
+        wav = await _voz_c_speak(reply, lang)
+    except Exception:
+        logger.warning("chat audio failed")
+        return {"idioma": lang, "audio_error": "voz no disponible" if lang == "es" else "voice unavailable"}
+    return {"idioma": lang, "voz": _voz_c.voz_de(lang), "audio_wav_b64": base64.b64encode(wav or b"").decode()}
 
 _seen_updates: set = set()
 # 4.0.5 (1.7): local-files mode (no Redis). The recent ids are kept in order, the OLDEST is evicted one by one

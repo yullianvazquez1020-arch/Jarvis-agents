@@ -224,7 +224,7 @@ class VozSession:
         except Exception:
             answer = self._aviso("respuesta")
         answer = self.redact(answer or "")
-        await self.send_json({"type": "respuesta", "texto": answer, "idioma": self.idioma})
+        await self.send_json({"type": "respuesta", "texto": answer, "pregunta": clean, "idioma": self.idioma})
         await self._say(answer)
 
     def _aviso(self, cual: str) -> str:
