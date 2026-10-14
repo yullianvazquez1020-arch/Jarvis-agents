@@ -14,13 +14,33 @@ BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medi
 HASHES={MODEL:'019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63',MODEL+'.json':'5a71498158e04afc8099bfd019c7e87c68eb9d042505a2b1a87e5c1ac2b1a61d'}
 
 
-BRITISH_MODEL='en_GB-southern_english_female-low.onnx'
-BRITISH_BASE='https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/'
-BRITISH_HASHES={BRITISH_MODEL:'f2f37aed1b3a093476f719d1379ba0c0b1b1cf6f1ef99288e2ebf502971a07c3',BRITISH_MODEL+'.json':'a1af43310f8756161506e849a2863d342a98b0853af9e2437581d39e9922d0e5'}
-# Voice dataset: OpenSLR 83, CC-BY-SA 4.0 International.
+# British voices (Piper, offline, SHA-256 pinned). Default: male "alan" for the calm AI-butler style.
+# Stock synthetic voices only; never a clone of any actor. Select with JARVIS_BRITISH_VOICE.
+BRITISH_VOICES={
+    'alan':('en_GB-alan-medium.onnx','https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/',
+            {'en_GB-alan-medium.onnx':'0a309668932205e762801f1efc2736cd4b0120329622adf62be09e56339d3330',
+             'en_GB-alan-medium.onnx.json':'c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e'}),
+    'southern_english_female':('en_GB-southern_english_female-low.onnx','https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/',
+            {'en_GB-southern_english_female-low.onnx':'f2f37aed1b3a093476f719d1379ba0c0b1b1cf6f1ef99288e2ebf502971a07c3',
+             'en_GB-southern_english_female-low.onnx.json':'a1af43310f8756161506e849a2863d342a98b0853af9e2437581d39e9922d0e5'}),
+}
+DEFAULT_BRITISH_VOICE='alan'
+BRITISH_MODEL,BRITISH_BASE,BRITISH_HASHES=BRITISH_VOICES[DEFAULT_BRITISH_VOICE]
+# Licences: see each voice's MODEL_CARD on rhasspy/piper-voices; southern_english_female = OpenSLR 83, CC-BY-SA 4.0.
+def british_profile():
+    name=os.getenv('JARVIS_BRITISH_VOICE',DEFAULT_BRITISH_VOICE).strip().lower() or DEFAULT_BRITISH_VOICE
+    return BRITISH_VOICES.get(name,BRITISH_VOICES[DEFAULT_BRITISH_VOICE])
+
+def length_scale(language='es'):
+    """Measured, unhurried pace for the British butler style (JARVIS_VOICE_PACE, 0.8-1.4)."""
+    default='1.08' if language!='es' else '1.0'
+    try:v=float(os.getenv('JARVIS_VOICE_PACE',default))
+    except ValueError:v=float(default)
+    return min(1.4,max(0.8,v))
+
 def profile(language='es'):
     if language=='es':return MODEL,BASE,HASHES
-    if language in ('en','en-GB','en_GB'):return BRITISH_MODEL,BRITISH_BASE,BRITISH_HASHES
+    if language in ('en','en-GB','en_GB'):return british_profile()
     raise ValueError('La voz local admite español e inglés británico')
 
 def model_dir():
@@ -73,7 +93,7 @@ def synthesize(texts,destination,root,language='es'):
     for i,text in enumerate(texts):
         path=dest/f'{i}.wav'
         with wave.open(str(path),'wb') as wav:
-            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=1.0))
+            voice.synthesize_wav(text,wav,syn_config=SynthesisConfig(speaker_id=0,length_scale=length_scale(language)))
         with wave.open(str(path),'rb') as wav:
             seconds=wav.getnframes()/wav.getframerate()
             if not 0<seconds<=45:raise ValueError('Narración local demasiado larga')

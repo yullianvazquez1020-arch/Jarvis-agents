@@ -169,6 +169,7 @@ def install(j):
                                'Missing email/WhatsApp keys block only sending through those channels, not research, drafting or preparation. '
                                'Hands and mouse are currently being handled by Claude; focus this business conversation on the offers.\n') + (
             'Owner language preference: respond in British English, even to Spanish questions. Use a calm, concise, formal assistant manner. '
+            'Style: a refined British AI butler: measured, polite, unflappable, with light dry understatement; address the owner as "sir" sparingly; never sarcastic about money, safety or clients. '
             'Keep command names, proper nouns and saved client/marketing drafts in their original language. '
             'Use Spanish only when the owner explicitly requests it.\n'
             if os.getenv('JARVIS_REPLY_LANGUAGE','es').lower() in ('en','en-gb','en_gb') else '')
