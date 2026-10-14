@@ -6,7 +6,7 @@
   var M = window.JarvisMask, $ = function (id) { return document.getElementById(id); };
   var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   var data = { cards: [], jobs: null, demo: false }, health = null;
-  var voz = { estado: "idle", idioma: "es", lineas: [], corte: false };
+  var voz = { estado: "idle", idioma: "es", lineas: [], corte: false, boca: null };
   var VOZ_NOMBRE = { idle: "En espera", escuchando: "Escuchando", pensando: "Pensando", hablando: "Hablando" };
   function paintVoz() {
     var meta = $("hx-voz-meta"), list = $("hx-voz-lines"), fig = document.querySelector(".hx-figure");
@@ -113,6 +113,16 @@
 
   // ---------- figura del asistente (silueta genérica, decorativa) ----------
   var fig = $("hx-figure"), fx = fig.getContext("2d");
+  function bocaAhora() {
+    var b = voz.boca;
+    if (!b || !b.values || !b.values.length || !(b.fps > 0)) return -1;
+    var sec = Date.now() / 1000 - b.t0;
+    if (!(sec >= 0)) return 0;
+    var x = sec * b.fps, i = Math.floor(x);
+    if (i >= b.values.length) return 0;
+    var a = +b.values[i] || 0, c = i + 1 < b.values.length ? +b.values[i + 1] || 0 : 0;
+    return a + (c - a) * (x - i);
+  }
   function figure(t) {
     var w = fig.clientWidth, h = fig.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
     if (!w || !h) return;
@@ -139,14 +149,15 @@
     fx.shadowColor = "rgba(63,180,255,0.8)"; fx.shadowBlur = 8;
     fx.beginPath(); fx.ellipse(cx, top + u * 0.5, u * 0.36, u * 0.48, 0, 0, 6.283); fx.stroke();       // cabeza
     if (voz.estado === "hablando") {
-      var open = reduce ? 0.1 : 0.06 + Math.abs(Math.sin(t / 90)) * 0.2;
+      var lvl = bocaAhora();
+      var open = lvl < 0 ? (reduce ? 0.1 : 0.06 + Math.abs(Math.sin(t / 90)) * 0.2) : (0.04 + Math.max(0, Math.min(1, lvl)) * 0.26);
       fx.fillStyle = "rgba(8,24,40,0.92)";
-      fx.beginPath(); fx.ellipse(cx, top + u * 0.72, u * 0.11, u * open, 0, 0, 6.283); fx.fill();
+      fx.beginPath(); fx.ellipse(cx, top + u * 0.72, u * (0.08 + open), u * open, 0, 0, 6.283); fx.fill();
     } else if (voz.estado === "escuchando") {
-      fx.globalAlpha = 0.85;
+      fx.save();
       fx.strokeStyle = "rgba(150,220,255," + (0.35 + (reduce ? 0 : 0.4 * Math.abs(Math.sin(t / 280)))) + ")";
       fx.beginPath(); fx.arc(cx, top + u * 0.5, u * 0.62, 0, 6.283); fx.stroke();
-      fx.strokeStyle = "rgba(150,215,255,0.85)";
+      fx.restore();
     }
     function line(pts) { fx.beginPath(); fx.moveTo(cx + pts[0][0] * u, top + pts[0][1] * u);
       for (var k = 1; k < pts.length; k++) fx.lineTo(cx + pts[k][0] * u, top + pts[k][1] * u); fx.stroke(); }
@@ -230,7 +241,8 @@
   document.addEventListener("jarvis:voz", function (e) {
     var d = e.detail || {};
     voz = { estado: d.estado || "idle", idioma: d.idioma === "en" ? "en" : "es",
-            lineas: Array.isArray(d.lineas) ? d.lineas.slice(-8) : [], corte: !!d.corte };
+            lineas: Array.isArray(d.lineas) ? d.lineas.slice(-8) : [], corte: !!d.corte,
+            boca: d.boca && d.boca.values && d.boca.values.length ? d.boca : null };
     paintVoz();
   });
   var rv = $("hud-reveal"); if (rv) rv.addEventListener("change", renderAll);

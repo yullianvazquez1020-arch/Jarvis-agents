@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -84,6 +85,36 @@ def hud_notice(ev: dict) -> dict | None:
     return notice
 
 
+def boca_de(pcm: bytes, rate: int, fps: int = 20) -> dict:
+    """Apertura 0..1 según el volumen real. Es amplitud, no fonemas. No guarda el audio."""
+    fps = 20 if not 1 <= int(fps) <= 40 else int(fps)
+    n = len(pcm) // 2
+    if rate <= 0 or n <= 0:
+        return {"fps": fps, "values": []}
+    step = max(1, int(rate / fps))
+    raw = []
+    for start in range(0, n, step):
+        end = min(n, start + step)
+        acc = 0
+        for i in range(start, end):
+            s = int.from_bytes(pcm[i * 2:i * 2 + 2], "little", signed=True)
+            acc += s * s
+        raw.append((acc / (end - start)) ** 0.5 / 32768)
+        if len(raw) >= 200:
+            break
+    ordered = sorted(raw)
+    floor = ordered[int((len(ordered) - 1) * 0.2)]
+    ref = ordered[int((len(ordered) - 1) * 0.95)]
+    if ref <= floor + 1e-3:
+        floor, ref = 0.0, max(0.05, ordered[-1])
+    values = []
+    for v in raw:
+        x = (v - floor) / (ref - floor)
+        x = 0.0 if x < 0 else 1.0 if x > 1 else x
+        values.append(round(x ** 0.5, 3))
+    return {"fps": fps, "values": values}
+
+
 def post_hud(notice: dict, base: str | None = None, timeout: float = 0.4) -> bool:
     """Avisa al display. Si el HUD está cerrado, no es un error: la voz sigue."""
     if not notice:
@@ -126,12 +157,16 @@ class HudLink:
         self.hablando = notice.get("estado") == "hablando"
         self._send(notice)
 
-    def audio(self) -> None:
+    def audio(self, pcm: bytes | None = None, rate: int | None = None, t0: float | None = None) -> None:
         self.sono = True
-        if self.hablando:
+        notice: dict = {"estado": "hablando"}
+        if pcm and rate:
+            notice["boca"] = boca_de(pcm, rate)
+            notice["boca"]["t0"] = time.time() if t0 is None else t0
+        if self.hablando and "boca" not in notice:
             return
         self.hablando = True
-        self._send({"estado": "hablando"})
+        self._send(notice)
 
     def silencio(self) -> None:
         if not self.hablando or not self.sono:
@@ -193,7 +228,6 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
             async for msg in ws:
                 if isinstance(msg, bytes):
                     player.push(msg)
-                    link.audio()
                 else:
                     ev = handle_event(msg, player, link.event)
                     if ev.get("texto"):
@@ -201,9 +235,10 @@ async def main() -> int:  # pragma: no cover - necesita micrófono y red
         async def play():
             while True:
                 if player.queue:
-                    link.audio()
                     rate, pcm = player.queue.pop(0)
+                    t0 = time.time()
                     sd.play(np.frombuffer(pcm, dtype=np.int16), rate)
+                    link.audio(pcm, rate, t0)
                     await asyncio.sleep(0.05)
                     while sd.get_stream().active:   # sd.stop() (barge-in) lo corta
                         await asyncio.sleep(0.03)

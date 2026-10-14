@@ -872,6 +872,12 @@ class HudV2(CompanionBase):
         view = self.req("GET", "/api/voz")[1]
         self.assertEqual(view["estado"], "hablando")
         self.assertNotIn("secret", json.dumps(view))
+        st, j, _, _ = self.req("POST", "/api/voz", {"estado": "hablando", "boca": {"fps": 20, "t0": 1000, "values": [0, 0.8, 0.1]}})
+        self.assertEqual(st, 200, j)
+        self.assertEqual(j["boca"]["values"], [0, 0.8, 0.1])
+        cerrado = self.req("POST", "/api/voz", {"estado": "escuchando", "corte": True})[1]
+        self.assertIsNone(cerrado["boca"])
+        self.assertTrue(cerrado["corte"])
 
     def test_clean_jobs_keeps_only_known_stages_and_dates(self):
         raw = [{"id": 1, "title": "Ana — Cocina", "status": "in_progress", "stage": "En progreso", "progress": 50,

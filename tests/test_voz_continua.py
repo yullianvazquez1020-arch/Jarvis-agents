@@ -202,6 +202,22 @@ class Client(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.hud_endpoint('http://10.0.0.8:8765')
 
+    def test_la_boca_sigue_el_volumen_del_audio(self):
+        rate = 8000
+        silencio = b'\x00\x00' * rate
+        fuerte = (8000).to_bytes(2, 'little', signed=True) * rate
+        self.assertTrue(all(v == 0 for v in client.boca_de(silencio, rate)['values']))
+        mezcla = client.boca_de(silencio + fuerte + silencio, rate)
+        medio = mezcla['values'][len(mezcla['values']) // 2]
+        self.assertGreater(medio, 0.5)
+        self.assertLess(mezcla['values'][0], 0.2)
+        seen = []
+        link = client.HudLink(seen.append)
+        link.event({'type': 'respuesta', 'texto': 'Hola.', 'idioma': 'es'})
+        link.audio(fuerte, rate, 1000.0)
+        self.assertEqual(seen[-1]['boca']['t0'], 1000.0)
+        self.assertGreater(max(seen[-1]['boca']['values']), 0.5)
+
     def test_a_failing_hud_does_not_stop_the_event(self):
         p = client.Player(); p.push(v.pcm_to_wav(SILENCE))
         def boom(ev):

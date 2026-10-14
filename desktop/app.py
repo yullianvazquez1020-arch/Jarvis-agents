@@ -277,7 +277,7 @@ class Companion:
         self.hud_cache = []
         self.last_alert = None
         self.alerts_seen = self._load_seen()
-        self.voz = {"estado": "idle", "idioma": "es", "lineas": [], "corte": False}
+        self.voz = {"estado": "idle", "idioma": "es", "lineas": [], "corte": False, "boca": None}
 
     # --- secrets and prefs ---
     def _token(self):
@@ -493,7 +493,8 @@ class Companion:
         with self.lock:
             v = self.voz
             return {"estado": v["estado"], "idioma": v["idioma"], "corte": bool(v.get("corte")),
-                    "lineas": [dict(x) for x in v["lineas"]]}
+                    "lineas": [dict(x) for x in v["lineas"]],
+                    "boca": dict(v["boca"]) if v.get("boca") else None}
 
     def voz_aviso(self, data):
         """Estado de la voz continua para el HUD. No aprueba, no envía y no guarda audio."""
@@ -514,6 +515,12 @@ class Companion:
                 texto = " ".join(str(linea.get("texto") or "").split())[:240]
                 if quien in ("tu", "jarvis") and texto:
                     self.voz["lineas"] = (self.voz["lineas"] + [{"quien": quien, "texto": texto}])[-8:]
+            if estado != "hablando":
+                self.voz["boca"] = None
+            else:
+                boca = _boca(data.get("boca"))
+                if boca:
+                    self.voz["boca"] = boca
         vista = self.voz_view()
         self.emit({"type": "voz", "voz": vista})
         return vista
@@ -1000,6 +1007,30 @@ def make_handler(app, host, port):
                 self._send(400, {"error": str(e)[:200]})
 
     return Handler
+
+
+def _boca(data):
+    """Envolvente ya calculada. No acepta audio, solo números de 0 a 1."""
+    if not isinstance(data, dict):
+        return None
+    try:
+        fps = float(data.get("fps"))
+        t0 = float(data.get("t0"))
+    except (TypeError, ValueError):
+        return None
+    values = data.get("values")
+    if not 1 <= fps <= 40 or not isinstance(values, list) or not values:
+        return None
+    clean = []
+    for n in values[:200]:
+        try:
+            x = float(n)
+        except (TypeError, ValueError):
+            return None
+        if x < 0 or x > 1:
+            return None
+        clean.append(round(x, 3))
+    return {"fps": fps, "t0": t0, "values": clean}
 
 
 def loopback_host(addr: str) -> bool:
