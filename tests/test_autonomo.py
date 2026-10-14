@@ -36,6 +36,9 @@ class FakePointer:
     def frontmost(self):
         return self.front
 
+    def page_url(self):
+        return ""  # leer la página no es una orden: no entra en calls
+
     def __getattr__(self, name):
         return lambda *a: self.calls.append((name,) + a)
 
