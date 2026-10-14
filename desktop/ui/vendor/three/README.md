@@ -39,3 +39,10 @@ no descarga nada por su cuenta, y esta vista no carga texturas ni modelos extern
 3. Anotar aquí la etiqueta, el commit y el SHA256 original.
 4. Actualizar `SHA256SUMS.txt` y volver a correr `scripts/check_avatar_ironman.cjs` y
    `tests/test_avatar_ironman.py`.
+
+## Posproceso para la Torre de Aincrad (`/torre`, `torre-cine.js`)
+
+Copiados de `three@0.180.0` (npm, `examples/jsm/`), sin minificar: `postprocessing/{EffectComposer,RenderPass,
+ShaderPass,MaskPass,Pass,UnrealBloomPass,BokehPass,OutputPass}.js` y `shaders/{CopyShader,LuminosityHighPassShader,
+BokehShader,OutputShader}.js`. Único cambio: `from 'three'` -> `from '../three.module.js'` (misma razón de CSP).
+Se sirven solo con `JARVIS_AVATAR_IRONMAN=1`; si no, `/torre` usa la escena 2D.

@@ -160,8 +160,9 @@
     ctx.fillStyle = "rgba(4,14,30,0.8)"; ctx.fillRect(x, y, w, 26 * dpr); ctx.strokeStyle = col(0.6); ctx.strokeRect(x, y, w, 26 * dpr);
     ctx.fillStyle = "#e6f4ff"; ctx.fillText(txt, x + 10 * dpr, y + 17 * dpr);
   }
-  var last = 0;
+  var last = 0, stopped = false;
   function frame(t) {
+    if (stopped) return;
     requestAnimationFrame(frame);
     if (t - last < 40) return; last = t;
     alertK += ((mode === "ultron" ? 1 : 0) - alertK) * (reduce ? 1 : 0.08);
@@ -174,7 +175,7 @@
   });
   addEventListener("jarvis-piso-lista", function (e) { sel = e.detail; });
   addEventListener("resize", size);
-  window.JarvisAincradScene = { floorAt: floorAt, setMode: function (m) { mode = m; }, setPisos: function (p) { pisos = p; } };
+  window.JarvisAincradScene = { stop: function () { stopped = true; }, floorAt: floorAt, setMode: function (m) { mode = m; }, setPisos: function (p) { pisos = p; } };
   function poll() {
     fetch("/api/state", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (j) { mode = j.mode || "jarvis"; }).catch(function () {});
   }

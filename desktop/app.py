@@ -61,10 +61,15 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 "three/three.core.js": "text/javascript; charset=utf-8",
-                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8"}
+                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
+                **{f"three/{d}/{n}.js": "text/javascript; charset=utf-8" for d, names in (
+                    ("postprocessing", ("EffectComposer", "RenderPass", "ShaderPass", "MaskPass", "Pass",
+                                        "UnrealBloomPass", "BokehPass", "OutputPass")),
+                    ("shaders", ("CopyShader", "LuminosityHighPassShader", "BokehShader", "OutputShader")))
+                   for n in names}}
 IRONMAN_LINK = re.compile(rb"<!--ironman-->.*?<!--/ironman-->", re.S)                                          # HUD v2: barras y medidores
 LAUNCH_TTL = 120
 SESSION_TTL = 12 * 3600

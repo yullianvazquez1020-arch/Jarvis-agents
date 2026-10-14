@@ -96,8 +96,11 @@ class Files(unittest.TestCase):
         for name in ("ironman.css", "ironman.js", "aincrad.js"):
             with self.subTest(name=name):
                 self.assertIn(name, desk.UI_FILES)
-        self.assertEqual(sorted(desk.VENDOR_FILES), ["three/controls/OrbitControls.js",
-                                                     "three/three.core.js", "three/three.module.js"])
+        post = [f"three/postprocessing/{n}.js" for n in ("BokehPass", "EffectComposer", "MaskPass", "OutputPass", "Pass",
+                                                          "RenderPass", "ShaderPass", "UnrealBloomPass")]
+        shaders = [f"three/shaders/{n}.js" for n in ("BokehShader", "CopyShader", "LuminosityHighPassShader", "OutputShader")]
+        self.assertEqual(sorted(desk.VENDOR_FILES), sorted(["three/controls/OrbitControls.js", "three/three.core.js",
+                                                            "three/three.module.js"] + post + shaders))   # lista cerrada (torre cine)
 
 
 class Route(unittest.TestCase):

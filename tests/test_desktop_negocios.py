@@ -56,6 +56,25 @@ class TorreAincrad(unittest.TestCase):
         self.assertIn('"torre-aincrad.js"', app); self.assertIn('"torre-aincrad.css"', app)
 
 
+class TorreCine(unittest.TestCase):
+    def test_cine_three_local_y_respaldo_2d(self):
+        js = (ROOT / "desktop/ui/torre-cine.js").read_text("utf-8")
+        for k in ("./vendor/three/three.module.js", "UnrealBloomPass", "BokehPass", "OutputPass", "PCFSoftShadowMap",
+                  "normalMap", "roughnessMap", "AdditiveBlending", "fresnel", "uGlitch", "prefers-reduced-motion",
+                  "calidad", "webglOk", "jarvis-piso", "/api/negocios", "JarvisAincradScene.stop"):
+            self.assertIn(k, js, k)
+        self.assertNotIn("https://", js.split("*/", 1)[1])
+        html = (ROOT / "desktop/ui/torre.html").read_text("utf-8")
+        self.assertIn('<script type="module" src="/ui/torre-cine.js">', html)
+        self.assertIn("/ui/torre-aincrad.js", html)                                   # respaldo 2D sigue cargado
+        import importlib; app = importlib.import_module("app")
+        for n in ("postprocessing/UnrealBloomPass", "postprocessing/BokehPass", "shaders/OutputShader"):
+            self.assertIn(f"three/{n}.js", app.VENDOR_FILES)
+            src = (ROOT / "desktop/ui/vendor/three" / f"{n}.js").read_text("utf-8")
+            self.assertNotIn("from 'three'", src)
+        self.assertIn("torre-cine.js", app.UI_FILES)
+
+
 class ModoNucleo(unittest.TestCase):
     def setUp(self):
         import importlib
