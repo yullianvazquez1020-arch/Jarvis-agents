@@ -61,6 +61,9 @@ class BusTest(unittest.TestCase):
         self.assertIn("JARVIS_BUS_READ_SECRET", src)
         self.assertIn("JARVIS_BUS_WRITE_SECRET", src)
         self.assertNotIn("_key_ok(x_jarvis_secret, ENCARGO_SECRET)", src[src.index('"/api/bus/negocios"'):])
+        block = src[src.index("_SECRET_ENVS"):src.index("_SECRET_PATTERNS")]
+        for name in ("JARVIS_BUS_READ_SECRET", "JARVIS_BUS_WRITE_SECRET", "JARVIS_ENCARGO_SECRET"):
+            self.assertIn(f'"{name}"', block)
 
 
 if __name__ == "__main__": unittest.main()
