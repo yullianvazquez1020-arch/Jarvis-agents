@@ -7615,3 +7615,68 @@ try:
 except Exception as _e:
     EVOLVE_STATUS = f"apagado ({type(_e).__name__})"
     logger.warning("evolve off: %s", type(_e).__name__)
+
+# ---------------------------------------------------------------------------
+# Voz continua (fase 2): conversación tipo llamada por WebSocket. Cerrado salvo VOZ_CONTINUA_ENABLED=true.
+# Auth: cabecera X-Jarvis-Secret (JARVIS_ENCARGO_SECRET) o X-API-Key (AGENT_API_KEY). Nunca por query string.
+# Nada se aprueba por voz: pagos y mensajes siguen con /aprobar o /confirmar y los topes $100/op y $300/día.
+# ---------------------------------------------------------------------------
+from fastapi import WebSocket, WebSocketDisconnect
+import jarvis_voz_continua as _voz_c
+
+
+def _voz_c_auth(ws) -> bool:
+    secret = ws.headers.get("x-jarvis-secret")
+    key = ws.headers.get("x-api-key")
+    return bool((secret and _key_ok(secret, ENCARGO_SECRET)) or (key and _key_ok(key, API_KEY)))
+
+
+async def _voz_c_transcribe(wav: bytes) -> str:
+    import jarvis_chat_voice
+    return await jarvis_chat_voice.transcribe_local(wav)
+
+
+async def _voz_c_speak(text: str) -> bytes:
+    import jarvis_chat_voice                      # Piper; voz británica 'Alan' si JARVIS_REPLY_LANGUAGE=en-GB
+    return await jarvis_chat_voice.speak_local(text)
+
+
+async def _voz_c_reply(text: str) -> str:
+    if not _rate_ok("voz-continua"):
+        return f"Más de {RATE_PER_MIN} turnos por minuto; espera un momento."
+    # read_only="voice": la voz no escribe nada ni ejecuta acciones; pagos/mensajes van por Telegram con /aprobar
+    return await run("voz:continua", text, read_only="voice")
+
+
+@app.websocket("/ws/voz")
+async def ws_voz(ws: WebSocket):
+    if not _voz_c.enabled() or not _voz_c_auth(ws):
+        await ws.close(code=4401); return
+    await ws.accept()
+    sess = _voz_c.VozSession(
+        transcribe=_voz_c_transcribe, reply=_voz_c_reply, speak=_voz_c_speak,
+        send_json=ws.send_json, send_bytes=ws.send_bytes,
+        log=lambda s: logger.info(s), redact=lambda s: _redact_secrets(s)[0])
+    await ws.send_json({"type": "listo", "rate": _voz_c.RATE, "formato": "pcm16le-mono",
+                        "idioma_voz": __import__("jarvis_chat_voice").reply_language()})
+    try:
+        while True:
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if msg.get("bytes"):
+                await sess.feed(msg["bytes"])
+            elif msg.get("text"):
+                t = msg["text"]
+                if '"interrumpir"' in t:
+                    await sess.interrupt()
+                elif '"fin"' in t:
+                    break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await sess.close()
+        try:
+            await ws.close()
+        except Exception:
+            pass
