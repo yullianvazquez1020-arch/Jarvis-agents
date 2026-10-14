@@ -1,0 +1,146 @@
+"""Bus de negocios: datos ficticios, sin red."""
+import pathlib, sys, unittest
+ROOT = pathlib.Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
+import jarvis_bus as jb
+sys.path.insert(0, str(ROOT / 'tests'))
+import test_hardening as h
+j = h.j
+
+
+class BusTest(unittest.TestCase):
+    def setUp(self):
+        self.old = jb._REDACTOR; jb.set_redactor(lambda t: j._redact_secrets(t)[0]); self.b = jb.Bus(now=lambda: 1000.0)
+
+    def tearDown(self): jb.set_redactor(self.old)
+
+    def test_emitir_y_leer(self):
+        e = self.b.emitir("contesta-ya", "estado", "demo lista (ficticio)", estado="pr")
+        self.assertEqual(e["seq"], 1)
+        self.b.emitir("renta", "nota", "cliente ficticio", fuente="grokbot")
+        self.assertEqual([x["seq"] for x in self.b.eventos(desde=1)], [2])
+        self.assertEqual(len(self.b.eventos(negocio="renta")), 1)
+        t = {n["id"]: n for n in self.b.tablero()["negocios"]}
+        self.assertEqual(t["contesta-ya"]["estado"], "pr"); self.assertTrue(self.b.tablero()["solo_lectura"])
+
+    def test_validacion(self):
+        with self.assertRaises(KeyError): self.b.emitir("nope", "x")
+        with self.assertRaises(ValueError): self.b.emitir("renta", "x", estado="rico")
+        with self.assertRaises(ValueError): self.b.emitir("renta", "x", fuente="hacker")
+
+    def test_redacta_secretos(self):
+        e = self.b.emitir("amazon", "nota", "key sk_live_ABCDEFGH12345 tarjeta 4111111111111111 password=hunter2")
+        for s in ("sk_live", "4111111111111111", "hunter2"): self.assertNotIn(s, e["texto"])
+
+    def test_redactor_completo_valores_ficticios(self):
+        fake = {"tarjeta con espacios": "4111 1111 1111 1111", "AWS": "AKIA" + "ABCDEFGHIJKLMNOP",
+                "JWT": "eyJ" + "a"*12 + ".eyJ" + "b"*12 + "." + "c"*12, "github_pat": "github_pat_" + "x"*45}
+        for nombre, v in fake.items():
+            e = self.b.emitir("renta", "nota", f"dato ficticio {v} fin")
+            self.assertNotIn(v, e["texto"], nombre)
+            self.assertNotIn(v, str(self.b.eventos()), nombre); self.assertNotIn(v, str(self.b.tablero()), nombre)
+
+    def test_main_instala_redactor(self):
+        self.assertIn("jarvis_bus.set_redactor(lambda t: _redact_secrets(t)[0])", (ROOT / "main.py").read_text("utf-8"))
+        self.assertNotIn("4111", jb.redactar("4111 1111 1111 1111"))
+
+    def test_sin_redactor_rechaza(self):
+        jb.set_redactor(None)
+        with self.assertRaises(RuntimeError): self.b.emitir("renta", "nota", "x")
+
+    def test_acotado(self):
+        for i in range(jb.MAX_EVENTOS + 10): self.b.emitir("trading", "tick", str(i))
+        self.assertEqual(len(self.b.eventos(limite=10**6)), jb.MAX_EVENTOS)
+
+    def test_conserva_un_id_largo_que_no_es_tarjeta(self):
+        e = self.b.emitir("amazon", "nota", "pedido ficticio 1700000000123")
+        self.assertIn("1700000000123", e["texto"])
+
+    def test_tipo_no_guarda_una_clave(self):
+        clave = "ab" * 16
+        jb.set_redactor(lambda t: t.replace(clave, "[SECRETO OMITIDO]"))
+        e = self.b.emitir("amazon", clave, "texto normal")
+        self.assertEqual(e["tipo"], "redactado")
+        self.assertNotIn(clave, str(self.b.eventos()))
+        normal = self.b.emitir("amazon", "Estado.Listo", "sigue")
+        self.assertEqual(normal["tipo"], "estado.listo")
+
+    def test_tipo_en_mayusculas_no_se_guarda_en_minusculas(self):
+        clave = "AB" * 16
+        jb.set_redactor(lambda t: t.replace(clave, "[SECRETO OMITIDO]"))
+        e = self.b.emitir("amazon", clave, "texto normal")
+        self.assertEqual(e["tipo"], "redactado")
+        guardado = str(self.b.eventos())
+        self.assertNotIn(clave, guardado)
+        self.assertNotIn(clave.lower(), guardado)
+
+    def test_clave_corta_o_marcador_no_abre_el_bus(self):
+        self.assertFalse(jb.secreto_usable(""))
+        self.assertFalse(jb.secreto_usable("corta"))
+        self.assertFalse(jb.secreto_usable("change-me"))
+        self.assertFalse(jb.secreto_usable("test-local-only"))
+        self.assertTrue(jb.secreto_usable("clave-ficticia-32"))
+        src = (ROOT / "main.py").read_text("utf-8")
+        self.assertEqual(src.count("jarvis_bus.secreto_usable("), 3)
+
+    def test_cursor_de_otro_arranque_no_esconde_lo_nuevo(self):
+        self.b.emitir("amazon", "nota", "antes")
+        self.b._ev.clear(); self.b._seq = 0; self.b._epoch = "ciclo-nuevo"
+        nuevo = self.b.emitir("amazon", "nota", "despues")
+        r = self.b.consultar(desde=450, epoch="ciclo-viejo")
+        self.assertTrue(r["reinicio"])
+        self.assertEqual(r["epoch"], "ciclo-nuevo")
+        self.assertEqual([e["seq"] for e in r["eventos"]], [nuevo["seq"]])
+        seguido = self.b.consultar(desde=nuevo["seq"], epoch="ciclo-nuevo")
+        self.assertFalse(seguido["reinicio"])
+        self.assertEqual(seguido["eventos"], [])
+
+    def test_la_secuencia_no_vuelve_a_empezar(self):
+        self.b.emitir("amazon", "nota", "uno")
+        guardado = self.b._seq
+        nuevo = jb.Bus(now=lambda: 2.0)
+        nuevo.continuar_desde(guardado)
+        ev = nuevo.emitir("amazon", "nota", "dos")
+        self.assertEqual(ev["seq"], guardado + 1)
+        r = nuevo.consultar(desde=guardado)
+        self.assertFalse(r["reinicio"])
+        self.assertEqual([e["seq"] for e in r["eventos"]], [ev["seq"]])
+        src = (ROOT / "main.py").read_text("utf-8")
+        vida = src[src.index("async def _lifespan"):src.index('VERSION = "4.2.7"')]
+        self.assertLess(vida.index("fence_take_leadership"), vida.index("_restaurar_seq_bus"))
+        self.assertIn("secuencia del bus no guardada", src)
+        self.assertNotIn("bus seq not saved", src)
+        self.assertNotIn("bus seq not restored", src)
+
+    def test_el_cursor_de_la_pagina_no_se_salta_eventos(self):
+        for i in range(5):
+            self.b.emitir("amazon", "nota", str(i))
+        pagina = self.b.consultar(limite=2)
+        self.assertEqual([e["seq"] for e in pagina["eventos"]], [1, 2])
+        self.assertEqual(pagina["cursor"], 2)
+        self.assertEqual(pagina["ultimo_seq"], 2)
+        self.assertEqual(pagina["seq_alto"], 5)
+        sigue = self.b.consultar(desde=pagina["cursor"], limite=2)
+        self.assertEqual([e["seq"] for e in sigue["eventos"]], [3, 4])
+
+    def test_si_no_se_guarda_el_numero_se_puede_repetir(self):
+        primero = self.b.emitir("amazon", "nota", "uno", estado="plan")
+        self.assertNotIn("_previo", primero)
+        self.assertTrue(self.b.deshacer_emision(primero["seq"]))
+        self.assertEqual(self.b._estado["amazon"]["estado"], "idea")
+        self.assertEqual(self.b._estado["amazon"]["nota"], "")
+        otro = self.b.emitir("amazon", "nota", "reintento")
+        self.assertEqual(otro["seq"], primero["seq"])
+        self.assertEqual([e["texto"] for e in self.b.eventos()], ["reintento"])
+
+    def test_endpoints_con_secreto(self):
+        src = (ROOT / "main.py").read_text("utf-8")
+        for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)
+        self.assertIn("JARVIS_BUS_READ_SECRET", src)
+        self.assertIn("JARVIS_BUS_WRITE_SECRET", src)
+        self.assertNotIn("_key_ok(x_jarvis_secret, ENCARGO_SECRET)", src[src.index('"/api/bus/negocios"'):])
+        block = src[src.index("_SECRET_ENVS"):src.index("_SECRET_PATTERNS")]
+        for name in ("JARVIS_BUS_READ_SECRET", "JARVIS_BUS_WRITE_SECRET", "JARVIS_ENCARGO_SECRET"):
+            self.assertIn(f'"{name}"', block)
+
+
+if __name__ == "__main__": unittest.main()

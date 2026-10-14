@@ -123,7 +123,8 @@ _SECRET_ENVS = ("ANTHROPIC_API_KEY", "AGENT_API_KEY", "EXTERNAL_AGENT_KEY", "INC
                 "COINBASE_API_PRIVATE_KEY", "COINBASE_API_KEY_NAME", "TWILIO_AUTH_TOKEN", "RESEND_API_KEY",
                 "OPENAI_API_KEY", "STT_AGENT_API_KEY", "TTS_AGENT_API_KEY", "AMAZON_CLIENT_SECRET",
                 "AMAZON_REFRESH_TOKEN", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN", "YOUTUBE_API_KEY", "VENICE_API_KEY", "DATA_ENCRYPTION_KEY",
-                "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "MOONSHOT_API_KEY")
+                "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "MOONSHOT_API_KEY",
+                "JARVIS_ENCARGO_SECRET", "JARVIS_BUS_READ_SECRET", "JARVIS_BUS_WRITE_SECRET")
 _SECRET_PATTERNS = [
     ("clave privada", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S)),
     ("clave Anthropic", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{16,}")),
@@ -208,6 +209,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 async def _lifespan(app):
     # v4.0.1: take write leadership first (this is the newest process), then resume queued Telegram work
     await asyncio.to_thread(fence_take_leadership)
+    await asyncio.to_thread(_restaurar_seq_bus)
     from jarvis_private_backup import boot_migrate
     await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
     v420_boot = globals().get("v420_boot")
@@ -7351,7 +7353,26 @@ async def _tg_route(msg, background):
 # /cripto modo are impossible here), money still needs /aprobar + /confirmar in the private chat with the $100/op
 # and $300/day hard caps, and a client message still goes out only with the owner's /enviar.
 ENCARGO_SECRET = os.getenv("JARVIS_ENCARGO_SECRET", "").strip()
+BUS_READ_SECRET = os.getenv("JARVIS_BUS_READ_SECRET", "").strip()
+BUS_WRITE_SECRET = os.getenv("JARVIS_BUS_WRITE_SECRET", "").strip()
+BUS_SEQ_KEY = "jarvis:bus:seq"
 ENCARGO_MAX = 4000
+
+def _bus_seq_guardada():
+    if not USE_REDIS:
+        return 0
+    n = kv_get(BUS_SEQ_KEY, 0)
+    if n is None or n == "":
+        return 0
+    return int(n)
+
+def _guardar_seq_bus(seq):
+    if not USE_REDIS:
+        return
+    kv_set(BUS_SEQ_KEY, int(seq))
+
+def _restaurar_seq_bus():
+    jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
 
 class Encargo(BaseModel):
     texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
@@ -7378,6 +7399,48 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
         raise HTTPException(429, f"Más de {RATE_PER_MIN} encargos por minuto; espera un momento")
     background.add_task(_encargo_run, texto)
     return {"ok": True, "queued": True}
+
+
+# Bus de negocios (Jarvis <-> Grok Bot): registro y lectura de eventos de estado. No ejecuta acciones.
+import jarvis_bus
+jarvis_bus.set_redactor(lambda t: _redact_secrets(t)[0])
+
+class BusEvento(BaseModel):
+    negocio: str = Field(min_length=1, max_length=40)
+    tipo: str = Field(default="nota", max_length=40)
+    texto: str = Field(default="", max_length=jarvis_bus.MAX_TEXTO)
+    estado: str | None = None
+    fuente: str = "grokbot"
+
+@app.get("/api/bus/negocios")
+async def bus_negocios(x_jarvis_secret: str = Header(None)):
+    if not jarvis_bus.secreto_usable(BUS_READ_SECRET) or not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
+        raise HTTPException(401, "Bad secret")
+    return jarvis_bus.BUS.tablero()
+
+@app.get("/api/bus/eventos")
+async def bus_eventos(desde: int = 0, negocio: str | None = None, limite: int = 100,
+                      epoch: str | None = None, x_jarvis_secret: str = Header(None)):
+    if not jarvis_bus.secreto_usable(BUS_READ_SECRET) or not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
+        raise HTTPException(401, "Bad secret")
+    return jarvis_bus.BUS.consultar(desde, negocio, limite, epoch)
+
+@app.post("/api/bus/eventos")
+async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
+    if not jarvis_bus.secreto_usable(BUS_WRITE_SECRET) or not _key_ok(x_jarvis_secret, BUS_WRITE_SECRET):
+        raise HTTPException(401, "Bad secret")
+    if not _rate_ok("bus"):
+        raise HTTPException(429, "Demasiados eventos por minuto")
+    try:
+        ev = jarvis_bus.BUS.emitir(req.negocio, req.tipo, req.texto, req.estado, req.fuente)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(422, str(e))
+    try:
+        _guardar_seq_bus(ev["seq"])
+    except Exception:
+        jarvis_bus.BUS.deshacer_emision(ev["seq"])
+        raise HTTPException(503, "secuencia del bus no guardada")
+    return ev
 
 
 @app.get("/backup")
