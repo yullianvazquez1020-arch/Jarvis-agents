@@ -25,8 +25,10 @@ def estado():
     s = auto.read_session()
     return {"disponible": True, "stop": bool(ae.stopped()), "sesion": bool(s),
             "agente": s["agent"] if s else None, "vence": s["expires"] if s else None,
+            "apps": sorted(ae.ALLOW_APPS),
             "parada": "esquina superior izquierda · Ctrl+C · ~/.jarvis-control/STOP",
-            "nota": "La sesión solo la abre el dueño en su Terminal (python3 desktop/mac/autonomo.py)."}
+            "nota": "La sesión solo la abre el dueño en su Terminal (python3 desktop/mac/autonomo.py). "
+                    "El puntero solo se mueve en Notes y Safari. Outlook, Slack y el correo no."}
 
 
 def precheck(action, session):

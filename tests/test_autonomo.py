@@ -36,6 +36,9 @@ class FakePointer:
     def frontmost(self):
         return self.front
 
+    def page_url(self):
+        return ""
+
     def __getattr__(self, name):
         return lambda *a: self.calls.append((name,) + a)
 
@@ -164,6 +167,37 @@ class RunTests(Base):
         script = [{"agent": "claude", "action": "scroll", "dy": 1}] * (ae.MAX_PER_MINUTE + 5)
         p = self.go(script)
         self.assertEqual(len(p.calls), ae.MAX_PER_MINUTE)
+
+    def test_pointer_stays_out_of_outlook_and_slack(self):
+        for front in ("Microsoft Outlook", "Slack"):
+            with self.subTest(front=front):
+                self.open()
+                p = self.go([{"agent": "claude", "action": "move", "x": 400, "y": 300}], front=front)
+                self.assertEqual([c[0] for c in p.calls], [])
+
+    def test_click_aborts_when_safari_changes_page(self):
+        self.open()
+
+        class Pages(FakePointer):
+            def __init__(self):
+                super().__init__("Safari", [
+                    {"agent": "claude", "action": "open_url", "url": "https://github.com/ejemplo/repo"},
+                    {"agent": "claude", "action": "click", "x": 400, "y": 300},
+                ])
+                self.urls = [
+                    "https://github.com/ejemplo/repo",
+                    "https://github.com/ejemplo/repo",
+                    "https://mail.google.com/mail/u/0",
+                ]
+
+            def page_url(self):
+                return self.urls.pop(0) if self.urls else "https://mail.google.com/mail/u/0"
+
+        p = Pages()
+        quiet(au.run, p, sleep=lambda s: None, max_steps=2)
+        self.assertNotIn("click", [c[0] for c in p.calls])
+        rows = [json.loads(l) for l in (ae.control_dir() / "audit.jsonl").read_text().splitlines()]
+        self.assertTrue(any(r["reason"] == "autonomo:sitio_no_verificado" for r in rows))
 
     def test_failsafe_exception_creates_stop(self):
         self.open()

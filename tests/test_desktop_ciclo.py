@@ -100,6 +100,35 @@ class Ciclo(unittest.TestCase):
         c2 = ciclo.Ciclo(home, base=base, emit=ev.append, speak=voz.append, stopped=lambda: True)
         self.assertEqual(c2.vuelta(), []); self.assertIn("STOP", c2.ultimo)
 
+    def test_dos_mouse_iguales_se_ejecutan_y_el_fallo_no_cuenta(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        orden = {"tipo": "mouse", "orden": {"action": "scroll", "dy": -1}}
+        (home / "encargos.jsonl").write_text(json.dumps(orden) + "\n" + json.dumps(orden))
+        vistos = []
+
+        def mouse(o):
+            vistos.append(o)
+            if len(vistos) == 1:
+                return {"ok": False, "motivo": "ya hay una orden pendiente"}
+            return {"ok": True, "orden": "scroll"}
+
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
+        primero = c.vuelta()
+        self.assertEqual(len(vistos), 2)
+        self.assertIn("pendiente", primero[0])
+        self.assertIn("en cola", primero[1])
+        segundo = c.vuelta()
+        self.assertEqual(len(segundo), 1)
+        self.assertIn("en cola", segundo[0])
+        self.assertEqual(c.vuelta(), [])
+
+        home2 = pathlib.Path(tempfile.mkdtemp())
+        (home2 / "encargos.jsonl").write_text(json.dumps(orden))
+        falla = ciclo.Ciclo(home2, base=home2, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False,
+                            mouse=lambda o: {"ok": False, "motivo": "sin verificar"})
+        self.assertIn("sin verificar", falla.vuelta()[0])
+        self.assertIn("sin verificar", falla.vuelta()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

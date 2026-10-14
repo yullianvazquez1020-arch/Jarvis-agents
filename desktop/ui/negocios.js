@@ -23,7 +23,8 @@
     }
     if (mo) {
       var ms = mo.stop ? "STOP activo" : mo.sesion ? "sesión de " + mo.agente + " hasta " + mo.vence : "en espera (la abre el dueño en la Mac)";
-      box.appendChild(el("div", mo.stop ? "off" : null, "Mouse autónomo: " + ms + " · Parada: " + mo.parada));
+      box.appendChild(el("div", mo.stop ? "off" : null, "Mouse autónomo: " + ms + " · Parada: " + mo.parada
+        + (mo.nota ? " · " + mo.nota : "")));
     }
     var c = el("h2", null, "CRIPTO · PRÁCTICA (sin trading real)"); box.appendChild(c);
     if (!m || !m.conectado) { box.appendChild(el("div", "off", "Precios sin conexión" + (m && m.error ? " (" + m.error + ")" : ""))); return; }

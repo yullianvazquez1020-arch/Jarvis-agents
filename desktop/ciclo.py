@@ -62,22 +62,26 @@ def archivo(ruta, base):
 
 
 def procesar(e, *, base, mouse=None, estado=None, fetch=None):
+    """Devuelve (texto, aceptar). Un mouse que no se ejecutó no se acepta: se reintenta."""
     tipo = e.get("tipo")
     if tipo not in TIPOS:
-        return "tipo no permitido"
+        return "tipo no permitido", True
     if PROHIBIDO.search(json.dumps(e, ensure_ascii=False)):
-        return "bloqueado: envíos, cobros y contraseñas solo con /enviar o /aprobar + /confirmar en Jarvis"
+        return "bloqueado: envíos, cobros y contraseñas solo con /enviar o /aprobar + /confirmar en Jarvis", True
     try:
         if tipo == "web":
-            return web(e.get("url"), fetch)
+            return web(e.get("url"), fetch), True
         if tipo == "archivo":
-            return archivo(e.get("ruta"), base)
+            return archivo(e.get("ruta"), base), True
         if tipo == "mouse":
             r = (mouse or (lambda o: {"ok": False, "motivo": "sin mouse"}))(e.get("orden"))
-            return "mouse: orden " + r.get("orden", "") + " en cola" if r.get("ok") else "mouse: " + r.get("motivo", "rechazado")
-        return (estado or (lambda: "sin servidor"))()
+            if not isinstance(r, dict) or not r.get("ok"):
+                motivo = r.get("motivo", "rechazado") if isinstance(r, dict) else "rechazado"
+                return "mouse: " + str(motivo), False
+            return "mouse: orden " + str(r.get("orden", "")) + " en cola", True
+        return (estado or (lambda: "sin servidor"))(), True
     except Exception as ex:  # una tarea rota no detiene el ciclo
-        return f"error {type(ex).__name__}"
+        return f"error {type(ex).__name__}", True
 
 
 class Ciclo:
@@ -89,30 +93,46 @@ class Ciclo:
 
     def _hechos(self):
         try:
-            return set(json.loads(self.hechos.read_text(encoding="utf-8")))
+            raw = json.loads(self.hechos.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return set()
+            return {}
+        counts = {}
+        if isinstance(raw, dict):
+            for k, n in raw.items():
+                if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+                    continue
+                counts[str(k)] = n
+            return counts
+        if isinstance(raw, list):
+            for k in raw:
+                k = str(k)
+                if re.match(r"^\d+:", k):
+                    k = k.split(":", 1)[1]
+                counts[k] = counts.get(k, 0) + 1
+        return counts
 
     def vuelta(self):
         self.vueltas += 1
         if self.stopped():
             self.ultimo = "STOP activo: ciclo en pausa"; return []
-        hechos, out, presentes = self._hechos(), [], set()
-        hechos |= {k.split(":", 1)[1] for k in hechos if re.match(r"^\d+:", k)}   # migra claves antiguas con índice
-        for i, e in enumerate(leer_cola(self.cola)):
+        previo, out, vistos = self._hechos(), [], {}
+        for e in leer_cola(self.cola):
             key = str(e.get("id") or json.dumps(e, sort_keys=True))      # clave estable: el contenido, nunca la posición
-            presentes.add(key)
-            if key in hechos:
+            vistos[key] = vistos.get(key, 0) + 1
+            if vistos[key] <= previo.get(key, 0):
                 continue
-            res = procesar(e, base=self.base, mouse=self.mouse, estado=self.estado, fetch=self.fetch)
-            hechos.add(key); out.append(res)
+            res, aceptar = procesar(e, base=self.base, mouse=self.mouse, estado=self.estado, fetch=self.fetch)
+            if aceptar:
+                previo[key] = previo.get(key, 0) + 1
+            out.append(res)
             self.emit({"type": "ciclo", "tipo": e.get("tipo"), "text": res[:300]})
             self.speak(f"Encargo listo. {res[:160]}")
-        vigentes = hechos & presentes                      # se recuerda TODO lo que sigue en la cola (sin tope que lo reprocese)
-        if out or vigentes != hechos:
+        vigentes = {k: min(previo.get(k, 0), n) for k, n in vistos.items() if min(previo.get(k, 0), n) > 0}
+        if out or vigentes != self._hechos():
             self.home.mkdir(parents=True, exist_ok=True)
+            lista = [k for k, n in sorted(vigentes.items()) for _ in range(n)]
             tmp = self.hechos.with_name(self.hechos.name + ".tmp")
-            tmp.write_text(json.dumps(sorted(vigentes)), encoding="utf-8"); os.replace(tmp, self.hechos)
+            tmp.write_text(json.dumps(lista), encoding="utf-8"); os.replace(tmp, self.hechos)
         self.ultimo = out[-1] if out else self.ultimo
         return out
 

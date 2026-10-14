@@ -147,7 +147,7 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
         return "url"
     if kind == "open_app" and ae.norm(action.get("app") or "") not in ae.ALLOW_APPS:
         return "app"
-    if kind in POINTER_ACTIONS:
+    if kind in POINTER_ACTIONS or kind == "move":
         if not front:
             return "app_frente_desconocida"
         if ae.norm(front) in ae.DENY_APPS or ae.denied_text(front):
@@ -157,11 +157,34 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
         if ae.norm(front) in BROWSERS:             # el clic solo vale si la página actual es el mismo sitio permitido que abrió esta sesión
             if kind == "type":
                 return "texto_en_navegador"
-            if kind in {"click", "double_click"}:
+            if kind in {"click", "double_click", "move"}:
                 opened = str((ctx or {}).get("opened_host") or "")
                 host = ae.host_of(str((ctx or {}).get("page_url") or ""))
                 if not opened or host != opened or not ae.allowed_host(host):
                     return "sitio_no_verificado"
+    return None
+
+
+def confirmar_clic(pointer, front: str, ctx: dict | None) -> str | None:
+    """Justo antes de mover o clicar: la app y la página tienen que ser las que se acaban de validar."""
+    try:
+        ahora = pointer.frontmost() or ""
+    except Exception:
+        return "app_frente_desconocida"
+    if ae.norm(ahora) != ae.norm(front) or ae.norm(ahora) not in ae.ALLOW_APPS:
+        return "app_frente"
+    if ae.norm(ahora) not in BROWSERS:
+        return None
+    try:
+        url = pointer.page_url() or ""
+    except Exception:
+        url = ""
+    previa = str((ctx or {}).get("page_url") or "")
+    if not url or url != previa:
+        return "sitio_no_verificado"
+    host = ae.host_of(url)
+    if host != str((ctx or {}).get("opened_host") or "") or not ae.allowed_host(host):
+        return "sitio_no_verificado"
     return None
 
 
@@ -255,6 +278,8 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             recent[:] = [t for t in recent if (moment - t).total_seconds() < 60]
             why = "ritmo" if len(recent) >= ae.MAX_PER_MINUTE else validate(action, session, size, front, ctx)
             safe = action if isinstance(action, dict) else {}
+            if not why and str(safe.get("action") or "") in {"click", "double_click", "move"}:
+                why = confirmar_clic(pointer, front, ctx)
             if why:
                 ae.audit(safe, "BLOQUEADO", f"autonomo:{why}", dry=False)
                 last = {"resultado": "BLOQUEADO", "motivo": why, "accion": safe.get("action")}
