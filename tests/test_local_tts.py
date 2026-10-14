@@ -38,3 +38,19 @@ class LocalVoiceTests(unittest.TestCase):
             for name in tts.BRITISH_HASHES:(root/name).write_bytes(b'fixture')
             with patch.object(tts,'digest',side_effect=lambda p:tts.BRITISH_HASHES[p.name]),patch('httpx.stream') as request:
                 self.assertEqual(tts.ensure_model(root,'en-GB'),root/tts.BRITISH_MODEL);request.assert_not_called()
+
+    def test_british_default_is_male_alan_and_selectable(self):
+        with patch.dict(os.environ,{},clear=False):
+            os.environ.pop('JARVIS_BRITISH_VOICE',None)
+            self.assertEqual(tts.profile('en-GB')[0],'en_GB-alan-medium.onnx')
+        with patch.dict(os.environ,{'JARVIS_BRITISH_VOICE':'southern_english_female'}):
+            self.assertEqual(tts.profile('en-GB')[0],'en_GB-southern_english_female-low.onnx')
+        with patch.dict(os.environ,{'JARVIS_BRITISH_VOICE':'unknown'}):
+            self.assertEqual(tts.profile('en-GB')[0],'en_GB-alan-medium.onnx')
+
+    def test_voice_pace_is_measured_and_bounded(self):
+        with patch.dict(os.environ,{},clear=False):
+            os.environ.pop('JARVIS_VOICE_PACE',None)
+            self.assertEqual(tts.length_scale('en-GB'),1.08);self.assertEqual(tts.length_scale('es'),1.0)
+        with patch.dict(os.environ,{'JARVIS_VOICE_PACE':'9'}):self.assertEqual(tts.length_scale('en-GB'),1.4)
+        with patch.dict(os.environ,{'JARVIS_VOICE_PACE':'x'}):self.assertEqual(tts.length_scale('en-GB'),1.08)

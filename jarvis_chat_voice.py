@@ -347,7 +347,7 @@ async def to_opus(wav: bytes) -> bytes:
 async def reply_voice() -> bytes:
     """La frase fija se genera una vez y queda en caché (no carga Piper en cada nota)."""
     language=reply_language()
-    cache = model_dir() / ('respuesta-nota-british-v1.ogg' if language=='en-GB' else 'respuesta-nota-ald-fluida-v2.ogg')
+    cache = model_dir() / ('respuesta-nota-british-alan-v2.ogg' if language=='en-GB' else 'respuesta-nota-ald-fluida-v2.ogg')
     if cache.exists() and cache.stat().st_size > 0:
         return cache.read_bytes()
     ogg = await to_opus(await speak_local('I have received your note. Please review the text before processing it.' if language=='en-GB' else REPLY_TEXT))

@@ -54,6 +54,15 @@ def send_to_jarvis(text: str, url: str, secret: str, post=None) -> bool:
     return getattr(r, "status_code", 0) == 200
 
 
+def say_voice() -> str:
+    """macOS voice: JARVIS_SAY_VOICE wins; British replies default to Daniel (en_GB male)."""
+    v = os.getenv("JARVIS_SAY_VOICE", "").strip()
+    if v:
+        return v
+    british = os.getenv("JARVIS_REPLY_LANGUAGE", "es").lower() in ("en", "en-gb", "en_gb")
+    return "Daniel" if british else "Paulina"
+
+
 class Speaker:
     """TTS interrumpible: Piper si existe (PIPER_MODEL), si no `say -v Paulina`."""
 
@@ -65,7 +74,7 @@ class Speaker:
         if model and shutil.which("piper") and shutil.which("afplay"):
             return ["sh", "-c", 'piper --model "$1" --output_file /tmp/jarvis_voz.wav && afplay /tmp/jarvis_voz.wav',
                     "piper", model]
-        return ["say", "-v", os.getenv("JARVIS_SAY_VOICE", "Paulina"), text]
+        return ["say", "-v", say_voice(), text]
 
     def speak(self, text: str) -> None:
         self.stop()
