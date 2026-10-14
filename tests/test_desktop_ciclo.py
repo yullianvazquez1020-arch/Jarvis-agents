@@ -91,7 +91,8 @@ class Ciclo(unittest.TestCase):
         (home / "encargos.jsonl").write_text("\n".join(json.dumps(c) for c in cola))
         ev, voz = [], []
         c = ciclo.Ciclo(home, base=base, emit=ev.append, speak=voz.append, stopped=lambda: False,
-                        fetch=lambda u: "<title>Prueba</title><p>texto ficticio</p>")
+                        fetch=lambda u: "<title>Prueba</title><p>texto ficticio</p>",
+                        resolver=lambda host, port: [(None, None, None, None, ("1.1.1.1", 0))])
         out = c.vuelta()
         self.assertIn("Prueba", out[0]); self.assertIn("nota.md: 2 líneas", out[1])
         self.assertIn("sensible", out[2]); self.assertIn("fuera", out[3])
@@ -99,6 +100,41 @@ class Ciclo(unittest.TestCase):
         self.assertEqual(len(voz), 6); self.assertEqual(c.vuelta(), [])   # no repite
         c2 = ciclo.Ciclo(home, base=base, emit=ev.append, speak=voz.append, stopped=lambda: True)
         self.assertEqual(c2.vuelta(), []); self.assertIn("STOP", c2.ultimo)
+
+    def test_el_segundo_mouse_queda_pendiente(self):
+        home = pathlib.Path(tempfile.mkdtemp())
+        cola = [{"tipo": "mouse", "orden": {"action": "scroll", "dy": 1}},
+                {"tipo": "mouse", "orden": {"action": "scroll", "dy": 2}}]
+        (home / "encargos.jsonl").write_text("\n".join(json.dumps(c) for c in cola))
+        n = {"v": 0}
+
+        def mouse(orden):
+            n["v"] += 1
+            if n["v"] == 1:
+                return {"ok": True, "orden": orden["action"]}
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
+
+        c = ciclo.Ciclo(home, base=home, emit=lambda e: None, speak=lambda t: None, stopped=lambda: False, mouse=mouse)
+        self.assertEqual(len(c.vuelta()), 2)
+        hechos = json.loads((home / "encargos_hechos.json").read_text())
+        self.assertEqual(len(hechos), 1)
+        c.mouse = lambda orden: {"ok": True, "orden": orden["action"]}
+        otra = c.vuelta()
+        self.assertEqual(len(otra), 1)
+        self.assertIn("en cola", otra[0])
+
+    def test_no_lee_ruta_sensible_ni_red_privada(self):
+        home = pathlib.Path(tempfile.mkdtemp()); base = home / "archivos"
+        (base / "privado").mkdir(parents=True)
+        (base / "privado" / "clientes.txt").write_text("dato\n")
+        (base / "secrets").mkdir()
+        (base / "secrets" / "notes.md").write_text("dato\n")
+        self.assertIn("sensible", ciclo.archivo("privado/clientes.txt", base))
+        self.assertIn("sensible", ciclo.archivo("secrets/notes.md", base))
+        vistos = []
+        self.assertEqual(ciclo.web("https://127.0.0.1/a", lambda u: vistos.append(u) or "<title>x</title>"), "solo https público")
+        self.assertEqual(ciclo.web("https://10.1.2.3/a", lambda u: vistos.append(u) or "x"), "solo https público")
+        self.assertEqual(vistos, [])
 
 
 if __name__ == "__main__":

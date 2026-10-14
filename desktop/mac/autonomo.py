@@ -143,8 +143,11 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
         text = str(action.get("text") or "")
         if not text or len(text) > MAX_TEXT:
             return "texto"
-    if kind == "open_url" and not ae.allowed_host(ae.host_of(str(action.get("url") or ""))):
-        return "url"
+    if kind == "open_url":
+        url = str(action.get("url") or "").strip()
+        low = url.lower()
+        if not (low.startswith("https://") or low.startswith("http://")) or not ae.allowed_host(ae.host_of(url)):
+            return "url"
     if kind == "open_app" and ae.norm(action.get("app") or "") not in ae.ALLOW_APPS:
         return "app"
     if kind in POINTER_ACTIONS:
@@ -159,8 +162,10 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
                 return "texto_en_navegador"
             if kind in {"click", "double_click"}:
                 opened = str((ctx or {}).get("opened_host") or "")
-                host = ae.host_of(str((ctx or {}).get("page_url") or ""))
-                if not opened or host != opened or not ae.allowed_host(host):
+                page = str((ctx or {}).get("page_url") or "").strip()
+                low = page.lower()
+                host = ae.host_of(page)
+                if not (low.startswith("https://") or low.startswith("http://")) or not opened or host != opened or not ae.allowed_host(host):
                     return "sitio_no_verificado"
     return None
 
