@@ -51,6 +51,12 @@ def contiene_secreto(texto):
     return redactar(t) != t[:MAX_TEXTO]
 
 
+def secreto_usable(value):
+    """La misma regla que _secret_values: corto o un marcador no abre el bus."""
+    v = str(value or "").strip()
+    return len(v) >= 8 and v.lower() not in {"change-me", "test-local-only"}
+
+
 class Bus:
     def __init__(self, now=time.time):
         self._now, self._lock, self._seq = now, threading.Lock(), 0

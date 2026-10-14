@@ -73,6 +73,15 @@ class BusTest(unittest.TestCase):
         self.assertNotIn(clave, guardado)
         self.assertNotIn(clave.lower(), guardado)
 
+    def test_clave_corta_o_marcador_no_abre_el_bus(self):
+        self.assertFalse(jb.secreto_usable(""))
+        self.assertFalse(jb.secreto_usable("corta"))
+        self.assertFalse(jb.secreto_usable("change-me"))
+        self.assertFalse(jb.secreto_usable("test-local-only"))
+        self.assertTrue(jb.secreto_usable("clave-ficticia-32"))
+        src = (ROOT / "main.py").read_text("utf-8")
+        self.assertEqual(src.count("jarvis_bus.secreto_usable("), 3)
+
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")
         for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)

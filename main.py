@@ -7382,20 +7382,20 @@ class BusEvento(BaseModel):
 
 @app.get("/api/bus/negocios")
 async def bus_negocios(x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
+    if not jarvis_bus.secreto_usable(BUS_READ_SECRET) or not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
         raise HTTPException(401, "Bad secret")
     return jarvis_bus.BUS.tablero()
 
 @app.get("/api/bus/eventos")
 async def bus_eventos(desde: int = 0, negocio: str | None = None, limite: int = 100,
                       x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
+    if not jarvis_bus.secreto_usable(BUS_READ_SECRET) or not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
         raise HTTPException(401, "Bad secret")
     return {"eventos": jarvis_bus.BUS.eventos(desde, negocio, limite)}
 
 @app.post("/api/bus/eventos")
 async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, BUS_WRITE_SECRET):
+    if not jarvis_bus.secreto_usable(BUS_WRITE_SECRET) or not _key_ok(x_jarvis_secret, BUS_WRITE_SECRET):
         raise HTTPException(401, "Bad secret")
     if not _rate_ok("bus"):
         raise HTTPException(429, "Demasiados eventos por minuto")
