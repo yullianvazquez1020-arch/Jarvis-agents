@@ -784,7 +784,9 @@ def wait_confirm(pending: dict) -> str | None:
     return None
 
 
-def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False) -> int:
+def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False,
+                retry: list | None = None) -> int:
+    """retry (opcional): recibe las líneas frenadas solo por ritmo, para reencolarlas sin perderlas."""
     if not path.is_file():
         print("RECHAZADO archivo")
         return 2
@@ -792,13 +794,16 @@ def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: 
         return _run_actions(path, dry=True, libre=libre, pointer=pointer, automatic=automatic)
     try:
         with _owner_flock("ejecutor.lock", wait=False):   # un solo ejecutor real a la vez
-            return _run_actions(path, dry=False, libre=libre, pointer=pointer, automatic=automatic)
+            return _run_actions(path, dry=False, libre=libre, pointer=pointer, automatic=automatic, retry=retry)
     except BlockingIOError:
+        if retry is not None:   # nada se ejecutó: todo el lote vuelve a la cola
+            retry.extend(raw for raw in path.read_text(encoding="utf-8").splitlines() if raw.strip())
         print("OCUPADO otro ejecutor está corriendo. No ejecuté nada.")
         return 2
 
 
-def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False) -> int:
+def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False,
+                 retry: list | None = None) -> int:
     recent = load_rate()
     worst = 0
     for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -858,6 +863,8 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
                 release_lock(action["agent"])
             audit(action, verdict, reason, dry=dry)
             print(f"{line_no} {verdict} {reason} {action.get('agent')} {action.get('action')}")
+            if retry is not None and verdict == "BLOQUEADO" and reason == "ritmo":
+                retry.append(raw)   # reintentable: no se pierde, vuelve a la cola tras la ventana
             worst = max(worst, 2 if verdict == "RECHAZADO" else 3)
             continue
         if dry:
@@ -904,16 +911,38 @@ def run_autonomo(pointer, *, ciclos: int | None = None, pausa: float = 1.0) -> i
     while ciclos is None or vuelta < ciclos:
         vuelta += 1
         heartbeat()
-        if not stopped() and entrada.exists() and entrada.stat().st_size:
-            lote = folder / f"lote-{int(time.time() * 1000)}.jsonl"
-            os.replace(entrada, lote)
-            run_actions(lote, dry=False, libre=False, pointer=pointer)
-            with hechas.open("a", encoding="utf-8") as handle:
-                handle.write(f"# lote {stamp(now())}\n")
-            lote.unlink(missing_ok=True)
+        if not stopped():
+            # Lotes pendientes primero (de un reinicio o reencolados por ritmo), del más viejo al más nuevo.
+            if entrada.exists() and entrada.stat().st_size:
+                os.replace(entrada, folder / f"lote-{int(time.time() * 1000)}.jsonl")
+            ahora_ms = int(time.time() * 1000)
+            for lote in sorted(folder.glob("lote-*.jsonl"), key=_lote_ms):
+                if stopped():
+                    break   # el resto queda en disco hasta que quiten STOP
+                if _lote_ms(lote) > ahora_ms:
+                    continue   # reencolado: espera a que pase la ventana de ritmo
+                pendientes: list[str] = []
+                run_actions(lote, dry=False, libre=False, pointer=pointer, retry=pendientes)
+                with hechas.open("a", encoding="utf-8") as handle:
+                    handle.write(f"# lote {stamp(now())}\n")
+                if pendientes:
+                    siguiente = folder / f"lote-{int(time.time() * 1000) + 60_000}.jsonl"
+                    while siguiente.exists():
+                        siguiente = folder / f"lote-{_lote_ms(siguiente) + 1}.jsonl"
+                    tmp = siguiente.with_suffix(".tmp")
+                    tmp.write_text("\n".join(pendientes) + "\n", encoding="utf-8")
+                    os.replace(tmp, siguiente)
+                lote.unlink(missing_ok=True)
         if ciclos is None or vuelta < ciclos:
             time.sleep(pausa)
     return 0
+
+
+def _lote_ms(path: Path) -> int:
+    try:
+        return int(path.stem.split("-", 1)[1])
+    except (IndexError, ValueError):
+        return 0
 
 
 def otorgar(path: Path, hours: float = GRANT_HOURS, *, ask=None, tty: bool | None = None) -> int:

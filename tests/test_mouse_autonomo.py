@@ -84,6 +84,40 @@ class Autonomo(Base):
         quiet(ae.run_autonomo, p, ciclos=1, pausa=0)
         self.assertEqual(p.calls, [("move", 1, 1)])
 
+    def test_rate_overflow_requeued_not_lost(self):
+        self.on(); p = Pointer()
+        carpeta = self.dir / "autonomo"; carpeta.mkdir(exist_ok=True)
+        filas = [{"agent": "jarvis", "action": "move", "x": i, "y": i} for i in range(ae.MAX_PER_MINUTE + 3)]
+        (carpeta / "entrada.jsonl").write_text("".join(json.dumps(f) + "\n" for f in filas))
+        quiet(ae.run_autonomo, p, ciclos=1, pausa=0)
+        self.assertEqual(len(p.calls), ae.MAX_PER_MINUTE)
+        quedan = list(carpeta.glob("lote-*.jsonl"))
+        self.assertEqual(len(quedan), 1)
+        guardadas = [json.loads(x) for x in quedan[0].read_text().splitlines() if x.strip()]
+        self.assertEqual([g["x"] for g in guardadas], [ae.MAX_PER_MINUTE, ae.MAX_PER_MINUTE + 1, ae.MAX_PER_MINUTE + 2])
+        quiet(ae.run_autonomo, p, ciclos=1, pausa=0)   # ventana no ha pasado: sigue en espera, nada extra
+        self.assertEqual(len(p.calls), ae.MAX_PER_MINUTE)
+        ae.save_rate([]); futuro = ae.time.time() + 120
+        with patch.object(ae.time, "time", return_value=futuro):
+            quiet(ae.run_autonomo, p, ciclos=1, pausa=0)
+        self.assertEqual(len(p.calls), ae.MAX_PER_MINUTE + 3)
+        self.assertEqual(list(carpeta.glob("lote-*.jsonl")), [])
+
+    def test_stranded_lotes_processed_oldest_first(self):
+        self.on(); p = Pointer()
+        carpeta = self.dir / "autonomo"; carpeta.mkdir(exist_ok=True)
+        (carpeta / "lote-2000.jsonl").write_text(json.dumps({"agent": "jarvis", "action": "move", "x": 2, "y": 2}) + "\n")
+        (carpeta / "lote-1000.jsonl").write_text(json.dumps({"agent": "jarvis", "action": "move", "x": 1, "y": 1}) + "\n")
+        (carpeta / "entrada.jsonl").write_text(json.dumps({"agent": "jarvis", "action": "move", "x": 3, "y": 3}) + "\n")
+        (self.dir / "STOP").write_text("1")
+        quiet(ae.run_autonomo, p, ciclos=1, pausa=0)
+        self.assertEqual(p.calls, [])
+        self.assertTrue((carpeta / "lote-1000.jsonl").exists())
+        (self.dir / "STOP").unlink()
+        quiet(ae.run_autonomo, p, ciclos=1, pausa=0)
+        self.assertEqual(p.calls, [("move", 1, 1), ("move", 2, 2), ("move", 3, 3)])
+        self.assertEqual(list(carpeta.glob("lote-*.jsonl")), [])
+
     def test_voice_stop_creates_stop(self):
         for frase in ("para el mouse", "Jarvis, detén el ratón", "stop mouse"):
             self.assertEqual(intents.parse(frase)[0], "stop_mouse", frase)
