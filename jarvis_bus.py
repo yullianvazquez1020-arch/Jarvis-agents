@@ -28,8 +28,21 @@ _SECRETO = re.compile(r"(sk|pk|rk|whsec|ghp|xox[abp])[-_][A-Za-z0-9_\-]{8,}|\b\d
                       r"(?i:(password|secret|token|api[_-]?key)\s*[:=]\s*\S+)")
 
 
+_REDACTOR = None   # main.py instala su redactor completo (_redact_secrets) al importar
+
+
+def set_redactor(fn):
+    """fn(texto) -> texto limpio. main.py instala el redactor completo del repo."""
+    global _REDACTOR
+    _REDACTOR = fn
+
+
 def redactar(texto):
-    return _SECRETO.sub("[REDACTADO]", str(texto))[:MAX_TEXTO]
+    t = str(texto)
+    if _REDACTOR is not None:
+        t = _REDACTOR(t)
+    t = _SECRETO.sub("[REDACTADO]", t)          # red mínima extra, nunca en lugar del completo
+    return t[:MAX_TEXTO]                         # truncar DESPUÉS de redactar
 
 
 class Bus:
@@ -46,6 +59,7 @@ class Bus:
         tipo = re.sub(r"[^a-z0-9_.-]", "", str(tipo).lower())[:40] or "nota"
         with self._lock:
             self._seq += 1
+            if _REDACTOR is None: raise RuntimeError("redactor completo no instalado; evento rechazado")
             ev = {"seq": self._seq, "ts": self._now(), "negocio": negocio, "tipo": tipo,
                   "texto": redactar(texto), "estado": estado, "fuente": fuente}
             self._ev.append(ev)
