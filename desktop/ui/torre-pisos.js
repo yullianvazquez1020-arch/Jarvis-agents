@@ -6,6 +6,9 @@
   stage.appendChild(box);
   fetch("/api/negocios", {credentials: "same-origin"}).then(function (r) { return r.json(); }).then(function (t) {
     var h = document.createElement("h2"); h.textContent = "AINCRAD · " + t.conquistados + "/" + t.total_pisos + " pisos · Mando: " + t.controlador; box.appendChild(h);
+    h.tabIndex = 0; h.setAttribute("role", "button"); h.title = "Plegar/desplegar lista";                // lista plegable para no tapar la torre
+    var tog = function () { box.classList.toggle("plegado"); }; h.addEventListener("click", tog);
+    h.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tog(); } });
     var d = document.createElement("div"); d.className = "demo"; d.textContent = t.etiqueta; box.appendChild(d);
     var ol = document.createElement("ol");
     t.pisos.forEach(function (p) {

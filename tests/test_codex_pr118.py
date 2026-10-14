@@ -81,5 +81,16 @@ class OrdenAtomica(unittest.TestCase):
             self.assertEqual([p.name for p in Path(d).iterdir()], ["siguiente.json"])
 
 
+class VozAlan(unittest.TestCase):
+    def test_length_scale_y_sin_voz_femenina(self):
+        from audio import engines
+        self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.18)
+        self.assertEqual(engines.DANIEL_WPM, 165)
+        cfg = {"JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_TTS_VOICE": "Samantha", "VOICE_TTS_BACKEND": "none"}
+        self.assertTrue(engines.is_female_en("Samantha")); self.assertFalse(engines.is_female_en("Daniel"))
+        self.assertFalse(engines.is_female_en("/x/en_GB-alan-medium.onnx"))
+        engines.build(cfg)                                   # no debe fallar; la voz femenina se descarta
+
+
 if __name__ == "__main__":
     unittest.main()

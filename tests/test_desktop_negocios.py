@@ -38,7 +38,7 @@ class Torre(unittest.TestCase):
         for k in ('"/api/negocios"', '"/api/cripto"', '"negocios.js"', '"torre-pisos.js"', '"negocios.css"'):
             self.assertIn(k, app)
         self.assertIn("negocios.js", (ROOT / "desktop/ui/index.html").read_text("utf-8"))
-        self.assertIn("torre-pisos.js", (ROOT / "desktop/ui/torre.html").read_text("utf-8"))
+        self.assertNotIn("torre-pisos.js", (ROOT / "desktop/ui/torre.html").read_text("utf-8"))   # torre = decorado; datos en el panel principal
 
 
 class TorreAincrad(unittest.TestCase):
@@ -70,7 +70,7 @@ class TorreCine(unittest.TestCase):
         js = (ROOT / "desktop/ui/torre-cine.js").read_text("utf-8")
         for k in ("./vendor/three/three.module.js", "UnrealBloomPass", "BokehPass", "OutputPass", "PCFSoftShadowMap",
                   "normalMap", "roughnessMap", "AdditiveBlending", "fresnel", "uGlitch", "prefers-reduced-motion",
-                  "calidad", "webglOk", "jarvis-piso", "/api/negocios", "JarvisAincradScene.stop", "GTAOPass", "HDRLoader", "PMREMGenerator",
+                  "calidad", "webglOk", "focusOn", "JarvisAincradScene.stop", "GTAOPass", "HDRLoader", "PMREMGenerator",
                   "transmission", "ORBIT_S", "TRANS_S", "speaking", "AfterimagePass", "resume"):
             self.assertIn(k, js, k)
         self.assertNotIn("https://", js.split("*/", 1)[1])
