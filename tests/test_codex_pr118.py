@@ -248,6 +248,30 @@ class Revision5(unittest.TestCase):
         css = (Path(__file__).resolve().parents[1] / "desktop/ui/torre-aincrad.css").read_text(encoding="utf-8")
         self.assertIn("#aincrad.aincrad-mini", css)
 
+    def test_no_suelta_el_turno_de_otro_agente(self):
+        au = self.au()
+        soltados = []
+        with patch.object(au, "read_session", return_value={"agent": "jarvis"}), \
+                patch.object(au, "end_session"), \
+                patch.object(au.ae, "stopped", return_value=False), \
+                patch.object(au.ae, "load_rate", return_value=[]), \
+                patch.object(au.ae, "read_lock", return_value={"agent": "claude"}), \
+                patch.object(au.ae, "release_lock", side_effect=lambda n: soltados.append(n)):
+            self.assertEqual(au.run(object(), max_steps=1), 0)
+        self.assertEqual(soltados, [])
+
+    def test_suelta_solo_su_propio_turno(self):
+        au = self.au()
+        soltados = []
+        with patch.object(au, "read_session", return_value={"agent": "jarvis"}), \
+                patch.object(au, "end_session"), \
+                patch.object(au.ae, "stopped", return_value=True), \
+                patch.object(au.ae, "load_rate", return_value=[]), \
+                patch.object(au.ae, "read_lock", return_value={"agent": "jarvis"}), \
+                patch.object(au.ae, "release_lock", side_effect=lambda n: soltados.append(n)):
+            au.run(object(), max_steps=1)
+        self.assertEqual(soltados, ["jarvis"])
+
     def test_scroll_normalizado(self):
         au = self.au(); ses = {"agent": "jarvis"}
         with patch.object(au.ae, "denial", return_value=None):

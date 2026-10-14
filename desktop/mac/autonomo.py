@@ -224,6 +224,7 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
     if session is None:
         print("Sin sesión autónoma vigente. Ábrela con: python3 autonomo.py --start AGENTE")
         return 2
+    agente = session["agent"]
     recent = ae.load_rate()
     last: dict = {"resultado": "inicio"}
     step = 0
@@ -276,7 +277,9 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
         (ae.control_dir() / "STOP").touch()
         last = {"resultado": "parada", "motivo": type(exc).__name__}
     end_session()
-    ae.release_lock(ae.OWNER)
+    actual = ae.read_lock()
+    if actual and actual.get("agent") == agente:
+        ae.release_lock(agente)
     print(f"Modo autónomo terminado: {last.get('resultado')} ({step} pasos).")
     return 0
 

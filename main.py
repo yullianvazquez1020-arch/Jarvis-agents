@@ -223,10 +223,14 @@ async def _lifespan(app):
     crypto_recovery = asyncio.create_task(_crypto_recover())   # 4.0.5 (1.6)
     # start the proactive engine when the server boots, stop it on shutdown
     task = asyncio.create_task(_scheduler_loop())
+    import jarvis_brain as _brain   # 4.2.7: ciclo autónomo BRAIN (off unless BRAIN_ENABLED)
+    brain_task = asyncio.create_task(_brain.loop(_sys.modules[__name__]))
     try:
         yield
     finally:
-        task.cancel(); recovery.cancel(); crypto_recovery.cancel()
+        task.cancel(); recovery.cancel(); crypto_recovery.cancel(); brain_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await brain_task
         with contextlib.suppress(asyncio.CancelledError):
             await task
         with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -236,7 +240,7 @@ async def _lifespan(app):
         with contextlib.suppress(Exception):
             await client.close()
 
-VERSION = "4.2.4"
+VERSION = "4.2.7"
 app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
@@ -6148,12 +6152,24 @@ MEMORY_PROMPT = (
 )
 
 
+def _load_personality():
+    """PERSONALIDAD.md (repo root): tone only. It never overrides the fixed rules, which stay in code."""
+    try:
+        text = (Path(__file__).resolve().parent / "PERSONALIDAD.md").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return "\nPERSONALITY (tone and style; safety rules above and in code always win):\n" + text[:6000].strip() + "\n"
+
+
+PERSONALITY_PROMPT = _load_personality()
+
+
 def system_prompt():
     now = _now().strftime("%A %Y-%m-%d %H:%M (%Z)")
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6296,13 +6312,17 @@ def _is_history_error(e):
 class AIModelError(RuntimeError):
     pass
 
+# 4.2.7: reply budget per model call (default unchanged 1500). Raising it costs more tokens per answer; it is the
+# fix for "(Respuesta interrumpida; pídemela por partes.)" (stop_reason max_tokens).
+AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
+
 async def _ai_call(history):
-    return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt(),
+    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt(),
                                         tools=TOOLS, messages=history)
 
 async def _ai_call_scoped(history, tools, extra_system):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await client.messages.create(model=MODEL, max_tokens=1500, system=system_prompt() + extra_system,
+    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt() + extra_system,
                                         tools=tools, messages=history)
 
 async def _phase_a_remember_turn(session, user_text, reply):
@@ -7194,6 +7214,16 @@ async def _tg_route(msg, background):
         await asyncio.to_thread(_deny)
         background.add_task(_tg_safe_send, chat_id, "⛔ Eso solo se aprueba en tu chat privado con Jarvis.")
         return {"ok": True}
+    if cmd == "/brain":
+        # 4.2.7: BRAIN kill switch / status, owner's private chat only (zero tokens)
+        if not is_owner_private(msg):
+            background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
+            return {"ok": True}
+        import jarvis_brain as _brain
+        async def _send_brain(chat_id=chat_id, a=arg.strip()):
+            await _tg_send(chat_id, await asyncio.to_thread(_brain.command_text, _sys.modules[__name__], a))
+        background.add_task(_send_brain)
+        return {"ok": True}
     if cmd == "/venice":
         if not is_owner_private(msg):
             background.add_task(_tg_safe_send, chat_id, "Este comando requiere tu chat privado.")
@@ -7301,6 +7331,41 @@ async def _tg_route(msg, background):
     return {"ok": True}
 
 
+# Encargo por API (POST /api/encargo): lets the owner's own tools hand Jarvis a task without using his Telegram
+# account. It enters the SAME free-text owner pipeline as an owner Telegram message (_handle_tg -> run), so every
+# rule stays: no command can be injected (text starting with "/" is refused, so /confirmar, /aprobar, /enviar and
+# /cripto modo are impossible here), money still needs /aprobar + /confirmar in the private chat with the $100/op
+# and $300/day hard caps, and a client message still goes out only with the owner's /enviar.
+ENCARGO_SECRET = os.getenv("JARVIS_ENCARGO_SECRET", "").strip()
+ENCARGO_MAX = 4000
+
+class Encargo(BaseModel):
+    texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
+
+async def _encargo_run(texto):
+    preview = texto if len(texto) <= 300 else texto[:300] + "…"
+    await _tg_safe_send(TG_OWNER, "📥 Llegó un encargo por la API (no por tu Telegram). Lo proceso como si me lo "
+                                  "hubieras escrito; pagos y envíos a clientes siguen necesitando tus comandos.\n\n"
+                                  + preview)
+    await _handle_tg(TG_OWNER, "[Encargo recibido por la API del dueño]\n" + texto)
+
+@app.post("/api/encargo")
+async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):      # constant-time; empty env var = endpoint closed
+        raise HTTPException(401, "Bad secret")
+    if not TG_OWNER:
+        raise HTTPException(503, "TELEGRAM_OWNER_ID no configurado")
+    texto = req.texto.strip()
+    if not texto:
+        raise HTTPException(422, "texto vacío")
+    if texto.startswith("/"):
+        raise HTTPException(422, "Los comandos (/confirmar, /aprobar, /enviar...) solo se aceptan en tu chat privado")
+    if not _rate_ok("encargo"):
+        raise HTTPException(429, f"Más de {RATE_PER_MIN} encargos por minuto; espera un momento")
+    background.add_task(_encargo_run, texto)
+    return {"ok": True, "queued": True}
+
+
 @app.get("/backup")
 async def backup(x_api_key: str = Header(...)):
     """Full copy of all data (personal + books + calendar + bank + research). Save it somewhere safe."""
@@ -7340,6 +7405,7 @@ async def health():
                                 "local_execution_verified": False, "requires_local_approval": True},
             "instance": {"write_fencing": _fence["mode"], "leader": _fence["leader"]},
             "telegram_queue": dict(_tg_stats),
+            "brain": __import__("jarvis_brain").health(_sys.modules[__name__]),
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "v420": {"status": globals().get("V420_STATUS", "no cargada")},

@@ -30,6 +30,7 @@ _REFUSE = (
 )
 
 _LOCAL = (
+    ("stop_mouse", re.compile(r"\b(para|deten|detener|apaga|stop|frena)( el)? (mouse|raton|puntero)\b|^stop mouse$")),
     ("stop_audio", re.compile(r"^(silencio|callate|calla|para|deten(te)?|stop|basta|ya)( por favor)?$")),
     ("mic_off", re.compile(r"\b(apaga|desactiva|cierra|silencia) (el )?microfono\b")),
     ("mic_on", re.compile(r"\b(enciende|prende|activa|abre) (el )?microfono\b")),            # 4.0.5 (3.4)
@@ -54,7 +55,7 @@ _NAV = re.compile(r"\b(dame|abre|abrir|muestrame|muestra|ensename|ensena|ver|pon
 
 
 def parse(text):
-    """-> (kind, arg). kind: refuse | stop_audio | mic_off | repeat | slower | faster | panel | server | empty."""
+    """-> (kind, arg). kind: refuse | stop_mouse | stop_audio | mic_off | repeat | slower | faster | panel | server | empty."""
     n = norm(text)
     if not n:
         return "empty", None

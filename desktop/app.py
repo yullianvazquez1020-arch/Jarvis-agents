@@ -120,6 +120,14 @@ DEMO_PANELS = {
 }
 
 
+def _crear_stop_mouse():
+    """Crea ~/.jarvis-control/STOP (o JARVIS_CONTROL_DIR/STOP). El ejecutor del mouse no mueve nada con STOP."""
+    raw = os.environ.get("JARVIS_CONTROL_DIR", "").strip()
+    folder = Path(raw) if raw else Path.home() / ".jarvis-control"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "STOP").write_text("parado por voz\n", encoding="utf-8")
+
+
 def _num(v, low=-1e12, high=1e12):
     try:
         x = float(v)
@@ -866,6 +874,9 @@ class Companion:
         self.emit({"type": "state", "state": "consultando", "turn": tid})
         kind, arg = intents.parse(text)
         try:
+            if kind == "stop_mouse":                                # parada remota del mouse: crea STOP
+                _crear_stop_mouse(); self.emit({"type": "audio.stop"})
+                return self._finish(tid, "done", "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.")
             if kind == "stop_audio":
                 self.stop_local_audio(); self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
             if kind == "mic_off":

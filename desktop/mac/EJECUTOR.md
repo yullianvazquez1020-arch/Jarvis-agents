@@ -127,3 +127,30 @@ python3 autonomo.py --start claude --minutes 15 --run   # te pide un código; es
 - La sesión vive en `~/.jarvis-owner/autonomo.json`, fuera del alcance de los agentes. Tope: 30 min, 20 acciones/min, 300 pasos.
 - Parada: mouse a la esquina superior izquierda, Ctrl+C, `python3 autonomo.py --stop` o `touch ~/.jarvis-control/STOP`.
 - La bitácora `audit.jsonl` guarda tipo y veredicto, nunca el texto escrito (solo su largo y hash).
+- Al terminar suelta solo su propio turno. Si el turno ya es de otro agente, no lo borra.
+
+## Modo mouse autónomo 24/7 (opcional, apagado por defecto)
+
+Se enciende solo en tu Mac con `JARVIS_AUTONOMO=1` o `--autonomo`. Sin eso, todo funciona exactamente como arriba.
+
+```bash
+bash desktop/mac/instalar_mouse_autonomo.sh instalar   # LaunchAgent com.jarvis.mouse-autonomo (RunAtLoad + KeepAlive)
+bash desktop/mac/instalar_mouse_autonomo.sh quitar     # lo desactiva
+```
+
+Qué cambia en este modo:
+
+- **Sin vencimiento de 10 minutos.** En su lugar escribe un latido en `~/.jarvis-control/autonomo.json`.
+- **Sin aprobación por orden, solo para la lista segura:** mover, clic, doble clic, desplazar, esperar, captura, escribir texto (sin Enter), abrir las webs permitidas (`github.com`, `jarvis-agents.onrender.com`, local) y las apps permitidas (Notas, Safari).
+- **Esquina superior izquierda desactivada** solo en este modo.
+- El servicio lee órdenes nuevas de `~/.jarvis-control/autonomo/entrada.jsonl` (una orden JSON por línea), las ejecuta y las archiva. Toma y suelta su turno solo.
+
+Lo que **sigue igual** (redes de seguridad):
+
+- **`~/.jarvis-control/STOP` siempre detiene todo.** Con STOP el servicio sigue vivo pero no mueve nada. Para reanudar, borra STOP en la Mac.
+- **Parada remota por voz:** en el panel de escritorio, decir «para el mouse», «detén el ratón» o «stop mouse» crea STOP. Por Telegram todavía no hay comando; queda como siguiente paso.
+- **Nunca se aprueban solos:** bancos, pagos y finanzas; Terminal, Finder, Ajustes, Llavero, Mail, Mensajes, WhatsApp y Telegram; `sudo`, `rm -`, `curl`, contraseñas y claves; atajos de teclado (incluidos borrar, salir y Spotlight); Enter; webs o apps fuera de la lista; y la lista `_REFUSE` de voz (confirmar, aprobar, enviar, borrar, mover dinero…).
+- Tope de 20 acciones por minuto, un solo ejecutor a la vez, turnos y auditoría sin texto.
+- Si falla el puntero se crea STOP.
+
+Límite: este modo **ejecuta** órdenes; no decide por sí solo qué hacer. Quien escriba en `entrada.jsonl` (Jarvis u otro agente con tu usuario de macOS) decide las órdenes, siempre dentro de la lista segura.
