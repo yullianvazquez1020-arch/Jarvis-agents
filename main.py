@@ -7642,7 +7642,18 @@ import jarvis_voz_continua as _voz_c
 def _voz_c_auth(ws) -> bool:
     secret = ws.headers.get("x-jarvis-secret")
     key = ws.headers.get("x-api-key")
-    return bool((secret and _key_ok(secret, ENCARGO_SECRET)) or (key and _key_ok(key, API_KEY)))
+    if (secret and _key_ok(secret, ENCARGO_SECRET)) or (key and _key_ok(key, API_KEY)):
+        return True
+    # Token de dispositivo jd1 (emparejado con /emparejar): misma validación que /desktop/v1
+    # (vencimiento, revocación, permiso 'converse'). La voz sigue siendo solo lectura.
+    auth = ws.headers.get("authorization") or ""
+    if not auth.startswith("Bearer jd1."):
+        return False
+    try:
+        _desktop.authenticate(auth, "converse")
+        return True
+    except Exception:
+        return False
 
 
 async def _voz_c_transcribe(wav: bytes):
