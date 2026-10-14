@@ -41,11 +41,19 @@
   }
   function poll() {   // keeps this window registered (not the audio one) and follows server health
     api("GET", "/api/events?since=" + seq + "&window=" + windowId).then(function (r) {
-      r.events.forEach(function (e) { if (e.type === "health" && e.health) deckHealth(e.health); });
+      r.events.forEach(function (e) {
+        if (e.type === "health" && e.health) deckHealth(e.health);
+        if (e.type === "voz" && e.voz) takeVoz(e.voz);
+      });
       seq = r.seq; poll();
     }).catch(function () { setTimeout(poll, 3000); });
   }
   function tick() { $("hud-clock").textContent = "PR " + clockFmt.format(new Date()); }
+  function takeVoz(v) {
+    if (!v || !v.estado) return;
+    document.dispatchEvent(new CustomEvent("jarvis:voz", { detail: v }));
+  }
+  function pullVoz() { api("GET", "/api/voz").then(takeVoz).catch(function () {}); }
 
   function deckHealth(h) {
     document.dispatchEvent(new CustomEvent("jarvis:health", { detail: h }));
@@ -113,5 +121,5 @@
   $("hud-reveal").onchange = render;
   tick(); setInterval(tick, 15000);
   api("GET", "/api/state").then(function (s) { if (s.server) deckHealth(s.server); }).catch(function(){deckHealth({state:"down"});});
-  load(); setInterval(load, 300000); poll();
+  load(); setInterval(load, 300000); poll(); pullVoz(); setInterval(pullVoz, 2000);
 })();

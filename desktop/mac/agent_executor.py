@@ -61,6 +61,11 @@ DANGEROUS = {
 FREE_ACTIONS = {"scroll", "screenshot", "wait", "move"}
 ALLOW_HOSTS = {"github.com", "jarvis-agents.onrender.com", "127.0.0.1", "localhost"}
 ALLOW_APPS = {"notes", "safari"}
+# Modo autónomo (opcional, apagado por defecto): JARVIS_AUTONOMO=1 o --autonomo.
+AUTO_ACTIONS = {"move", "click", "double_click", "scroll", "screenshot", "wait", "type", "open_url", "open_app"}
+AUTO_AGENT = "jarvis"
+AUTO_LOCK_MINUTES = 5
+HEARTBEAT_SECONDS = 5
 KEY_ALIAS = {
     "cmd": "command", "meta": "command", "option": "alt",
     "delete": "backspace", "return": "enter", "spacebar": "space", "ctrl": "control", "opt": "alt",
@@ -172,7 +177,34 @@ def stopped() -> bool:
     return (control_dir() / "STOP").exists()
 
 
+def autonomo() -> bool:
+    """Modo autónomo solo si el dueño lo enciende en su Mac. Apagado por defecto."""
+    return os.environ.get("JARVIS_AUTONOMO", "").strip() == "1"
+
+
+def heartbeat() -> None:
+    _write_json("autonomo.json", {"latido": stamp(now()), "pid": os.getpid()})
+
+
+def auto_ok(action: dict) -> bool:
+    """Lista segura del modo autónomo. Todo lo demás (atajos, apps o webs fuera de lista, denylist) nunca se
+    aprueba solo."""
+    if not autonomo() or denial(action):
+        return False
+    kind = str(action.get("action") or "")
+    if kind not in AUTO_ACTIONS or action.get("agent") not in AGENTS:
+        return False
+    if kind == "open_url":
+        return allowed_host(host_of(str(action.get("url") or "")))
+    if kind == "open_app":
+        return norm(action.get("app") or "") in ALLOW_APPS
+    return True
+
+
 def session_open() -> bool:
+    if autonomo():                      # sin vencimiento de 10 min; el latido muestra que sigue vivo
+        heartbeat()
+        return True
     path = control_dir() / "session.json"
     moment = now()
     if not path.exists():
@@ -187,6 +219,8 @@ def session_open() -> bool:
 
 def session_status() -> str:
     """Consulta sin crear ni renovar una sesión."""
+    if autonomo():
+        return "modo autónomo: sin vencimiento (STOP sigue activo)"
     path = control_dir() / "session.json"
     if not path.exists():
         return "sin sesión"
@@ -658,30 +692,101 @@ def perform(action: dict, pointer) -> None:
         raise RuntimeError("accion")
 
 
+def _observador(pointer, name: str):
+    for cls in type(pointer).__mro__:
+        if name in cls.__dict__:
+            fn = getattr(pointer, name)
+            return fn if callable(fn) else None
+    return None
+
+
+def frente_seguro(action: dict, pointer) -> str | None:
+    """Justo antes de mover o clicar en modo autónomo. None = se puede. En la Mac, app y página se leen otra vez."""
+    kind = str(action.get("action") or "")
+    if kind not in {"move", "click", "double_click"}:
+        return None
+    frontmost = _observador(pointer, "frontmost")
+    if frontmost is None:
+        return "app_frente_desconocida" if sys.platform == "darwin" else None
+    try:
+        front = frontmost() or ""
+    except Exception:
+        return "app_frente_desconocida"
+    if norm(front) not in ALLOW_APPS:
+        return "app_frente"
+    if norm(front) != "safari":
+        return None
+    page_url = _observador(pointer, "page_url")
+    if page_url is None:
+        return "sitio_no_verificado"
+    try:
+        url = page_url() or ""
+    except Exception:
+        return "sitio_no_verificado"
+    if not allowed_host(host_of(url)):
+        return "sitio_no_verificado"
+    if kind == "move":
+        return None
+    try:
+        otra = page_url() or ""
+        frente = frontmost() or ""
+    except Exception:
+        return "sitio_no_verificado"
+    if otra != url or norm(frente) != norm(front):
+        return "sitio_no_verificado"
+    return None
+
+
 def finish(action: dict, how: str | None, pointer) -> str:
     """Última revisión justo antes de mover: código, parada, denylist, sesión vigente y turno."""
     if how == "cancelar" or how is None:
         clear_pending()
         return "CANCELADO"
-    if how != "codigo" or stopped() or denial(action) or not session_open():
+    if how == "autonomo" and not auto_ok(action):
+        clear_pending()
+        return "BLOQUEADO"
+    if how not in {"codigo", "autonomo"} or stopped() or denial(action) or not session_open():
         clear_pending()
         return "BLOQUEADO"
     current = read_lock()
     if current is None or current["agent"] != action.get("agent"):
         clear_pending()
         return "RECHAZADO"
+    if how == "autonomo":
+        why = frente_seguro(action, pointer)
+        if why:
+            clear_pending()
+            return "BLOQUEADO"
     perform(action, pointer)
     return "HECHO"
 
 
 class MacPointer:
-    """pyautogui solo después de confirmación. FAILSAFE: esquina superior izquierda."""
+    """pyautogui solo después de confirmación. FAILSAFE: esquina superior izquierda (apagado solo en modo
+    autónomo; STOP sigue valiendo)."""
 
-    def __init__(self):
+    def __init__(self, failsafe: bool = True):
         import pyautogui
-        pyautogui.FAILSAFE = True
+        pyautogui.FAILSAFE = failsafe
         pyautogui.PAUSE = 0
         self.pg = pyautogui
+
+    def frontmost(self) -> str:
+        if sys.platform != "darwin":
+            return ""
+        import subprocess
+        out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
+                              'application process whose frontmost is true'], capture_output=True, text=True, timeout=5)
+        return out.stdout.strip()
+
+    def page_url(self) -> str:
+        if sys.platform != "darwin":
+            return ""
+        import subprocess
+        out = subprocess.run(
+            ["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
+            capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
 
     def move(self, x: int, y: int) -> None:
         self.pg.moveTo(x, y, duration=0.16, tween=self.pg.easeOutQuad)
@@ -746,7 +851,9 @@ def wait_confirm(pending: dict) -> str | None:
     return None
 
 
-def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False) -> int:
+def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False,
+                retry: list | None = None) -> int:
+    """retry (opcional): recibe las líneas frenadas solo por ritmo, para reencolarlas sin perderlas."""
     if not path.is_file():
         print("RECHAZADO archivo")
         return 2
@@ -754,13 +861,16 @@ def run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: 
         return _run_actions(path, dry=True, libre=libre, pointer=pointer, automatic=automatic)
     try:
         with _owner_flock("ejecutor.lock", wait=False):   # un solo ejecutor real a la vez
-            return _run_actions(path, dry=False, libre=libre, pointer=pointer, automatic=automatic)
+            return _run_actions(path, dry=False, libre=libre, pointer=pointer, automatic=automatic, retry=retry)
     except BlockingIOError:
+        if retry is not None:   # nada se ejecutó: todo el lote vuelve a la cola
+            retry.extend(raw for raw in path.read_text(encoding="utf-8").splitlines() if raw.strip())
         print("OCUPADO otro ejecutor está corriendo. No ejecuté nada.")
         return 2
 
 
-def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False) -> int:
+def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic: bool = False,
+                 retry: list | None = None) -> int:
     recent = load_rate()
     worst = 0
     for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -781,7 +891,15 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
             worst = 2
             continue
         acquired = False
-        if automatic and not dry:
+        if autonomo() and not dry and auto_ok(action) and read_lock() is None:
+            if stopped():
+                print(f"{line_no} BLOQUEADO stop")
+                audit(action, "BLOQUEADO", "stop", dry=False)
+                worst = max(worst, 3)
+                continue
+            if take_lock(action.get("agent"), AUTO_LOCK_MINUTES) == 0:
+                acquired = True
+        elif automatic and not dry:
             blocked = "STOP activo" if stopped() else ("sesión vencida o inválida; usa --start-session" if not session_open() else denial(action))
             if blocked:
                 print(f"{line_no} BLOQUEADO automatico: {blocked}")
@@ -812,13 +930,15 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
                 release_lock(action["agent"])
             audit(action, verdict, reason, dry=dry)
             print(f"{line_no} {verdict} {reason} {action.get('agent')} {action.get('action')}")
+            if retry is not None and verdict == "BLOQUEADO" and reason == "ritmo":
+                retry.append(raw)   # reintentable: no se pierde, vuelve a la cola tras la ventana
             worst = max(worst, 2 if verdict == "RECHAZADO" else 3)
             continue
         if dry:
             audit(action, "SECO", reason, dry=True)
             print(f"{line_no} SECO {reason} {action.get('agent')} {action.get('action')}")
             continue
-        how = consume_grant(action)
+        how = "autonomo" if auto_ok(action) else consume_grant(action)
         if how is None and sys.stdin.isatty() and not automatic:
             pending = begin_pending(action)
             how = wait_confirm(pending)
@@ -843,6 +963,53 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
         if result != "HECHO":
             worst = 3
     return worst
+
+
+def run_autonomo(pointer, *, ciclos: int | None = None, pausa: float = 1.0) -> int:
+    """Bucle 24/7: lee órdenes nuevas de ~/.jarvis-control/autonomo/entrada.jsonl, las pasa por la misma
+    revisión (STOP, denylist, ritmo, turno, lista segura) y las archiva. Con STOP no ejecuta nada."""
+    if not autonomo():
+        print("RECHAZADO modo autónomo apagado (JARVIS_AUTONOMO=1 o --autonomo).")
+        return 2
+    folder = control_dir() / "autonomo"
+    folder.mkdir(parents=True, exist_ok=True)
+    entrada, hechas = folder / "entrada.jsonl", folder / "procesadas.jsonl"
+    vuelta = 0
+    while ciclos is None or vuelta < ciclos:
+        vuelta += 1
+        heartbeat()
+        if not stopped():
+            # Lotes pendientes primero (de un reinicio o reencolados por ritmo), del más viejo al más nuevo.
+            if entrada.exists() and entrada.stat().st_size:
+                os.replace(entrada, folder / f"lote-{int(time.time() * 1000)}.jsonl")
+            ahora_ms = int(time.time() * 1000)
+            for lote in sorted(folder.glob("lote-*.jsonl"), key=_lote_ms):
+                if stopped():
+                    break   # el resto queda en disco hasta que quiten STOP
+                if _lote_ms(lote) > ahora_ms:
+                    continue   # reencolado: espera a que pase la ventana de ritmo
+                pendientes: list[str] = []
+                run_actions(lote, dry=False, libre=False, pointer=pointer, retry=pendientes)
+                with hechas.open("a", encoding="utf-8") as handle:
+                    handle.write(f"# lote {stamp(now())}\n")
+                if pendientes:
+                    siguiente = folder / f"lote-{int(time.time() * 1000) + 60_000}.jsonl"
+                    while siguiente.exists():
+                        siguiente = folder / f"lote-{_lote_ms(siguiente) + 1}.jsonl"
+                    tmp = siguiente.with_suffix(".tmp")
+                    tmp.write_text("\n".join(pendientes) + "\n", encoding="utf-8")
+                    os.replace(tmp, siguiente)
+                lote.unlink(missing_ok=True)
+        if ciclos is None or vuelta < ciclos:
+            time.sleep(pausa)
+    return 0
+
+
+def _lote_ms(path: Path) -> int:
+    try:
+        return int(path.stem.split("-", 1)[1])
+    except (IndexError, ValueError):
+        return 0
 
 
 def otorgar(path: Path, hours: float = GRANT_HOURS, *, ask=None, tty: bool | None = None) -> int:
@@ -1194,7 +1361,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--horas", type=float, default=GRANT_HOURS, help=f"Vencimiento de esos permisos (máx. {MAX_GRANT_HOURS}).")
     parser.add_argument("--automatic", action="store_true", help="Ejecuta una vez las órdenes ya aprobadas, coordinando turnos; nunca pide ni concede permisos.")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--autonomo", action="store_true",
+                        help="Modo autónomo 24/7 (opcional). Solo lista segura; STOP y denylist siguen valiendo.")
     args = parser.parse_args(argv)
+    if args.autonomo:
+        os.environ["JARVIS_AUTONOMO"] = "1"
     if args.status:
         print("STOP activo" if stopped() else "STOP desactivado")
         print(session_status())
@@ -1209,6 +1380,13 @@ def main(argv: list[str]) -> int:
         return release_lock(args.release_lock)
     if args.lock_status:
         return lock_status()
+    if args.autonomo and args.file is None:
+        try:
+            pointer = MacPointer(failsafe=False)
+        except Exception as exc:
+            print(f"No hay control de mouse en esta máquina ({type(exc).__name__}).")
+            return 2
+        return run_autonomo(pointer)
     if args.file is None:
         print("Falta --file. Nada se ejecutó.")
         return 2
@@ -1217,7 +1395,7 @@ def main(argv: list[str]) -> int:
     if args.dry_run:
         return run_actions(args.file, dry=True, libre=False)
     try:
-        pointer = MacPointer()
+        pointer = MacPointer(failsafe=not autonomo())
     except Exception as exc:
         print(f"No hay control de mouse en esta máquina ({type(exc).__name__}). Usa --dry-run.")
         return 2

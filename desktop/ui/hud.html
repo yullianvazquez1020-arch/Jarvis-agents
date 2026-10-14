@@ -51,7 +51,11 @@
       <aside class="hx-col" aria-label="Asistente y seguridad">
         <section class="hx-panel">
           <h2>Asistente <small>estado del servidor</small></h2>
-          <div class="hx-figure"><canvas id="hx-figure" aria-hidden="true"></canvas><dl id="hx-assist" class="hx-dl"></dl></div>
+          <div class="hx-figure" data-voz="idle"><canvas id="hx-figure" aria-hidden="true"></canvas><dl id="hx-assist" class="hx-dl"></dl></div>
+        </section>
+        <section class="hx-panel hx-voz" aria-live="polite">
+          <h2>Conversación <small id="hx-voz-meta">En espera · ES</small></h2>
+          <ol id="hx-voz-lines" class="hx-lines"><li class="small">A su disposición.</li></ol>
         </section>
         <section class="hx-panel">
           <h2>Seguridad <small>reglas fijas y modo actual</small></h2>

@@ -1,11 +1,28 @@
 // HUD v2: barras de trabajos, línea de tiempo, figura del asistente, seguridad y medidores.
-// Solo dibuja lo que manda hud.js (evento jarvis:hud) y el estado del servidor (evento jarvis:health).
+// Solo dibuja lo que manda hud.js (jarvis:hud, jarvis:health y jarvis:voz). No pide nada al servidor.
 // No pide nada al servidor y no inventa números: si no hay dato, lo dice.
 (function () {
   "use strict";
   var M = window.JarvisMask, $ = function (id) { return document.getElementById(id); };
   var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   var data = { cards: [], jobs: null, demo: false }, health = null;
+  var voz = { estado: "idle", idioma: "es", lineas: [], corte: false };
+  var VOZ_NOMBRE = { idle: "En espera", escuchando: "Escuchando", pensando: "Pensando", hablando: "Hablando" };
+  function paintVoz() {
+    var meta = $("hx-voz-meta"), list = $("hx-voz-lines"), fig = document.querySelector(".hx-figure");
+    if (fig) fig.setAttribute("data-voz", voz.estado || "idle");
+    if (meta) {
+      var nombre = voz.corte && voz.estado === "escuchando" ? "Interrumpido" : (VOZ_NOMBRE[voz.estado] || "En espera");
+      meta.textContent = nombre + " · " + (voz.idioma === "en" ? "EN" : "ES");
+    }
+    if (!list) return;
+    clear(list);
+    if (!voz.lineas.length) { list.appendChild(el("li", "small", "A su disposición.")); return; }
+    voz.lineas.forEach(function (linea) {
+      var quien = linea.quien === "tu" ? "Usted" : "Jarvis";
+      list.appendChild(el("li", linea.quien === "tu" ? "tu" : "jarvis", quien + ". " + linea.texto));
+    });
+  }
   function reveal() { var r = $("hud-reveal"); return !!(r && r.checked); }
   function show(t, sensitive) { return sensitive && !reveal() ? M.mask(t) : String(t == null ? "" : t); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -121,6 +138,16 @@
     fx.strokeStyle = "rgba(150,215,255,0.85)"; fx.lineWidth = 1.2; fx.lineJoin = "round"; fx.lineCap = "round";
     fx.shadowColor = "rgba(63,180,255,0.8)"; fx.shadowBlur = 8;
     fx.beginPath(); fx.ellipse(cx, top + u * 0.5, u * 0.36, u * 0.48, 0, 0, 6.283); fx.stroke();       // cabeza
+    if (voz.estado === "hablando") {
+      var open = reduce ? 0.1 : 0.06 + Math.abs(Math.sin(t / 90)) * 0.2;
+      fx.fillStyle = "rgba(8,24,40,0.92)";
+      fx.beginPath(); fx.ellipse(cx, top + u * 0.72, u * 0.11, u * open, 0, 0, 6.283); fx.fill();
+    } else if (voz.estado === "escuchando") {
+      fx.globalAlpha = 0.85;
+      fx.strokeStyle = "rgba(150,220,255," + (0.35 + (reduce ? 0 : 0.4 * Math.abs(Math.sin(t / 280)))) + ")";
+      fx.beginPath(); fx.arc(cx, top + u * 0.5, u * 0.62, 0, 6.283); fx.stroke();
+      fx.strokeStyle = "rgba(150,215,255,0.85)";
+    }
     function line(pts) { fx.beginPath(); fx.moveTo(cx + pts[0][0] * u, top + pts[0][1] * u);
       for (var k = 1; k < pts.length; k++) fx.lineTo(cx + pts[k][0] * u, top + pts[k][1] * u); fx.stroke(); }
     line([[-0.14, 0.98], [-0.16, 1.25], [-1.0, 1.45], [-1.05, 3.1], [-0.92, 4.3], [-0.78, 4.35], [-0.72, 3.2], [-0.62, 1.95],
@@ -200,6 +227,12 @@
     var d = e.detail || {}; data = { cards: d.cards || [], jobs: Array.isArray(d.jobs) ? d.jobs : null, demo: !!d.demo }; renderAll();
   });
   document.addEventListener("jarvis:health", function (e) { health = e.detail; renderStatus(); });
+  document.addEventListener("jarvis:voz", function (e) {
+    var d = e.detail || {};
+    voz = { estado: d.estado || "idle", idioma: d.idioma === "en" ? "en" : "es",
+            lineas: Array.isArray(d.lineas) ? d.lineas.slice(-8) : [], corte: !!d.corte };
+    paintVoz();
+  });
   var rv = $("hud-reveal"); if (rv) rv.addEventListener("change", renderAll);
   renderStatus();
 
