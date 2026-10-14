@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Plantilla. instalar_mouse_autonomo.sh reemplaza __PYTHON__, __EXECUTOR__ y __HOME__. Sin secretos. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.jarvis.mouse-autonomo</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__EXECUTOR__</string>
+    <string>--autonomo</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>JARVIS_AUTONOMO</key><string>1</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/Jarvis/mouse-autonomo.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/Jarvis/mouse-autonomo-error.log</string>
+</dict>
+</plist>
