@@ -36,6 +36,13 @@ class Token(CompanionBase):
         self.assertEqual(stat.S_IMODE(ruta.stat().st_mode), 0o600)
         self.assertEqual(self.app.voz_token(), tok)
 
+    def test_el_panel_crea_el_token_al_arrancar_sin_esperar_un_aviso(self):
+        """El token se creaba con el primer aviso, pero el cliente no avisa si el archivo no existe."""
+        ruta = Path(self.home) / "voz-token"
+        self.assertTrue(ruta.is_file(), "el panel arrancó sin dejar el token")
+        self.assertEqual(self.app.voz_view()["lineas"], [])
+        self.assertEqual(voz_continua.hud_token(self.home), ruta.read_text(encoding="utf-8").strip())
+
     def test_el_token_no_sale_en_ninguna_vista(self):
         tok = self.app.voz_token()
         self.avisar({"estado": "hablando", "linea": {"quien": "jarvis", "texto": "A su disposición."}})

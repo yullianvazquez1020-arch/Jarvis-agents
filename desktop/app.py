@@ -1260,6 +1260,7 @@ def serve(cfg, open_browser=True):
     host = check_bind(cfg["VOICE_BIND_HOST"], truthy(cfg["VOICE_ALLOW_LAN"]))
     port = int(cfg["VOICE_PORT"])
     app = Companion(cfg)
+    app.voz_token()          # el archivo tiene que existir antes de que el cliente de voz lo busque
     httpd = Server((host, port), http.server.BaseHTTPRequestHandler)
     real_port = httpd.server_address[1]                  # differs from port only when port is 0 (tests)
     httpd.RequestHandlerClass = make_handler(app, host, real_port)
@@ -1369,6 +1370,7 @@ def main(argv=None):
     link = f"http://{host}:{port}/?launch={app.new_launch()}"
     print(f"\nJarvis panel listo. Abre este enlace (sirve una vez, 2 minutos):\n  {link}\n"
           "Para otra ventana/monitor, abre la misma dirección sin ?launch en el mismo navegador.\n"
+          f"Token de la voz continua listo en {app.home / 'voz-token'} (no lo pegues en ningún chat).\n"
           "Ctrl+C para cerrar.", flush=True)
     stop = threading.Event()
     threading.Thread(target=app.pulse_loop, args=(stop,), daemon=True).start()   # status + alerts every 3 min
