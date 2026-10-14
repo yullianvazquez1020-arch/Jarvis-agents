@@ -186,7 +186,7 @@ class Endpoint(unittest.TestCase):
         from starlette.websockets import WebSocketDisconnect
         old = j.ENCARGO_SECRET; j.ENCARGO_SECRET = 'secreto-ficticio-voz-123'
         async def tr(w): return 'Resume mis tareas de hoy'
-        async def rp(t): return 'Tienes dos tareas.'
+        async def rp(t, lang="es"): return 'Tienes dos tareas.'
         async def sp(t, lang="es"): return b'RIFFfake'
         try:
             c = TestClient(j.app)
