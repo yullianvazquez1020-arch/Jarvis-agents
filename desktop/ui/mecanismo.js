@@ -198,42 +198,45 @@
     for (var i = 0; i < 10; i++) {
       ctx.save(); ctx.rotate(i / 10 * 6.283);
       ctx.beginPath();
-      ctx.moveTo(R * 0.42, -R * 0.055); ctx.lineTo(R * 0.8, -R * 0.125);
-      ctx.lineTo(R * 0.8, R * 0.125); ctx.lineTo(R * 0.42, R * 0.055); ctx.closePath();
-      var cg = ctx.createLinearGradient(R * 0.42, 0, R * 0.8, 0);
+      ctx.moveTo(R * 0.52, -R * 0.05); ctx.lineTo(R * 0.8, -R * 0.12);
+      ctx.lineTo(R * 0.8, R * 0.12); ctx.lineTo(R * 0.52, R * 0.05); ctx.closePath();
+      var cg = ctx.createLinearGradient(R * 0.52, 0, R * 0.8, 0);
       cg.addColorStop(0, "rgba(230,250,255," + pulse + ")");
       cg.addColorStop(0.45, "rgba(90,190,255," + (0.85 * pulse) + ")");
       cg.addColorStop(1, "rgba(20,90,170," + (0.55 * pulse) + ")");
       ctx.fillStyle = cg; ctx.fill();
       ctx.shadowBlur = 0; ctx.strokeStyle = "rgba(4,16,32,0.55)"; ctx.lineWidth = Math.max(1, R * 0.007);
       for (var w = 0; w < 7; w++) {
-        var x = R * (0.48 + w * 0.042), hh = R * (0.06 + w * 0.008);
+        var x = R * (0.56 + w * 0.032), hh = R * (0.055 + w * 0.007);
         ctx.beginPath(); ctx.moveTo(x, -hh); ctx.lineTo(x, hh); ctx.stroke();
       }
       ctx.restore();
     }
     ctx.restore();
 
-    ctx.save(); ctx.shadowColor = "rgba(180,230,255,1)"; ctx.shadowBlur = R * 0.16;
-    ctx.lineWidth = R * 0.02; ctx.strokeStyle = "rgba(200,240,255," + pulse + ")";
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.36, 0, 6.283); ctx.stroke(); ctx.restore();
+    var breathe = 1 + (hablando ? 0.07 : 0.03) * Math.sin(t * (hablando ? 6 : 2.2));
+    var cr = R * 0.4 * breathe;
+    ctx.save(); ctx.shadowColor = "rgba(180,230,255,1)"; ctx.shadowBlur = R * 0.2;
+    ctx.lineWidth = R * 0.018; ctx.strokeStyle = "rgba(220,245,255," + pulse + ")";
+    ctx.beginPath(); ctx.arc(cx, cy, cr * 1.08, 0, 6.283); ctx.stroke(); ctx.restore();
 
-    var core = ctx.createRadialGradient(cx - R * 0.06, cy - R * 0.08, 0, cx, cy, R * 0.34);
+    var core = ctx.createRadialGradient(cx - cr * 0.2, cy - cr * 0.25, 0, cx, cy, cr);
     core.addColorStop(0, "rgba(255,255,255," + pulse + ")");
-    core.addColorStop(0.35, "rgba(210,245,255,0.95)");
-    core.addColorStop(1, "rgba(40,140,230,0.85)");
-    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, R * 0.3, 0, 6.283); ctx.fill();
+    core.addColorStop(0.28, "rgba(225,248,255,0.98)");
+    core.addColorStop(0.7, "rgba(80,190,255,0.9)");
+    core.addColorStop(1, "rgba(20,90,180,0.15)");
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, cr, 0, 6.283); ctx.fill();
 
-    ctx.save(); ctx.shadowColor = "rgba(255,255,255,0.95)"; ctx.shadowBlur = R * 0.08;
+    ctx.save(); ctx.shadowColor = "rgba(255,255,255,0.95)"; ctx.shadowBlur = cr * 0.35;
     ctx.beginPath();
     for (var p = 0; p < 3; p++) {
       var ta = -1.5708 + p * 2.0944;
-      var tx = cx + Math.cos(ta) * R * 0.16, ty = cy + Math.sin(ta) * R * 0.16;
+      var tx = cx + Math.cos(ta) * cr * 0.62, ty = cy + Math.sin(ta) * cr * 0.62;
       if (p === 0) ctx.moveTo(tx, ty); else ctx.lineTo(tx, ty);
     }
     ctx.closePath();
-    ctx.fillStyle = "rgba(255,255,255," + (0.92 * pulse) + ")"; ctx.fill();
-    ctx.lineWidth = Math.max(1.5, R * 0.012); ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255," + (0.95 * pulse) + ")"; ctx.fill();
+    ctx.lineWidth = Math.max(1.5, cr * 0.04); ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.stroke();
     ctx.restore();
 
     if (flock) drawCrystals(ctx, cx, cy, R, t, flock, true);

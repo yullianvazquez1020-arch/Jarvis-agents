@@ -345,6 +345,8 @@ body.hud-v2 .hx-center{min-height:0;grid-column:auto;order:0}
 body.hud-v2 .deck-stage{flex:1 1 auto;height:auto;min-height:160px;max-height:none}
 body.hud-v2 .hx-figure canvas{height:clamp(120px,18vh,200px)}
 body.hud-v2 .hx-center .hx-gauges{padding-bottom:6px}
+.deck-nucleo{position:absolute;left:0;right:0;bottom:8px;margin:0;text-align:center;pointer-events:none;
+  letter-spacing:.46em;font-size:12px;color:#e7f6ff;text-shadow:0 0 14px rgba(63,180,255,.9)}
 @media (max-width:1100px){
   body.hud-v2{height:auto;overflow:auto}
   body.hud-v2 .hudx-body{grid-template-columns:1fr;height:auto}
