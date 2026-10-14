@@ -1,0 +1,12 @@
+/* Torre de Aincrad en canvas: reemplaza la imagen artística, debajo del texto y los controles. */
+#aincrad { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; display: block; }
+.stage .rig, .stage .fog, .stage .grade, .stage .grain { display: none; }
+.stage .title, .stage .hud, .stage .ctl { z-index: 30; }
+.aincrad-mini { position: fixed; right: 16px; bottom: 16px; width: 420px; height: 320px; z-index: 40;
+  border: 1px solid rgba(90,210,255,.35); border-radius: 10px; box-shadow: 0 0 24px rgba(40,140,255,.25); }
+.pisos li { cursor: pointer; }
+.pisos li.sel { outline: 1px solid #5ad2ff; }
+.stage .title { top: 14px; bottom: auto; }
+.stage .title h1 { font-size: 30px; letter-spacing: .5em; }
+.stage .title p { margin-top: .3em; }
+.stage .pisos { left: 16px; right: auto; top: 200px; bottom: 80px; width: 260px; }

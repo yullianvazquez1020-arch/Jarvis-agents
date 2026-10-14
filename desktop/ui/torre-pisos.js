@@ -12,8 +12,12 @@
       var li = document.createElement("li"); if (!/^libre-/.test(p.id)) li.className = "on";
       var b = document.createElement("b"); b.textContent = p.piso; li.appendChild(b);
       var s = document.createElement("span"); s.textContent = p.nombre + " · " + p.estado; li.appendChild(s);
+      li.dataset.piso = p.piso;
+      li.addEventListener("click", function () { mark(p.piso); dispatchEvent(new CustomEvent("jarvis-piso-lista", {detail: p.piso})); });
       ol.appendChild(li);
     });
     box.appendChild(ol);
+    function mark(n) { Array.prototype.forEach.call(ol.children, function (li) { li.classList.toggle("sel", +li.dataset.piso === n); }); }
+    addEventListener("jarvis-piso", function (e) { mark(e.detail); var li = ol.querySelector('[data-piso="' + e.detail + '"]'); if (li) li.scrollIntoView({block: "nearest"}); });
   }).catch(function () { box.textContent = "Torre sin datos"; });
 })();

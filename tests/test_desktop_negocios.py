@@ -41,6 +41,21 @@ class Torre(unittest.TestCase):
         self.assertIn("torre-pisos.js", (ROOT / "desktop/ui/torre.html").read_text("utf-8"))
 
 
+class TorreAincrad(unittest.TestCase):
+    def test_escena_original_y_conectada(self):
+        js = (ROOT / "desktop/ui/torre-aincrad.js").read_text("utf-8")
+        for k in ("TIERS = 25", "FLOORS = 100", "cloudSea", "grid()", "core(t)", "floorAt", "prefers-reduced-motion",
+                  "jarvis-piso", "/api/negocios", "mode === \"ultron\""):
+            self.assertIn(k, js)
+        self.assertNotIn("https://", js); self.assertNotIn(".jpg", js); self.assertNotIn(".png", js)
+        html = (ROOT / "desktop/ui/torre.html").read_text("utf-8")
+        self.assertIn('id="aincrad"', html); self.assertIn("/ui/torre-aincrad.js", html)
+        self.assertNotIn("style=", html)
+        self.assertIn("/ui/torre-aincrad.js", (ROOT / "desktop/ui/ironman.html").read_text("utf-8"))
+        app = (ROOT / "desktop/app.py").read_text("utf-8")
+        self.assertIn('"torre-aincrad.js"', app); self.assertIn('"torre-aincrad.css"', app)
+
+
 class ModoNucleo(unittest.TestCase):
     def setUp(self):
         import importlib
