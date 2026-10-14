@@ -7361,8 +7361,6 @@ def _guardar_seq_bus(seq):
     except (TypeError, ValueError, RuntimeError, ReadOnlyViolation):
         logger.warning("bus seq not saved")
 
-jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
-
 class Encargo(BaseModel):
     texto: str = Field(min_length=1, max_length=ENCARGO_MAX)
 
@@ -7393,6 +7391,7 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
 # Bus de negocios (Jarvis <-> Grok Bot): registro y lectura de eventos de estado. No ejecuta acciones.
 import jarvis_bus
 jarvis_bus.set_redactor(lambda t: _redact_secrets(t)[0])
+jarvis_bus.BUS.continuar_desde(_bus_seq_guardada())
 
 class BusEvento(BaseModel):
     negocio: str = Field(min_length=1, max_length=40)
