@@ -244,7 +244,8 @@ def load_config(path=None):
                     k, v = line.split("=", 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
-                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND"]:
+                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
+                               "VOICE_CICLO", "VOICE_CICLO_DIR"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -712,15 +713,44 @@ class Companion:
         player = local_player()
         if not player:
             return False
-        def run():
-            path = self.home / "ultima_voz.wav"
+        if not hasattr(self, "_voz_q"):
+            import queue
+            self._voz_q = queue.Queue(); self._voz_proc = None; self._voz_gen = 0
+            threading.Thread(target=self._voz_worker, args=(player,), daemon=True).start()
+        self._voz_q.put((self._voz_gen, audio))           # cola: una frase cada vez, sin solaparse
+        return True
+
+    def _voz_worker(self, player):
+        n = 0
+        while True:
+            gen, audio = self._voz_q.get()
+            if gen != self._voz_gen:
+                continue                                 # descartada por stop/cancelar
+            n += 1; path = self.home / f"voz_{n % 2}.wav"
             try:
                 path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(audio)
-                subprocess.run(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=False)
-            except (OSError, subprocess.TimeoutExpired):
+                proc = subprocess.Popen(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._voz_proc = proc
+                try:
+                    proc.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            except OSError:
                 pass
-        threading.Thread(target=run, daemon=True).start()
-        return True
+            finally:
+                self._voz_proc = None
+
+    def stop_local_audio(self):
+        """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
+        if not hasattr(self, "_voz_q"):
+            return
+        self._voz_gen += 1
+        proc = self._voz_proc
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
 
     # --- turns ---
     def start_turn(self, request_id, text, source="text"):
@@ -752,7 +782,7 @@ class Companion:
                 raise KeyError(turn_id)
             done = t["state"] in ("done", "error")
             t["cancelled"] = True
-        self.emit({"type": "audio.stop", "turn": turn_id})
+        self.stop_local_audio(); self.emit({"type": "audio.stop", "turn": turn_id})
         self.emit({"type": "turn.cancelled", "turn": turn_id})
         return {"cancelled": True, "already_done": done,
                 "note": ("La respuesta ya había llegado; solo detuve el audio." if done else
@@ -790,7 +820,7 @@ class Companion:
         kind, arg = intents.parse(text)
         try:
             if kind == "stop_audio":
-                self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
+                self.stop_local_audio(); self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
             if kind == "mic_off":
                 self.set_prefs(mic=False); self.emit({"type": "mic.off"})
                 return self._finish(tid, "done", "Apagué el micrófono.")
@@ -1054,11 +1084,11 @@ def make_handler(app, host, port):
                 if u.path == "/api/alerts/silence":
                     with app.lock:
                         app.last_alert_at = 0.0                 # silenciar = el núcleo vuelve a modo Jarvis
-                    app.emit({"type": "audio.stop"}); return self._send(200, {"ok": True})
+                    app.stop_local_audio(); app.emit({"type": "audio.stop"}); return self._send(200, {"ok": True})
                 if u.path == "/api/pulse":
                     app.pulse_once(); return self._send(200, app.health_view())
                 if u.path == "/api/audio/stop":
-                    app.emit({"type": "audio.stop"}); return self._send(200, {"ok": True})
+                    app.stop_local_audio(); app.emit({"type": "audio.stop"}); return self._send(200, {"ok": True})
                 if u.path == "/api/prefs":
                     return self._send(200, app.set_prefs(**{k: data[k] for k in ("rate", "discreet", "review", "mic")
                                                             if k in data}))

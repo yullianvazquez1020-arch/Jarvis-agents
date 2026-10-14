@@ -9,6 +9,8 @@ Lo financiero o de mensajes sigue necesitando /confirmar en Jarvis; aquí ni se 
 """
 import importlib.util
 import json
+import os
+import threading
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("autonomo", Path(__file__).parent / "mac" / "autonomo.py")
@@ -55,6 +57,9 @@ def precheck(action, session):
     return None
 
 
+_ORDEN_LOCK = threading.Lock()
+
+
 def encargar(action):
     if ae.stopped():
         return {"ok": False, "motivo": "STOP activo"}
@@ -66,7 +71,10 @@ def encargar(action):
     if why:
         return {"ok": False, "motivo": why}
     path = auto.auto_dir() / "siguiente.json"
-    if path.exists():
-        return {"ok": False, "motivo": "ya hay una orden pendiente"}
-    path.write_text(json.dumps(action), encoding="utf-8")
+    with _ORDEN_LOCK:                                    # servidor con hilos: una sola orden, publicada atómica
+        if path.exists():
+            return {"ok": False, "motivo": "ya hay una orden pendiente"}
+        tmp = path.with_name(f".siguiente.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(action), encoding="utf-8")
+        os.replace(tmp, path)
     return {"ok": True, "orden": action["action"]}
