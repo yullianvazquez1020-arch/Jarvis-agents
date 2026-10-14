@@ -24,7 +24,7 @@ NEGOCIOS = {
     "fiscal-acs": "Carta ACS / fiscal",
 }
 
-_SECRETO = re.compile(r"(sk|pk|rk|whsec|ghp|xox[abp])[-_][A-Za-z0-9_\-]{8,}|\b\d{13,19}\b|"
+_SECRETO = re.compile(r"(sk|pk|rk|whsec|ghp|xox[abp])[-_][A-Za-z0-9_\-]{8,}|"
                       r"(?i:(password|secret|token|api[_-]?key)\s*[:=]\s*\S+)")
 
 

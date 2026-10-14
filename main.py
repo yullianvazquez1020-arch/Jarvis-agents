@@ -7337,6 +7337,8 @@ async def _tg_route(msg, background):
 # /cripto modo are impossible here), money still needs /aprobar + /confirmar in the private chat with the $100/op
 # and $300/day hard caps, and a client message still goes out only with the owner's /enviar.
 ENCARGO_SECRET = os.getenv("JARVIS_ENCARGO_SECRET", "").strip()
+BUS_READ_SECRET = os.getenv("JARVIS_BUS_READ_SECRET", "").strip()
+BUS_WRITE_SECRET = os.getenv("JARVIS_BUS_WRITE_SECRET", "").strip()
 ENCARGO_MAX = 4000
 
 class Encargo(BaseModel):
@@ -7379,20 +7381,20 @@ class BusEvento(BaseModel):
 
 @app.get("/api/bus/negocios")
 async def bus_negocios(x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+    if not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
         raise HTTPException(401, "Bad secret")
     return jarvis_bus.BUS.tablero()
 
 @app.get("/api/bus/eventos")
 async def bus_eventos(desde: int = 0, negocio: str | None = None, limite: int = 100,
                       x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+    if not _key_ok(x_jarvis_secret, BUS_READ_SECRET):
         raise HTTPException(401, "Bad secret")
     return {"eventos": jarvis_bus.BUS.eventos(desde, negocio, limite)}
 
 @app.post("/api/bus/eventos")
 async def bus_emitir(req: BusEvento, x_jarvis_secret: str = Header(None)):
-    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+    if not _key_ok(x_jarvis_secret, BUS_WRITE_SECRET):
         raise HTTPException(401, "Bad secret")
     if not _rate_ok("bus"):
         raise HTTPException(429, "Demasiados eventos por minuto")

@@ -51,10 +51,16 @@ class BusTest(unittest.TestCase):
         for i in range(jb.MAX_EVENTOS + 10): self.b.emitir("trading", "tick", str(i))
         self.assertEqual(len(self.b.eventos(limite=10**6)), jb.MAX_EVENTOS)
 
+    def test_conserva_un_id_largo_que_no_es_tarjeta(self):
+        e = self.b.emitir("amazon", "nota", "pedido ficticio 1700000000123")
+        self.assertIn("1700000000123", e["texto"])
+
     def test_endpoints_con_secreto(self):
         src = (ROOT / "main.py").read_text("utf-8")
         for k in ('"/api/bus/negocios"', '"/api/bus/eventos"'): self.assertIn(k, src)
-        i = src.index('"/api/bus/eventos"'); self.assertIn("_key_ok(x_jarvis_secret, ENCARGO_SECRET)", src[i:i+1500])
+        self.assertIn("JARVIS_BUS_READ_SECRET", src)
+        self.assertIn("JARVIS_BUS_WRITE_SECRET", src)
+        self.assertNotIn("_key_ok(x_jarvis_secret, ENCARGO_SECRET)", src[src.index('"/api/bus/negocios"'):])
 
 
 if __name__ == "__main__": unittest.main()
