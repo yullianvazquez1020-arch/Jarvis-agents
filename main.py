@@ -7665,6 +7665,16 @@ _income.install(__import__('sys').modules[__name__])
 import jarvis_business as _business
 _business.install(__import__('sys').modules[__name__])
 
+# Tres frentes de dinero (acceso, automatización, contenido): solo borradores y propuestas.
+FRENTES_STATUS = "no cargado"
+try:
+    import jarvis_frentes as _frentes
+    _frentes.install(__import__('sys').modules[__name__])
+    FRENTES_STATUS = "activo"
+except Exception as _e:
+    FRENTES_STATUS = f"apagado ({type(_e).__name__})"
+    logger.warning("frentes off: %s", type(_e).__name__)
+
 # Hub propio en /hub. Si no carga, Jarvis arranca igual.
 FUNNEL_STATUS = "no cargado"
 try:
