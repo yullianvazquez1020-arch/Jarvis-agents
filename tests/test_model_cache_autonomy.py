@@ -38,3 +38,27 @@ class CacheAndAutonomy(DesktopBase):
             panel = D._panel_estado()
             self.assertIn('Ciclo autónomo: apagado', panel['lines'])
             self.assertNotIn('private-test-token', str(panel))
+
+    def test_owner_route_keeps_model_budget_and_uses_cache(self):
+        call = AsyncMock(return_value=SimpleNamespace(usage=SimpleNamespace(cache_read_input_tokens=456)))
+        before = copy.deepcopy(j.TOOLS)
+        with patch.object(j.client.messages, 'create', call), patch.dict(os.environ, {'AI_TOOL_CACHE_ENABLED': 'true', 'JARVIS_SHORT_MODEL': 'claude-haiku-4-5'}):
+            asyncio.run(j._ai_call([{'role': 'user', 'content': 'hello'}]))
+        sent = call.call_args.kwargs
+        self.assertEqual(sent['model'], 'claude-haiku-4-5')
+        self.assertEqual(sent['max_tokens'], 700)
+        self.assertEqual(sent['tools'][-1]['cache_control'], {'type': 'ephemeral'})
+        self.assertEqual(j.TOOLS, before)
+        self.assertEqual(j._model_timing['cache_read_tokens'], 456)
+
+    def test_missing_connection_names_only(self):
+        with patch.dict(os.environ, {}, clear=True):
+            accounts = j._connections.autonomy_status()['accounts']
+        self.assertIn('AMAZON_CLIENT_ID', accounts['amazon']['missing'])
+        self.assertEqual(accounts['tiktok']['missing'], ['TIKTOK_REFRESH_TOKEN', 'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'])
+        with patch.dict(os.environ, {'TIKTOK_ACCESS_TOKEN': 'secret-token'}, clear=True):
+            account = j._connections.autonomy_status()['accounts']['tiktok']
+        self.assertTrue(account['configured'])
+        self.assertEqual(account['missing'], [])
+        self.assertEqual(account['check'], 'not_tested')
+        self.assertNotIn('secret-token', str(account))

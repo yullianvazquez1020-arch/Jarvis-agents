@@ -6326,9 +6326,9 @@ def _cache_tools(tools):
         return tools
     return list(tools[:-1]) + [{**tools[-1], 'cache_control': {'type': 'ephemeral'}}]
 
-async def _model_call(history, tools, system):
+async def _model_call(history, tools, system, *, model=None, max_tokens=None):
     started = time.monotonic()
-    result = await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+    result = await client.messages.create(model=model or MODEL, max_tokens=max_tokens or AI_MAX_TOKENS, system=system,
                                           tools=_cache_tools(tools), messages=history)
     usage = getattr(result, 'usage', None)
     def count(name):

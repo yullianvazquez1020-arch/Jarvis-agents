@@ -420,8 +420,8 @@ def install(core):
         short = os.getenv("JARVIS_SHORT_MODEL", "").strip() or "claude-haiku-4-5"
         if not re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", short):
             short = core.MODEL
-        return await core.client.messages.create(model=short, max_tokens=700, system=core.system_prompt(),
-                                                 tools=core.TOOLS, messages=history)
+        return await core._model_call(history, core.TOOLS, core.system_prompt(),
+                                      model=short, max_tokens=700)
 
     async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None):
         # Scoped channels keep the original authorization and write protections.
