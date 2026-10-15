@@ -18,7 +18,17 @@ AUDIO = {'desktop/ui/startup.js', 'desktop/ui/arranque.js'}
 def git(root, *args, **kw):
     return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True, **kw).stdout
 
-def merge_local(local, base, incoming):
+def merge_local(local, base, incoming, name=''):
+    # An earlier local hotfix adds this exact line before the microphone guards.
+    # The updated controller already stops the intro after validating those guards.
+    # Recognize only the complete known edit, never discard additional local edits.
+    marker = b'  function startMic() {\n'
+    hotfix = b'    if (window.JarvisStopIntro) window.JarvisStopIntro();\n'
+    replacement = b'if(window.JarvisStopIntro)window.JarvisStopIntro();'
+    if (name == 'desktop/ui/app.js' and base.count(marker) == 1
+            and local == base.replace(marker, marker + hotfix, 1)
+            and replacement in incoming):
+        return incoming
     if local == base or local == incoming:
         return incoming
     if incoming == base:
@@ -49,7 +59,7 @@ def prepare(source, target, destination):
         incoming = git(source, 'show', target + ':' + name)
         # The owner explicitly requested replacement of continuous music with a bounded intro.
         # Both originals are retained in the untouched source checkout and in the backup.
-        overrides[name] = incoming if name in AUDIO else merge_local(path.read_bytes(), base, incoming)
+        overrides[name] = incoming if name in AUDIO else merge_local(path.read_bytes(), base, incoming, name=name)
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     backup = source / 'backups' / ('before-combinado-update-' + stamp)
     backup.mkdir(parents=True, mode=0o700)
