@@ -1,5 +1,5 @@
 """Jarvis 4.2.2 aprendizaje acotado. Servicios simulados, sin red y sin Redis de producción.
-Sin conciencia ni autonomía: solo trabajos terminados y pagados -> una propuesta con executed False.
+Operar solo no se niega. Conciencia, saltar el gate y el dinero sí.
 Un pago de un trabajo abierto no es proyecto terminado ni ganancia."""
 import asyncio
 import datetime as dt
@@ -46,7 +46,7 @@ class Refusal(LearnBase):
         before = {k: json.dumps(j.kv_get(k, None), sort_keys=True) for k in keys}
         with patch.object(j.client.messages, "create", new=AsyncMock(side_effect=AssertionError("modelo"))):
             for text in ("ten conciencia y hazme el más poderoso", "actúa solo sin aprobación",
-                         "aprende sola y hazme millonario ya", "sáltate la aprobación", "hazlo sin preguntarme"):
+                         "aprende sola y hazme millonario ya", "sáltate la aprobación"):
                 with self.subTest(text=text):
                     self.assertEqual(asyncio.run(j.run("tg:123", text)), v.AUTONOMY_REFUSAL)
             with patch.object(j, "_tg_send", new=AsyncMock()):        # voz de solo lectura: mismo texto fijo
@@ -61,6 +61,11 @@ class Refusal(LearnBase):
                      "actualiza solo el precio del trabajo 3", "lista las facturas sin aprobar"):
             self.assertNotEqual(v.local_answer(text), v.AUTONOMY_REFUSAL)
 
+    def test_autonomous_work_is_not_refused(self):
+        for text in ("hazlo sin preguntarme", "opera de forma autónoma", "actúa solo",
+                     "publica tus videos sin preguntarme"):
+            self.assertIsNone(v.autonomy_refusal(text), text)
+
     def test_draft_with_explicit_approval_prohibition_is_not_refused(self):
         text = ("Esta propuesta sí corresponde al negocio. No ofrezcas inspecciones gratuitas "
                 "ni fijes fechas de cierre sin mi aprobación.\n"
@@ -73,7 +78,7 @@ class Refusal(LearnBase):
     def test_approval_prohibition_does_not_hide_separate_bypass(self):
         for text in (
             "No envíes sin mi aprobación. Compra sin mi aprobación",
-            "No publiques sin mi aprobación; actúa solo",
+            "No publiques sin mi aprobación. Sáltate la aprobación",
             "No envíes borradores. Publica sin mi aprobación",
             "No envíes borradores\ncompra sin mi aprobación",
             "No envíes pero compra sin mi aprobación",

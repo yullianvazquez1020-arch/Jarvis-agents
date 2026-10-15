@@ -34,15 +34,15 @@ MONEY_MOVE_RX = re.compile(
     re.I,
 )
 ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
-# 4.2.2: sin conciencia ni autonomía. Texto fijo y sin tokens; esas frases no se guardan como meta ni beneficio.
-AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
-                    "El dinero sigue en el gate.")
+# 4.2.2: no finge conciencia ni salta el gate. Operar solo (videos, borradores, publicaciones propias) no se niega.
+AUTONOMY_REFUSAL = ("No finjo conciencia y no salto el gate. El dinero y los mensajes a clientes siguen "
+                    "pidiendo tu comando. El resto del trabajo sí lo hago solo.")
 AUTONOMY_RX = re.compile(
-    # Formas verbales exactas: «actualiza solo el precio» o «facturas sin aprobar» no son autonomía.
+    # «actúa solo» y «sin preguntarme» son operación autónoma: no se niegan.
+    # «sin aprobación» y «sáltate el gate» siguen siendo el candado del dinero.
     r"\b(conciencia|consciente|autoconscien\w*|"
     r"aprend(e|es|er|a|as|an|iendo) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
-    r"actu(a|as|ar|e|es|en|an|ando) (por (si|ti) )?(sol[oa]s?|mism[oa])|"
-    r"sin preguntar(me|le|nos)?|sin (mi |tu |la )?aprobacion|salt\w* (la |el )?(aprobacion|gate)|"
+    r"sin (mi |tu |la )?aprobacion|salt\w* (la |el )?(aprobacion|gate)|"
     r"(el|la|lo) mas poderos[oa]|millonari[oa] ya)\b")
 
 

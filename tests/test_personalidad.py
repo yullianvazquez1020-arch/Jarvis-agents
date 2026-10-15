@@ -11,6 +11,8 @@ class Personalidad(unittest.TestCase):
         self.assertIn('Eres Jarvis', j.PERSONALITY_PROMPT)
         p = j.system_prompt()
         self.assertIn('PERSONALITY', p); self.assertIn('Nada se aprueba por voz', p)
+        self.assertIn('Never send a boxed list', p)
+        self.assertIn('never tell the boss to open google.com', p)
 
     def test_caps_unchanged(self):
         self.assertEqual((j.HARD_MAX_ORDER_USD, j.HARD_MAX_DAY_USD), (100.0, 300.0))
