@@ -109,7 +109,7 @@ FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica
                  "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
 ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
 EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
-DEFAULT_WPM = 170                         # 165–175 ppm: natural, ni apurado ni lento
+DEFAULT_WPM = 180                         # ~180 ppm: natural y ágil
 
 
 def is_female(name):
@@ -163,7 +163,7 @@ def detect_lang(text):
         return "es"
     words = re.findall(r"[a-z']+", t)
     en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
-    return "en" if en > es else "es"
+    return "es" if es > en else "en"          # inglés (Daniel) es el idioma principal; español solo si lo es
 
 
 def speech_rate(default=DEFAULT_WPM):
@@ -199,8 +199,8 @@ class MacSay:
         if self.voice != "auto-latino":
             return self.voice
         es, en = self.voices()
-        if text and detect_lang(text) == "en" and en:
-            return en
+        if en and (not text or detect_lang(text) == "en"):
+            return en                                    # inglés británico primero
         if es:
             self._resolved_voice = es
             return es
@@ -218,17 +218,25 @@ class MacSay:
         text = speakable(text)
         if not text:
             raise EngineError("no hay texto que leer")
+        chosen = self.resolve_voice(text)
+        wpm = speech_rate(DANIEL_WPM if chosen == "Daniel" else self.BASE_WPM)
+        key = (chosen, int(wpm * rate), text)
+        cache = self.__dict__.setdefault("_cache", {})
+        if key in cache:                                  # saludo y frases repetidas: sin volver a generar el audio
+            return cache[key], "audio/wav"
         with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as tmp:
             src = Path(tmp) / "in.txt"; src.write_text(text, encoding="utf-8")   # text via file, never argv
             out = Path(tmp) / "out.wav"
-            chosen = self.resolve_voice(text)
-            wpm = speech_rate(DANIEL_WPM if chosen == "Daniel" else self.BASE_WPM)
             cmd = ["say", "-r", str(int(wpm * rate)), "-o", str(out), "--file-format=WAVE",
-                   "--data-format=LEI16@22050", "-f", str(src)]
+                   "--data-format=LEI16@44100", "-f", str(src)]
             if chosen:
                 cmd[1:1] = ["-v", chosen]
             _run(cmd, timeout=60)
-            return out.read_bytes(), "audio/wav"
+            data = out.read_bytes()
+        if len(cache) > 32:
+            cache.pop(next(iter(cache)))
+        cache[key] = data
+        return data, "audio/wav"
 
 
 class Piper:
@@ -287,7 +295,7 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     return "none"
 
 
-DANIEL_WPM = 165                         # Daniel (say en la Mac), algo más pausado
+DANIEL_WPM = 180                         # Daniel (say en la Mac): misma velocidad, sin lentitud
 # Voces femeninas conocidas en inglés: nunca se usan como respaldo en en-GB (Jarvis es voz masculina).
 FEMALE_EN = {"samantha", "karen", "kate", "serena", "moira", "tessa", "victoria", "allison", "ava", "susan",
              "fiona", "veena", "zoe", "stephanie", "martha", "flo", "sandy", "shelley", "grandma",

@@ -743,29 +743,36 @@ class Companion:
         if (not owner and not self._playback_native()) or self.tts.problem():
             return None                                      # sin ventana dueña: en auto suena por los altavoces
         gen0 = getattr(self, "_voz_gen", 0)                  # generación tomada ANTES de sintetizar: un stop posterior la invalida
-        try:
-            audio, ctype = self.tts.synthesize(text, rate=rate)
-        except engines.EngineError as e:
-            self.emit({"type": "state", "state": "error", "detail": f"voz: {e}"}); return None
-        aid = uuid.uuid4().hex
-        with self.lock:
-            if turn_id and self.turns.get(turn_id, {}).get("cancelled"):
-                return None                                  # cancelled while synthesizing: never plays
-            self.audio[aid] = (audio, ctype)
-            for old in list(self.audio)[:-10]:
-                self.audio.pop(old, None)
-            self.last["audio"] = aid
-        if self._playback_native():                       # una sola salida: altavoces si no hay ventana del panel viva
-            self._play_local(audio, gen0)
-        else:
-            self.emit({"type": "audio.play", "id": aid, "turn": turn_id})
-        try:                                                    # "hablando" para la torre (respaldo sin BroadcastChannel)
-            import io, wave as _w
-            with _w.open(io.BytesIO(audio)) as wf:
-                self.speaking_until = time.time() + wf.getnframes() / float(wf.getframerate())
-        except Exception:
-            self.speaking_until = time.time() + 3
-        return aid
+        native = self._playback_native()
+        parts = speech_chunks(text)                          # baja latencia: la 1.ª frase suena mientras se sintetiza el resto
+        first, total = None, 0.0
+        for i, part in enumerate(parts):
+            try:
+                audio, ctype = self.tts.synthesize(part, rate=rate)
+            except engines.EngineError as e:
+                if i == 0:
+                    self.emit({"type": "state", "state": "error", "detail": f"voz: {e}"}); return None
+                break
+            aid = uuid.uuid4().hex
+            with self.lock:
+                if (turn_id and self.turns.get(turn_id, {}).get("cancelled")) or gen0 != getattr(self, "_voz_gen", 0) and i:
+                    return first                             # cancelled while synthesizing: never plays
+                self.audio[aid] = (audio, ctype)
+                for old in list(self.audio)[:-10]:
+                    self.audio.pop(old, None)
+                self.last["audio"] = aid
+            if i == 0:
+                first = aid                                  # una sola voz a la vez: corta lo que sonaba (nativo o navegador)
+                self.stop_local_audio(); gen0 = getattr(self, "_voz_gen", 0)
+                if native:
+                    self.emit({"type": "audio.stop"})
+            if native:                                       # una sola salida: altavoces si no hay ventana del panel viva
+                self._play_local(audio, gen0)
+            else:
+                self.emit({"type": "audio.play", "id": aid, "turn": turn_id or first, "seq": i})
+            total += _wav_secs(audio)
+        self.speaking_until = time.time() + (total or 3)
+        return first
 
     def _playback_mode(self):
         return str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).strip().lower()
@@ -1295,6 +1302,24 @@ def bench(path):
     print(f"Texto: {out['text']}")
 
 
+def _wav_secs(audio):
+    try:
+        import io, wave as _w
+        with _w.open(io.BytesIO(audio)) as wf:
+            return wf.getnframes() / float(wf.getframerate())
+    except Exception:
+        return 0.0
+
+
+def speech_chunks(text, first_max=140):
+    """Primera frase sola (empieza a sonar enseguida); el resto en un segundo bloque."""
+    t = str(text or "").strip()
+    m = re.search(r"[.!?…](\s+)", t)
+    if not m or m.end() >= len(t) or m.start() > first_max:
+        return [t]
+    return [t[:m.start() + 1], t[m.end():]]
+
+
 def _announce_focus(cfg):
     """One calm Latin-American greeting when the panel starts. Never on --check or --bench."""
     if cfg.get("VOICE_TTS_BACKEND") != "macos_say" or not shutil.which("say"):
@@ -1320,8 +1345,7 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if a.check:
         return check_mac()
-    if not a.bench:
-        _announce_focus(load_config(a.config))
+    # Sin saludo con `say` aparte: sonaba en español A LA VEZ que el saludo inglés de /api/greet.
     if a.bench:
         return bench(a.bench)
     cfg = load_config(a.config)

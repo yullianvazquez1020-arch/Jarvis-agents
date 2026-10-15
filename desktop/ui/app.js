@@ -94,7 +94,7 @@
     }
     else if (e.type === "panel.open" && e.data) renderPanel(e.data);
     else if (e.type === "alert") addAlert(e);
-    else if (e.type === "audio.play" && isOwner) play(e.id);
+    else if (e.type === "audio.play" && isOwner) { if (e.seq && e.turn === playTurn && audioEl) playQ.push(e.id); else { playTurn = e.turn; play(e.id); } }
     else if (e.type === "audio.stop") stopAudio();
     else if (e.type === "mic.off") stopMic(true);
     else if (e.type === "mic.on") setState("micrófono listo", "pulsa Hablar o Espacio");
@@ -148,9 +148,12 @@
   }
 
   // ---------- audio out ----------
-  function play(id) {
-    stopAudio(); audioEl = new Audio("/voice/audio/" + id);
-    audioEl.onended = function () { setState("listo"); };
+  // Una sola voz a la vez: frases del mismo turno en cola; un turno nuevo corta el anterior.
+  var playQ = [], playTurn = null;
+  function play(id, keepQ) {
+    if (!keepQ) playQ = [];
+    stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
+    audioEl.onended = function () { if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("listo"); } };
     setState("hablando");
     voice.attach(audioEl, id);
     audioEl.addEventListener("playing",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(true);});
@@ -160,7 +163,8 @@
   addEventListener("pointerdown", function () {
     if (audioEl && audioEl.paused && audioEl.currentTime===0) audioEl.play().catch(function(){});
   });
-  function stopAudio() {
+  function stopAudio(keepQ) {
+    if (!keepQ) playQ = [];
     if(window.JarvisAmbience)window.JarvisAmbience.duck(false);
     if (audioEl) { voice.detach(audioEl); audioEl.pause(); audioEl.src = ""; audioEl = null; }
   }
