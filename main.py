@@ -6392,14 +6392,14 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     async with lock:   # one message at a time per session
         if session not in conversations:
             _evict_sessions()                         # PR11 rev (8): bounded number of chats in memory
-        if session not in conversations and (allowed_tools is None or read_only == "voice"):
+        if session not in conversations and (allowed_tools is None or read_only in ("voice", "escritorio")):
             restore = globals().get("phase_a_restore")
             if restore is not None:
                 try:
                     conversations[session] = await asyncio.to_thread(restore, session)
                 except Exception as e:
                     logger.warning("history restore failed: %s", type(e).__name__)
-        voice = read_only == "voice"
+        voice = read_only in ("voice", "escritorio")
         # PR11 rev (1): a voice turn keeps only plain text in the shared chat. A refused action with transcribed
         # amounts must never sit in the history where a later "dale" with all tools could run it without /dictado.
         base = list(conversations.get(session, []))
@@ -6436,7 +6436,7 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                                                         {"role": "assistant", "content": [{"type": "text", "text": text}]}])
                                           if voice else history)
                 saved = ""
-                if allowed_tools is None or read_only == "voice":
+                if allowed_tools is None or voice:
                     saved = await _phase_a_remember_turn(session, clean, text)
                 note = "ℹ️ Reinicié el historial de esta conversación porque estaba dañado.\n\n" if repaired else ""
                 return warn + note + text + (saved or "")
