@@ -299,6 +299,8 @@ def _panel_estado():
                   f"Publicación Meta: {'habilitada' if autonomy['meta_publish_enabled'] else 'apagada'}"]
         for name, account in autonomy['accounts'].items():
             lines.append(f"{name}: {'configurado' if account['configured'] else 'sin configuración completa'} · verificación {account['check']}")
+            if account.get("missing"):
+                lines.append("  Faltan: " + ", ".join(account["missing"]))
         lines.append('Compras: aprobación del dueño. Fichas Amazon: validación y publicación por el dueño.')
     except Exception:
         lines.append('Autonomía: estado no disponible; no equivale a cuentas desconectadas.')

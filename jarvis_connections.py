@@ -74,11 +74,14 @@ def autonomy_status():
     cfg = configuration()
     accounts = {name: {'configured': cfg[name]['configured'],
                       'check': cfg[name]['check'].get('status', 'not_tested'),
-                      'checked_at': cfg[name]['check'].get('at')}
+                      'checked_at': cfg[name]['check'].get('at'),
+                      'missing': cfg[name]['missing']}
                 for name in ('facebook', 'instagram', 'youtube_upload', 'amazon')}
     accounts['tiktok'] = {'configured': bool(env('TIKTOK_ACCESS_TOKEN') or
         (env('TIKTOK_REFRESH_TOKEN') and env('TIKTOK_CLIENT_KEY') and env('TIKTOK_CLIENT_SECRET'))),
-        'check': 'not_tested', 'checked_at': None}
+        'check': 'not_tested', 'checked_at': None,
+        'missing': [] if env('TIKTOK_ACCESS_TOKEN') else [key for key in
+            ('TIKTOK_REFRESH_TOKEN', 'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET') if not env(key)]}
     return {'as_of': stamp(), 'brain_enabled': jarvis_brain.owner_enabled(_core),
             'last_cycle': jarvis_brain.mem.get('last_cycle'),
             'auto_publish_enabled': auto_publish_enabled(),
