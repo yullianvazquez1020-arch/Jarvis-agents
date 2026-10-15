@@ -57,6 +57,20 @@
     return loud ? "speech" : null;
   };
 
-  var api = { downsample: downsample, encodeWav: encodeWav, rms: rms, Detector: Detector, OUT_RATE: OUT_RATE };
+  // Keep a short lead-in until speech starts; never trim within a spoken phrase.
+  function PhraseBuffer(rate, leadMs) {
+    this.limit = Math.ceil(rate * (leadMs || 500) / 1000);
+    this.frames = []; this.samples = 0;
+  }
+  PhraseBuffer.prototype.push = function (frame, heard) {
+    this.frames.push(frame); this.samples += frame.length;
+    if (!heard) {
+      while (this.frames.length > 1 && this.samples - this.frames[0].length >= this.limit) {
+        this.samples -= this.frames.shift().length;
+      }
+    }
+  };
+
+  var api = { PhraseBuffer: PhraseBuffer, downsample: downsample, encodeWav: encodeWav, rms: rms, Detector: Detector, OUT_RATE: OUT_RATE };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.JarvisWav = api;
 })(this);
