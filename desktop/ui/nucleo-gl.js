@@ -84,6 +84,41 @@ function arrancar() {
     const g = new THREE.RingGeometry(a[0], a[0] + a[1], 64, 1, 0, a[2]);
     const m = layer(a[4], 0, new THREE.Mesh(g, add({ c: a[3], o: 0.85 }))); m.userData.arc = i; arcs.push(m); });
 
+  // --- HUD procedural en GPU (un solo quad + shader): decenas de anillos finos, arcos segmentados que giran a
+  //     distintas velocidades, marcas densas, radios, barrido de radar y onda de voz alrededor del centro.
+  //     Coste fijo por píxel, cero asignaciones por fotograma; nítido a cualquier devicePixelRatio (fwidth).
+  const hudMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+    extensions: { derivatives: true }, uniforms: { uT: { value: 0 }, uLv: { value: 0 }, uLi: { value: 0 } },
+    vertexShader: "varying vec2 vP; void main(){ vP=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }",
+    fragmentShader: `uniform float uT; uniform float uLv; uniform float uLi; varying vec2 vP;
+      #define TAU 6.2831853
+      float line(float d,float w){ float f=fwidth(d); return 1.-smoothstep(w,w+f*1.2,abs(d)); }
+      float seg(float a,float n,float gap,float rot){ float u=fract((a+rot)/TAU*n); return step(gap,u); }
+      void main(){
+        float r=length(vP), a=atan(vP.y,vP.x)+3.14159265; vec3 cy=vec3(.18,.7,1.35), ic=vec3(.7,1.1,1.5); vec3 c=vec3(0.);
+        float t=uT, sp=1.+uLv*1.2;
+        // anillos finos de fondo (cada uno con su propio giro y segmentación)
+        for(int i=0;i<14;i++){ float fi=float(i), rr=1.55+fi*.205, dir=mod(fi,2.)<1.?1.:-1.;
+          float n=floor(8.+mod(fi*37.,90.)), g=.08+.5*fract(fi*.618);
+          float k=line(r-rr,.004+.006*fract(fi*.37))*seg(a,n,g,dir*t*(.04+.03*fract(fi*.91))*sp);
+          c+=mix(cy,ic,fract(fi*.43))*k*(.35+.35*fract(fi*.71)); }
+        // marcas densas (360 y 72) con rotación lenta
+        float tk1=step(.86,fract((a+t*.02)/TAU*360.))*step(abs(r-4.32),.035);
+        float tk2=step(.8,fract((a-t*.035)/TAU*72.))*step(abs(r-1.62),.06);
+        c+=ic*(tk1*.55+tk2*.7);
+        // arcos gruesos de datos que barren con aceleración
+        for(int j=0;j<4;j++){ float fj=float(j), rr=1.9+fj*.62, ph=t*(.11+fj*.05)*(mod(fj,2.)<1.?1.:-1.)*sp, len=.6+fj*.35;
+          float da=mod(a-ph*TAU*.4,TAU); c+=cy*line(r-rr,.018)*step(da,len)*(1.-.6*da/len)*1.2; }
+        // radios finos y barrido de radar
+        c+=ic*.12*line(fract(a/TAU*24.)-.5,.0015*24./max(r,.5))*step(1.6,r)*step(r,4.4);
+        float sw=mod(a-t*.9,TAU); c+=cy*.22*exp(-sw*3.)*step(1.55,r)*step(r,4.4);
+        // onda de voz alrededor del núcleo
+        float wv=.95+(.06+.22*uLv+.05*uLi)*sin(a*12.+t*6.)*sin(a*5.-t*3.7);
+        c+=ic*line(r-wv,.012)*(.6+1.2*uLv) + cy*line(r-1.18,.006)*.7;
+        c*=smoothstep(4.9,4.4,r);
+        gl_FragColor=vec4(c,1.); }` });
+  layer(-0.45, 0, new THREE.Mesh(new THREE.PlaneGeometry(10, 10), hudMat));
+
   // triángulos (dos, girando en contra) como tubos luminosos
   const triMats = [], tris = [];
   [[1.42, 0.035], [1.28, 0.014]].forEach((t, q) => {
@@ -129,25 +164,28 @@ function arrancar() {
     });
   }
 
-  // rayos como tubos luminosos (se crean pocas veces por segundo y se liberan)
-  const boltMat = add({ c: new THREE.Color(1.2, 1.9, 2.8), o: 1 }); let bolts = [], nextBolt = 0;
+  // rayos: pool fijo creado una sola vez; cada disparo solo gira/muestra mallas existentes (sin asignar ni liberar)
+  const boltMat = add({ c: new THREE.Color(1.2, 1.9, 2.8), o: 1 }); const bolts = []; let nextBolt = 0;
   function jag(a, b, d, out) {
     if (d <= 0) { out.push(b); return; }
     const m = a.clone().lerp(b, 0.5), len = a.distanceTo(b), o = (Math.random() - 0.5) * len * 0.35;
     m.x += -(b.y - a.y) / len * o; m.y += (b.x - a.x) / len * o; m.z += (Math.random() - 0.5) * 0.15;
     jag(a, m, d - 1, out); jag(m, b, d - 1, out);
   }
+  for (let i = 0; i < 12; i++) {
+    const r1 = 1.6 + Math.random() * 1.5, a = new THREE.Vector3(0.45, 0, 0.3), bb = (Math.random() - 0.5),
+      b = new THREE.Vector3(Math.cos(bb) * r1, Math.sin(bb) * r1, -0.3), pts = [a];
+    jag(a, b, 5, pts);
+    const path = new THREE.CurvePath(); for (let j = 0; j < pts.length - 1; j++) path.add(new THREE.LineCurve3(pts[j], pts[j + 1]));
+    const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, pts.length * 2, 0.012, 4, false), boltMat);
+    mesh.visible = false; rig.add(mesh); bolts.push({ mesh, born: 0, life: 0 });
+  }
   function spawnBolts(now, lv) {
-    bolts.forEach((b) => { rig.remove(b.mesh); b.mesh.geometry.dispose(); }); bolts = [];
     const nb = 1 + Math.floor(Math.random() * (2 + lv * 4));
-    for (let i = 0; i < nb; i++) {
-      const ba = Math.random() * 7, r1 = 1.6 + Math.random() * 1.5, a = new THREE.Vector3(Math.cos(ba) * 0.45, Math.sin(ba) * 0.45, 0.3),
-        bb = ba + (Math.random() - 0.5), b = new THREE.Vector3(Math.cos(bb) * r1, Math.sin(bb) * r1, -0.3), pts = [a];
-      jag(a, b, 5, pts);
-      const path = new THREE.CurvePath(); for (let j = 0; j < pts.length - 1; j++) path.add(new THREE.LineCurve3(pts[j], pts[j + 1]));
-      const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, pts.length * 2, 0.012, 4, false), boltMat);
-      rig.add(mesh); bolts.push({ mesh, born: now, life: 120 + Math.random() * 260 });
+    for (let i = 0; i < bolts.length; i++) { const b = bolts[i];
+      if (i < nb) { const k = (Math.random() * bolts.length) | 0, o = bolts[k]; bolts[k] = b; bolts[i] = o; }
     }
+    for (let i = 0; i < nb; i++) { const b = bolts[i]; b.mesh.rotation.z = Math.random() * Math.PI * 2; b.born = now; b.life = 120 + Math.random() * 260; }
     nextBolt = now + (300 + Math.random() * 1200) * (1 - lv * 0.6);
   }
 
@@ -192,6 +230,7 @@ function arrancar() {
   }
 
   let mx = 0, my = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+  const lab = document.getElementById("estado");   // cacheado: sin consultas al DOM en el bucle
   N.paso = function (now, dt, st) {
     const t = now / 1000, lv = st.level || 0, li = st.listen || 0, breath = 0.5 + 0.5 * Math.sin(t * 1.3), boost = 1 + lv * 0.6 + li * 0.35;
     adapt(Math.min(dt, 100));
@@ -212,12 +251,12 @@ function arrancar() {
       ppos[i * 3] = Math.cos(p.a) * p.r; ppos[i * 3 + 1] = Math.sin(p.a) * p.r; ppos[i * 3 + 2] = p.z; }
     pgeo.attributes.position.needsUpdate = true;
     if (now > nextBolt) spawnBolts(now, lv);
-    bolts.forEach((b) => { const k = 1 - (now - b.born) / b.life; b.mesh.visible = k > 0; });
+    for (let i = 0; i < bolts.length; i++) { const b = bolts[i]; b.mesh.visible = now - b.born < b.life; }
     boltMat.opacity = Math.min(1, (0.6 + 0.4 * Math.random()) * (0.7 + lv));
     if (now > nextRead) { readouts(t, lv); nextRead = now + 500; }
+    hudMat.uniforms.uT.value = t; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
     composer.render();
-    const lab = document.getElementById("estado");
     if (lab) { const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
   };
   N.gl = true;

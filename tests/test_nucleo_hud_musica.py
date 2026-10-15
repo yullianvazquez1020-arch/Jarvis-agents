@@ -28,6 +28,14 @@ class NucleoHUD(unittest.TestCase):
         self.assertIn("w >> 1", gl); self.assertIn("function adapt", gl)
         self.assertIn('classList.contains("nucleo-home")', (UI / "cielo.js").read_text("utf-8"))
 
+    def test_hud_procedural_sin_asignar_por_fotograma(self):
+        gl = (UI / "nucleo-gl.js").read_text("utf-8")
+        self.assertIn("hudMat", gl); self.assertIn("fwidth", gl); self.assertIn("uLv", gl)
+        paso = gl[gl.index("N.paso = function"):]
+        for bad in ("new THREE.", "dispose(", ".clone()", "TubeGeometry"):
+            self.assertNotIn(bad, paso)                                # nada se crea ni libera en el bucle
+        self.assertNotIn("rig.remove(", gl); self.assertNotIn("getElementById(\"estado\")", paso)
+
 
 class Musica(unittest.TestCase):
     def test_bucle_original(self):
