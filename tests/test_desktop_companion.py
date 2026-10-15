@@ -421,7 +421,7 @@ class AudioOutput(unittest.TestCase):
         for bad in ("🎉", "**", "https", "ZZZZ", "YYYY"):
             self.assertNotIn(bad, spoken)
         args = (tmp / "args").read_text()
-        self.assertIn("-v Juan", args); self.assertIn("-r 153", args); self.assertNotIn("tienes", args)
+        self.assertIn("-v Juan", args); self.assertIn("-r 144", args); self.assertNotIn("tienes", args)
 
     def test_local_voice_prefers_male_juan_and_caches(self):
         listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nJuan es_MX # Hola\n"})()
@@ -582,9 +582,14 @@ class Displays(CompanionBase):
         self.pair(); self.app.pulse_once()
         ev = self.turn("Jarvis, ¿cómo estás?", "health-0001")
         reply = [e for e in ev if e["type"] == "reply.text"][0]["text"]
-        for word in ("Servidor", "Voz", "Micrófono", "Ventanas"):
+        for word in ("Server", "Voice", "Microphone", "windows"):
             self.assertIn(word, reply)
         self.assertNotIn("$", reply); self.assertEqual(self.jarvis.turn_posts(), [])
+        self.app.cfg["JARVIS_REPLY_LANGUAGE"] = "es"
+        spanish = self.app.local_health_text()
+        for word in ("Servidor", "Voz", "Micrófono", "Ventanas"):
+            self.assertIn(word, spanish)
+        self.assertNotIn("$", spanish)
 
     def test_mic_on_and_discreet_mode_by_voice(self):
         self.turn("apaga el micrófono", "mic-000001"); self.assertFalse(self.app.prefs["mic"])

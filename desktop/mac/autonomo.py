@@ -195,12 +195,8 @@ def confirmar_clic(pointer, front: str, ctx: dict | None) -> str | None:
 
 class AutoPointer(ae.MacPointer):
     def size(self) -> tuple[int, int]:
-        w, h = self.pg.size()
+        _x, _y, w, h = self.target_display()
         return int(w), int(h)
-
-    def position(self) -> tuple[int, int]:
-        p = self.pg.position()
-        return int(p[0]), int(p[1])
 
     def frontmost(self) -> str:
         if sys.platform != "darwin":

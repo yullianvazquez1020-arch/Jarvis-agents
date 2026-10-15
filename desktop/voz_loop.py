@@ -81,7 +81,7 @@ class Speaker:
         if forced and not is_female(forced):
             es = forced
         voice = (es if detect_lang(text) == "es" and es else en or es) or "Daniel"   # inglés primero
-        return ["say", "-v", voice, "-r", str(speech_rate(180)), text]
+        return ["say", "-v", voice, "-r", str(speech_rate()), text]
 
     def speak(self, text: str) -> None:
         self.stop()

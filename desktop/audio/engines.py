@@ -109,7 +109,7 @@ FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica
                  "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
 ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
 EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
-DEFAULT_WPM = 180                         # ~180 ppm: natural y ágil
+DEFAULT_WPM = 170                         # slightly slower, natural conversation
 
 
 def is_female(name):
@@ -295,7 +295,7 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     return "none"
 
 
-DANIEL_WPM = 180                         # Daniel (say en la Mac): misma velocidad, sin lentitud
+DANIEL_WPM = 170                         # calm English, same pace across local engines
 # Voces femeninas conocidas en inglés: nunca se usan como respaldo en en-GB (Jarvis es voz masculina).
 FEMALE_EN = {"samantha", "karen", "kate", "serena", "moira", "tessa", "victoria", "allison", "ava", "susan",
              "fiona", "veena", "zoe", "stephanie", "martha", "flo", "sandy", "shelley", "grandma",
@@ -338,7 +338,7 @@ def build(cfg):
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
-                    cfg.get("VOICE_STT_THREADS", "4")) if stt == "whisper_cpp" else NoSTT())
+                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto")) if stt == "whisper_cpp" else NoSTT())
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":

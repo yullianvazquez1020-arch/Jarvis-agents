@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,93 +8,93 @@
   <link rel="stylesheet" href="/ui/nucleo-home.css">
 </head>
 <body class="nucleo-home">
-  <canvas id="nucleo" aria-label="Núcleo de JARVIS: reactor azul con anillos que late con la voz"></canvas>
-  <div id="estado" class="nucleo-estado">EN LÍNEA</div>
-  <button id="paneles" class="paneles" type="button" aria-pressed="false">Paneles</button>
-  <header class="top" aria-label="Estado">
+  <canvas id="nucleo" aria-label="JARVIS core: blue reactor responding to speech"></canvas>
+  <div id="estado" class="nucleo-estado">ONLINE</div>
+  <button id="paneles" class="paneles" type="button" aria-pressed="false">Panels</button>
+  <header class="top" aria-label="Status">
     <div class="brand"><span id="dot" class="dot" title="Servidor"></span>JARVIS</div>
     <dl class="status">
-      <div><dt>Hora PR</dt><dd id="st-clock">--:--</dd></div>
-      <div><dt>Versión</dt><dd id="st-version">—</dd></div>
-      <div><dt>Datos</dt><dd id="st-storage">—</dd></div>
-      <div><dt>IA</dt><dd id="st-ai">—</dd></div>
-      <div><dt>Cripto</dt><dd id="st-mode">—</dd></div>
+      <div><dt>PR time</dt><dd id="st-clock">--:--</dd></div>
+      <div><dt>Version</dt><dd id="st-version">—</dd></div>
+      <div><dt>Data</dt><dd id="st-storage">—</dd></div>
+      <div><dt>AI</dt><dd id="st-ai">—</dd></div>
+      <div><dt>Crypto</dt><dd id="st-mode">—</dd></div>
       <div><dt>Coinbase</dt><dd id="st-cb">—</dd></div>
-      <div><dt>Trading real</dt><dd id="st-real">—</dd></div>
-      <div><dt>Micrófono</dt><dd id="st-mic">apagado</dd></div>
+      <div><dt>Live trading</dt><dd id="st-real">—</dd></div>
+      <div><dt>Microphone</dt><dd id="st-mic">off</dd></div>
     </dl>
     <div class="chips">
       <span id="chip-role" class="chip">…</span>
-      <span id="chip-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
-      <a class="chip link" href="/nucleo" target="_blank" rel="noopener">Núcleo</a>
-      <a class="chip link" href="/mercado" target="_blank" rel="noopener">Mercado (práctica)</a>
-      <a class="chip link" href="/hud" target="_blank" rel="noopener">Abrir HUD (2.º monitor)</a>
+      <span id="chip-demo" class="chip warn" hidden>DEMO · sample data</span>
+      <a class="chip link" href="/nucleo" target="_blank" rel="noopener">Core</a>
+      <a class="chip link" href="/mercado" target="_blank" rel="noopener">Market (practice)</a>
+      <a class="chip link" href="/hud" target="_blank" rel="noopener">Open HUD (second monitor)</a>
     </div>
   </header>
 
   <main class="layout">
-    <section class="voice" aria-label="Conversación">
-      <div id="state" class="state" role="status" aria-live="polite">Listo</div>
-      <div id="reply" class="reply" aria-live="polite">Pulsa Hablar o escribe abajo.</div>
+    <section class="voice" aria-label="Conversation">
+      <div id="state" class="state" role="status" aria-live="polite">Ready</div>
+      <div id="reply" class="reply" aria-live="polite">Speak or type below.</div>
       <div class="row">
         <span id="reply-meta" class="small"></span>
-        <button id="reveal" type="button" class="ghost" hidden>Mostrar</button>
+        <button id="reveal" type="button" class="ghost" hidden>Show</button>
       </div>
 
-      <label class="label" for="transcript">Lo que entendí (puedes corregirlo)</label>
-      <textarea id="transcript" rows="2" maxlength="1000" placeholder="Habla o escribe aquí…"></textarea>
+      <label class="label" for="transcript">Transcript (you can edit it)</label>
+      <textarea id="transcript" rows="2" maxlength="1000" placeholder="Speak or type here…"></textarea>
       <div class="row">
-        <button id="send" type="button">Enviar <kbd>Enter</kbd></button>
-        <button id="cancel" type="button" class="ghost" disabled>Cancelar</button>
-        <label class="check"><input id="review" type="checkbox"> Revisar antes de enviar</label>
+        <button id="send" type="button">Send <kbd>Enter</kbd></button>
+        <button id="cancel" type="button" class="ghost" disabled>Cancel</button>
+        <label class="check"><input id="review" type="checkbox"> Review before sending</label>
       </div>
       <div id="owner-note" class="note" hidden>
-        Esta ventana solo muestra. <button id="claim" type="button" class="link">Usar esta ventana para voz</button>
+        This window is display-only. <button id="claim" type="button" class="link">Use this window for voice</button>
       </div>
       <div id="processing" class="small"></div>
     </section>
 
-    <section class="work" aria-label="Detalle">
-      <nav class="tabs" aria-label="Paneles">
+    <section class="work" aria-label="Details">
+      <nav class="tabs" aria-label="Panels">
         <button type="button" data-panel="brief">Brief ISLAFIX</button>
-        <button type="button" data-panel="caja">Caja</button>
-        <button type="button" data-panel="agenda">Agenda</button>
-        <button type="button" data-panel="cobros">Cobros</button>
-        <button type="button" data-panel="practica">Práctica</button>
-        <button type="button" data-panel="estado">Estado</button>
+        <button type="button" data-panel="caja">Cash</button>
+        <button type="button" data-panel="agenda">Schedule</button>
+        <button type="button" data-panel="cobros">Receivables</button>
+        <button type="button" data-panel="practica">Practice</button>
+        <button type="button" data-panel="estado">Status</button>
       </nav>
-      <h2 id="panel-title">Detalle</h2>
+      <h2 id="panel-title">Details</h2>
       <div id="panel-badge" class="badge" hidden></div>
       <div id="panel-asof" class="small"></div>
       <ul id="panel-lines" class="lines"></ul>
 
       <div id="pair" class="pair" hidden>
-        <h3>Conectar con tu Jarvis</h3>
-        <p>Este equipo todavía no está emparejado.</p>
-        <button id="pair-start" type="button">Emparejar</button>
+        <h3>Connect to your Jarvis</h3>
+        <p>This computer is not paired yet.</p>
+        <button id="pair-start" type="button">Pair</button>
         <p id="pair-code" class="code" hidden></p>
         <p id="pair-msg" class="small"></p>
       </div>
     </section>
 
-    <aside class="alerts" aria-label="Avisos">
-      <div class="alerts-head">AVISOS
-        <button id="alert-silence" type="button" class="ghost">Silencio</button>
-        <button id="alert-repeat" type="button" class="ghost">Repetir</button>
+    <aside class="alerts" aria-label="Alerts">
+      <div class="alerts-head">ALERTS
+        <button id="alert-silence" type="button" class="ghost">Silence</button>
+        <button id="alert-repeat" type="button" class="ghost">Repeat</button>
       </div>
-      <ol id="alert-list" class="alert-list"><li class="small">Sin avisos.</li></ol>
+      <ol id="alert-list" class="alert-list"><li class="small">No alerts.</li></ol>
     </aside>
   </main>
 
   <footer class="foot">
-    <button id="talk" class="talk" type="button">Hablar <kbd>Espacio</kbd></button>
-    <span id="mic-dot" class="mic" aria-live="polite">● micrófono apagado</span>
-    <button id="mic-off" type="button" class="ghost">Apagar micrófono</button>
-    <button id="stop" type="button" class="ghost">Detener audio <kbd>Esc</kbd></button>
-    <button id="repeat" type="button" class="ghost">Repetir</button>
-    <label class="check"><input id="discreet" type="checkbox"> Modo discreto</label>
-    <label class="check">Velocidad <input id="rate" type="range" min="0.7" max="1.4" step="0.05"></label>
-    <label class="check"><input id="convo" type="checkbox"> Conversación</label>
+    <button id="talk" class="talk" type="button">Talk <kbd>Space</kbd></button>
+    <span id="mic-dot" class="mic" aria-live="polite">● microphone off</span>
+    <button id="mic-off" type="button" class="ghost">Turn microphone off</button>
+    <button id="stop" type="button" class="ghost">Stop audio <kbd>Esc</kbd></button>
+    <button id="repeat" type="button" class="ghost">Repeat</button>
+    <label class="check"><input id="discreet" type="checkbox"> Discreet mode</label>
+    <label class="check">Speed <input id="rate" type="range" min="0.7" max="1.4" step="0.05"></label>
+    <label class="check"><input id="convo" type="checkbox"> Conversation</label>
   </footer>
 
   <script src="/ui/mask.js"></script>
