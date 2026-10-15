@@ -16,7 +16,7 @@ function webglOk() {
   try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
 }
 if (N && old && webglOk() && !/[?&]gl=0\b/.test(location.search)) {
-  try { arrancar(); } catch (e) { N.gl = false; console.warn("núcleo WebGL no disponible, uso 2D", e); }
+  try { arrancar(); } catch (e) { N.gl = false; old.style.display = ""; const failed = document.getElementById("nucleo-gl"); if (failed) failed.remove(); console.warn("núcleo WebGL no disponible, uso 2D", e); }
 }
 
 function arrancar() {
@@ -28,6 +28,8 @@ function arrancar() {
   cv.setAttribute("aria-label", old.getAttribute("aria-label") || "Núcleo de JARVIS");
   cv.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0";
   old.parentNode.insertBefore(cv, old); old.style.display = "none";
+  cv.addEventListener("webglcontextlost", function (e) { e.preventDefault(); N.gl = false; cv.style.display = "none"; old.style.display = ""; });
+  cv.addEventListener("webglcontextrestored", function () { old.style.display = "none"; cv.style.display = "block"; N.gl = true; });
 
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100); cam.position.set(0, 0, 9.5);
@@ -208,7 +210,7 @@ function arrancar() {
 
   // lecturas numéricas alrededor de los anillos (canvas 2D -> textura, se actualizan 2 veces por segundo)
   const reads = [];
-  [[-5.4, 2.2, "PWR"], [5.4, 2.2, "SYNC"], [-5.4, -2.2, "FLUX"], [5.4, -2.2, "CORE °K"]].forEach((r) => {
+  [[-5.4, 2.2, "VISUAL PWR"], [5.4, 2.2, "VISUAL SYNC"], [-5.4, -2.2, "VISUAL FLUX"], [5.4, -2.2, "VISUAL CORE"]].forEach((r) => {
     const c = document.createElement("canvas"); c.width = 256; c.height = 64;
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
     const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));

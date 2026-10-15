@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlencode, quote, urlsplit
 
+import jarvis_amazon_config as amazon_config
+
 KEY='jarvis:growth'
 COMMANDS={'/negocios','/alibaba','/productos','/margen','/seguimientos','/youtube','/videos','/video','/producirvideo','/mejorarvideo','/subiryoutube','/publicaryoutube','/evaluarpractica','/backtest','/amazon','/publicarproducto'}
 _video_lock=asyncio.Lock()
@@ -186,9 +188,11 @@ def prepare_growth_message(kind,id):
     return draft
 
 def growth_status():
+    import jarvis_bus
     fields=lambda names:all(os.getenv(n,'').strip() for n in names)
-    return {'version':core.VERSION,'alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
-      'amazon_credentials_configured':fields(['AMAZON_CLIENT_ID','AMAZON_CLIENT_SECRET','AMAZON_REFRESH_TOKEN','AMAZON_SELLER_ID','AMAZON_MARKETPLACE_ID']),
+    return {'business_registry':jarvis_bus.BUS.tablero(),'version':core.VERSION,'alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
+      'amazon_credentials_configured':amazon_config.status()['configured'],
+      'amazon_configuration':amazon_config.status(),
       'youtube_search_key_configured':bool(os.getenv('YOUTUBE_API_KEY','').strip()),
       'youtube_upload_credentials_configured':fields(['YOUTUBE_CLIENT_ID','YOUTUBE_CLIENT_SECRET','YOUTUBE_REFRESH_TOKEN']),
       'video_renderer':'Original educational animatic MP4, optional configured TTS narration; human review required',
@@ -318,14 +322,14 @@ async def _json_request(method,url,**kw):
     return body
 
 async def _amazon_token():
-    vals={k:os.getenv('AMAZON_'+k.upper(),'').strip() for k in ('client_id','client_secret','refresh_token')}
+    vals={k:amazon_config.value('AMAZON_'+k.upper()) for k in ('client_id','client_secret','refresh_token')}
     if not all(vals.values()):raise ValueError('Falta conexión OAuth de Amazon Seller Central/SP-API')
     r=await _json_request('POST','https://api.amazon.com/auth/o2/token',data={'grant_type':'refresh_token',**vals})
     if not r.get('access_token'):raise ValueError('Amazon no confirmó acceso')
     return r['access_token']
 
 def _amazon_config():
-    seller=os.getenv('AMAZON_SELLER_ID','').strip();market=os.getenv('AMAZON_MARKETPLACE_ID','').strip();region=os.getenv('AMAZON_REGION','na').strip()
+    seller=amazon_config.value('AMAZON_SELLER_ID');market=amazon_config.value('AMAZON_MARKETPLACE_ID');region=amazon_config.value('AMAZON_REGION')
     if not seller or not market:raise ValueError('Faltan AMAZON_SELLER_ID y AMAZON_MARKETPLACE_ID')
     if region not in ('na','eu','fe'):raise ValueError('AMAZON_REGION debe ser na, eu o fe')
     return seller,market,'https://sellingpartnerapi-'+region+'.amazon.com'
@@ -673,6 +677,9 @@ async def growth_command(chat_id,cmd,arg):
         elif cmd=='/amazon':
             if arg.startswith('ficha '):
                 with core._data_lock:value=next((x for x in load()['listings'] if x['id']==int(arg.split()[1])),{'error':'Ficha no encontrada'})
+            elif arg.split(' ',1)[0].lower() in ('inventario','pedidos','precios'):
+                import jarvis_amazon
+                value=await jarvis_amazon.command('/amazon '+arg)
             else:value=await amazon_orders()
         else:
             def sync():

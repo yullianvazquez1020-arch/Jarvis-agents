@@ -24,7 +24,7 @@ class NucleoHUD(unittest.TestCase):
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")
         self.assertNotIn("requestAnimationFrame(", gl)              # el bucle es el de nucleo.js
-        self.assertIn("Math.min(1.5", n); self.assertIn("DPR_MAX = 2", gl); self.assertIn("p95 > 18", gl)
+        self.assertIn("Math.min(2", n); self.assertIn("DPR_MAX = 2", gl); self.assertIn("p95 > 18", gl)
         self.assertIn("bloomRes", gl); self.assertIn("ACESFilmicToneMapping", gl); self.assertIn("coc", gl); self.assertIn("function adapt", gl)
         self.assertIn('classList.contains("nucleo-home")', (UI / "cielo.js").read_text("utf-8"))
 
@@ -42,7 +42,7 @@ class Musica(unittest.TestCase):
         with wave.open(str(UI / "audio/ambiente.wav")) as w:
             self.assertAlmostEqual(w.getnframes() / w.getframerate(), 40.0, places=1); self.assertEqual(w.getnchannels(), 2)
         js = (UI / "startup.js").read_text("utf-8")
-        self.assertIn("/api/ambient-music", js); self.assertIn("src.loop=true", js); self.assertIn("speaking?.025:.12", js)
+        self.assertNotIn("/api/ambient-music", js); self.assertNotIn("AudioContext", js)
         self.assertIn('"/api/ambient-music"', (ROOT / "desktop/app.py").read_text("utf-8"))
 
 

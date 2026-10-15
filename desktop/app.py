@@ -525,6 +525,12 @@ class Companion:
                   "demo": "modo DEMO, sin conectar", "unknown": "todavía no lo he comprobado"}.get(h["state"], h["state"])
         with self.lock:
             wins = sum(1 for t in self.windows.values() if time.time() - t < WINDOW_STALE)
+        if str(self.cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en"):
+            status = {"ok": "online", "slow": "responding slowly", "down": "offline", "error": "reporting an error",
+                      "unpaired": "not paired", "demo": "demo mode", "unknown": "not checked yet"}.get(h["state"], h["state"])
+            return (f"Server {status}. Speech recognition {'ready' if not self.stt.problem() else 'not configured'}. "
+                    f"Voice {'ready' if not self.tts.problem() else 'not configured'}. "
+                    f"Microphone {'on' if self.prefs['mic'] else 'off'}. {wins} windows open.")
         voice = (f"reconocimiento {'listo' if not self.stt.problem() else 'no configurado'}, "
                  f"voz {'lista' if not self.tts.problem() else 'no configurada'}")
         return (f"Servidor: {server}. Voz: {voice}. Micrófono: {'encendido' if self.prefs['mic'] else 'apagado'}. "
@@ -770,7 +776,7 @@ class Companion:
                 break
             aid = uuid.uuid4().hex
             with self.lock:
-                if (turn_id and self.turns.get(turn_id, {}).get("cancelled")) or gen0 != getattr(self, "_voz_gen", 0) and i:
+                if (turn_id and self.turns.get(turn_id, {}).get("cancelled")) or gen0 != getattr(self, "_voz_gen", 0):
                     return first                             # cancelled while synthesizing: never plays
                 self.audio[aid] = (audio, ctype)
                 for old in list(self.audio)[:-10]:
@@ -916,6 +922,18 @@ class Companion:
                          "no había ninguna acción que deshacer.")}
 
     def _finish(self, tid, state, reply=None, sensitive=False, events=(), llm=False, panel_data=None):
+        if str(self.cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en"):
+            reply = {
+                "Apagué el micrófono.": "Microphone off.",
+                "Micrófono encendido. Pulsa Hablar o la barra espaciadora.": "Microphone on. Ready to listen.",
+                "Modo discreto activado: no leeré montos ni códigos.": "Discreet mode on. Amounts and codes stay on screen.",
+                "Modo discreto desactivado.": "Discreet mode off.",
+                "Todavía no he dicho nada.": "There is no previous reply yet.",
+                "Listo, hablaré más despacio.": "Of course. I will speak a little more slowly.",
+                "Listo, hablaré más rápido.": "Of course. I will speak a little faster.",
+                "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.":
+                    "Mouse stopped. Remove the STOP file on your Mac when you want to resume.",
+            }.get(reply, reply)
         with self.lock:
             t = self.turns[tid]; t["state"] = state; cancelled = t["cancelled"]
             if reply is not None:

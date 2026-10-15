@@ -27,7 +27,7 @@ class InglesPrimero(unittest.TestCase):
         self.assertEqual(engines.speech_rate(), 160)
         with patch.dict(os.environ, {"JARVIS_VOZ_RATE": "175"}):
             self.assertEqual(engines.speech_rate(), 175)
-        self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.1)
+        self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.18)
 
     def test_no_spanish_startup_greeting(self):
         self.assertNotIn("_announce_focus", SRC)
@@ -77,7 +77,7 @@ class Fondo(unittest.TestCase):
         for name in ("ambiente.wav", "encendido.wav"):
             self.assertTrue((f.parent / name).is_file())               # música existente intacta
         js = (Path(__file__).parents[1] / "desktop" / "ui" / "startup.js").read_text()
-        self.assertIn("/api/fondo-music", js); self.assertIn("fondoLevel()", js)
+        self.assertNotIn("/api/fondo-music", js); self.assertNotIn("AudioContext", js)
         self.assertIn('"JARVIS_FONDO"', SRC)
 
 

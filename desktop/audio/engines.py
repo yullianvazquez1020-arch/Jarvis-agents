@@ -251,12 +251,12 @@ class MacSay:
 class Piper:
     name = "piper"
 
-    def __init__(self, binary, model, length_scale=1.1):
+    def __init__(self, binary, model, length_scale=1.18):
         self.binary = binary or "piper"; self.model = model or ""
         try:                                              # 1.1 = pausado y claro
             self.length_scale = max(0.5, min(float(length_scale), 2.5))
         except (TypeError, ValueError):
-            self.length_scale = 1.1
+            self.length_scale = 1.18
 
     def problem(self):
         if not (shutil.which(self.binary) or os.access(self.binary, os.X_OK)):
@@ -347,7 +347,7 @@ def build(cfg):
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
-                    cfg.get("VOICE_STT_THREADS", "4")) if stt == "whisper_cpp" else NoSTT())
+                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto")) if stt == "whisper_cpp" else NoSTT())
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":

@@ -52,7 +52,7 @@ class Arranque(unittest.TestCase):
         with wave.open(str(ROOT / "desktop/ui/audio/encendido.wav")) as w:
             self.assertAlmostEqual(w.getnframes() / w.getframerate(), 6.0, places=1)
         js = (ROOT / "desktop/ui/arranque.js").read_text("utf-8")
-        self.assertIn("st.sound", js); self.assertIn("/api/greet", js)
+        self.assertIn("settings.sound", js); self.assertIn("/api/greet", js)
 
 
 class Mouse(unittest.TestCase):
