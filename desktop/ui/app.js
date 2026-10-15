@@ -161,25 +161,36 @@
   // ---------- audio out ----------
   // Una sola voz a la vez: frases del mismo turno en cola; un turno nuevo corta el anterior.
   var playQ = [], playTurn = null;
+  function attemptPlayback(audio) {
+    audio.play().catch(function (error) {
+      if (audio !== audioEl) return; // an old promise cannot stop a newer reply
+      if (error && error.name === "NotAllowedError") {
+        setState("ready", "Touch the page once to allow voice playback");
+      } else {
+        stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation();
+      }
+    });
+  }
   function play(id, keepQ) {
     stopMic(true); clearTimeout(resumeTimer);
     if (!keepQ) playQ = [];
     stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
-    audioEl.onended = function () { if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
-    audioEl.onerror = function () { stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
+    var audio = audioEl;
+    audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
+    audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
     setState("speaking");
     voice.attach(audioEl, id);
-    audioEl.addEventListener("playing",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(true);});
-    audioEl.addEventListener("ended",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(false);});
-    audioEl.play().catch(function () { setState("listo", "Touch the page once to allow audio"); });
+    audioEl.addEventListener("playing",function(){if(audio === audioEl && window.JarvisAmbience)window.JarvisAmbience.duck(true);});
+    attemptPlayback(audio);
   }
   addEventListener("pointerdown", function () {
-    if (audioEl && audioEl.paused && audioEl.currentTime===0) audioEl.play().catch(function(){});
+    if (audioEl && audioEl.paused && audioEl.currentTime===0) attemptPlayback(audioEl);
+    if (rec && rec.ctx.state === "suspended") resumeCapture(rec);
   });
   function stopAudio(keepQ) {
     if (!keepQ) playQ = [];
     if(window.JarvisAmbience)window.JarvisAmbience.duck(false);
-    if (audioEl) { voice.detach(audioEl); audioEl.pause(); audioEl.src = ""; audioEl = null; }
+    if (audioEl) { var old = audioEl; audioEl = null; old.onended = null; old.onerror = null; voice.detach(old); old.pause(); old.src = ""; }
   }
 
   // ---------- boca del avatar: envolvente y reloj del audio que suena aquí (ventana /avatar) ----------
@@ -257,6 +268,19 @@
   window.JarvisVoiceSync = { log: voice.log };
 
   // ---------- microphone ----------
+  function captureState(capture) {
+    if (rec !== capture) return;
+    var ready = capture.ctx.state === "running";
+    micUi(ready);
+    setState(ready ? "listening" : "ready", ready ? "" : "Microphone audio paused; touch the page to resume");
+  }
+  function resumeCapture(capture) {
+    capture.ctx.resume().then(function () { captureState(capture); }).catch(function () {
+      if (rec !== capture) return;
+      stopMic(true); conversationPaused = true;
+      setState("error", "Microphone audio could not start. Press Talk to retry.");
+    });
+  }
   var ackCtx = null;
   function ack() {                                  // "tic" inmediato al terminar de hablar (<10 ms tras el VAD), antes de STT/IA
     try {
@@ -275,17 +299,24 @@
     if(window.JarvisStopIntro)window.JarvisStopIntro();
     stopAudio();                                   // never listen while Jarvis is speaking (no echo loop)
     if (!state.prefs.mic) api("POST", "/api/prefs", { mic: true });
-    micPending = true; var ticket = ++micGeneration;
+    micPending = true; var ticket = ++micGeneration, openingStream = null, openingContext = null;
     navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
       .then(function (stream) {
         if (ticket !== micGeneration || !isOwner) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
-        micPending = false;
-        var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
+        micPending = false; openingStream = stream;
+        var Ctx = window.AudioContext || window.webkitAudioContext, ctx = openingContext = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
         var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: 350, maxMs: 30000 });
-        rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
+        var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
+        ctx.onstatechange = function () { captureState(capture); };
+        stream.getAudioTracks().forEach(function (track) {
+          track.onended = function () {
+            if (rec !== capture) return;
+            stopMic(true); setState("ready", "Microphone disconnected; reconnecting"); resumeConversation();
+          };
+        });
         node.onaudioprocess = function (ev) {
-          if (!rec) return;
+          if (rec !== capture) return;
           var data = new Float32Array(ev.inputBuffer.getChannelData(0));
           var r = det.push(data, data.length / rec.rate * 1000);
           phrase.push(data, det.heard);
@@ -293,17 +324,27 @@
           else if (r === "no-speech") { stopMic(true); setState("ready", "waiting for speech"); resumeConversation(); }
         };
         src.connect(node); node.connect(ctx.destination);
-        micUi(true); $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
-        setState("listening");
+        $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
+        captureState(capture);
+        if (ctx.state === "suspended") resumeCapture(capture);
       })
-      .catch(function () { if (ticket !== micGeneration) return; micPending = false; conversationPaused = true; setState("error", "Microphone unavailable. Check permission, then press Talk."); });
+      .catch(function () {
+        if (ticket !== micGeneration) return;
+        if (rec && rec.stream === openingStream) stopMic(true);
+        else {
+          if (openingStream) openingStream.getTracks().forEach(function (t) { t.stop(); });
+          if (openingContext) openingContext.close();
+        }
+        micPending = false; conversationPaused = true;
+        setState("error", "Microphone unavailable. Check permission, then press Talk.");
+      });
   }
   function stopMic(discard) {
     micGeneration++; micPending = false;
     var r = rec; if (!r) return; rec = null;
     try { r.node.disconnect(); r.src.disconnect(); } catch (err) { /* already closed */ }
     r.stream.getTracks().forEach(function (t) { t.stop(); });   // the indicator goes off immediately
-    r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
+    r.ctx.onstatechange = null; r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
     if (discard) { setState("listo"); return; }
     var n = 0; r.chunks.forEach(function (c) { n += c.length; });
     var all = new Float32Array(n), o = 0; r.chunks.forEach(function (c) { all.set(c, o); o += c.length; });
