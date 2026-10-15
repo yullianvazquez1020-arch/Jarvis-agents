@@ -1,5 +1,10 @@
 """Shared business context for one conversational assistant, without extra model calls."""
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+
+_READERS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="business-read")
 
 SPECIALTIES = {
     'coordinator': 'Connect goals, decisions, pending work and the previous conversation.',
@@ -48,11 +53,11 @@ def business_context(core, specialty='coordinator'):
               'specialties': SPECIALTIES, 'sources': {}, 'unavailable': [],
               'live_verification': False}
 
+    pending = []
+
     def read(name, reader):
-        try:
-            result['sources'][name] = reader()
-        except Exception:
-            result['unavailable'].append(name)
+        # Carry the read-only ContextVar into each worker; never submit writes.
+        pending.append((name, _READERS.submit(copy_context().run, reader)))
 
     def facts():
         rows = core.kv_get('jarvis:facts', [])
@@ -86,6 +91,12 @@ def business_context(core, specialty='coordinator'):
         read('jobs', core.jobs_summary)
     if specialty == 'finance':
         read('books', core.finances_summary)
+    # Collect in the original order so output and size trimming stay deterministic.
+    for name, future in pending:
+        try:
+            result['sources'][name] = future.result()
+        except Exception:
+            result['unavailable'].append(name)
     result = core._redact_any(result)
     # The conversation loop bounds tool output to 15,000 characters. Keep valid
     # JSON below that boundary, even with a large legacy note index or plan.
@@ -98,7 +109,12 @@ def business_context(core, specialty='coordinator'):
 
 
 def install(core):
-    core.HANDLERS['business_context'] = lambda specialty='coordinator': business_context(core, specialty)
+    async def context(specialty='coordinator'):
+        # Generic synchronous tools hold the global lock. Do not hold that lock
+        # while waiting for independent readers that acquire their own locks.
+        return await asyncio.to_thread(business_context, core, specialty)
+
+    core.ASYNC_TOOLS['business_context'] = context
     core.TOOLS.append(core._t(
         'business_context',
         'Read shared business facts, plans, note index and saved research. No live verification or actions.',
