@@ -10,7 +10,7 @@
   let context=null, gain=null, nodes=[], enabled=false, speaking=false;
   let musicButton=null;
   function volume() {
-    if(gain && context) gain.gain.setTargetAtTime(speaking?.002:.014,context.currentTime,.18);
+    if(gain && context) gain.gain.setTargetAtTime(speaking?.025:.12,context.currentTime,.18);
   }
   function stopMusic() {
     nodes.forEach(node=>{try { node.stop(); node.disconnect(); } catch (_) {}}); nodes=[];
@@ -21,10 +21,17 @@
     const Audio=window.AudioContext||window.webkitAudioContext;
     if(!Audio){musicButton.textContent='Música no disponible';return;}
     if(!context){
-      context=new Audio();gain=context.createGain();gain.gain.value=.014;gain.connect(context.destination);
-      // Original quiet ambient chord, synthesized locally with two oscillators.
-      [130.81,196].forEach((frequency,i)=>{const oscillator=context.createOscillator();oscillator.type='sine';oscillator.frequency.value=frequency;
-        oscillator.detune.value=i?3:-3;oscillator.connect(gain);oscillator.start();nodes.push(oscillator);});
+      context=new Audio();gain=context.createGain();gain.gain.value=.12;gain.connect(context.destination);
+      // Tema original de Jarvis (scripts/gen_encendido.py): bucle de 40 s, bajo la voz.
+      try {
+        const buf=await (await fetch('/api/ambient-music',{credentials:'same-origin'})).arrayBuffer();
+        const audio=await new Promise((ok,bad)=>context.decodeAudioData(buf,ok,bad));
+        if(!context)return;
+        const src=context.createBufferSource();src.buffer=audio;src.loop=true;src.connect(gain);src.start();nodes.push(src);
+      } catch (_) {
+        [130.81,196].forEach((frequency,i)=>{const oscillator=context.createOscillator();oscillator.type='sine';oscillator.frequency.value=frequency;
+          oscillator.detune.value=i?3:-3;oscillator.connect(gain);oscillator.start();nodes.push(oscillator);});
+      }
       volume();
     }
     try { await context.resume(); } catch (_) {}

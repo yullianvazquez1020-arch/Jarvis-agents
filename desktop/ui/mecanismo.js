@@ -128,7 +128,8 @@
     if (!list.length) return;
     var last = 0;
     function loop(time) {
-      if (!document.hidden && time - last > 50) {
+      var hidden = document.body.classList.contains("nucleo-home") && !document.body.classList.contains("ver-paneles");
+      if (!document.hidden && !hidden && time - last > 50) {
         last = time;
         list.forEach(function (cv) {
           var c = cv.getContext("2d"); c.clearRect(0, 0, 56, 56); draw(c, 28, 28, 26, reduce ? 0 : time / 1000, false);

@@ -36,9 +36,9 @@ async function setup({hands=false,owner=true,hidden=false,audio=true,camera=true
   t=await setup();assert.equal(t.counts().oscillators,2);
   assert.match(t.elements.find(e=>e.type==='button').textContent,/permiso del navegador/);
   t.enableAudio();t.events.pointerdown();await t.flush();assert.equal(t.counts().oscillators,2,'resume reuses two oscillators');
-  t.window.JarvisAmbience.duck(true);assert.equal(t.gains.at(-1),.002);
-  t.window.JarvisAmbience.duck(false);assert.equal(t.gains.at(-1),.014);
+  t.window.JarvisAmbience.duck(true);assert.equal(t.gains.at(-1),.025);
+  t.window.JarvisAmbience.duck(false);assert.equal(t.gains.at(-1),.12);
   t.events.pagehide();assert.equal(t.counts().stops,2);assert.equal(t.counts().closed,1);
-  assert.deepEqual(t.requests,['/api/state']);
+  assert.deepEqual(t.requests,['/api/state','/api/ambient-music']);   // solo el tema local del propio panel
   console.log('PASS: camera startup opt-in, hidden-page guard, no audio in follower window, browser permission, bounded local music, voice ducking and cleanup.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

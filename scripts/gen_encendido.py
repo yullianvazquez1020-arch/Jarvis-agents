@@ -1,94 +1,137 @@
-"""Genera desktop/ui/audio/encendido.wav: encendido de traje ORIGINAL (~5 s), solo síntesis numpy, sin muestras
-ni melodías de películas. Servos mecánicos, carga de turbina/repulsor ascendente, golpe de metales cálido,
-colchón cinematográfico, impacto grave y pitidos de HUD. Estéreo 44.1 kHz."""
+"""Genera la música ORIGINAL de Jarvis, solo síntesis numpy (sin muestras ni melodías de películas):
+
+* desktop/ui/audio/ambiente.wav  — 40 s en bucle perfecto (96 ppm, 16 compases): pulso de sub-bajo,
+  colchones analógicos cálidos, arpegio brillante, ritmo electrónico suave y crecida cinematográfica.
+  Suena bajo la voz y se atenúa mientras Jarvis habla (startup.js).
+* desktop/ui/audio/encendido.wav — ~6 s: crecida + impacto + acorde, la apertura del mismo tema.
+
+Progresión y notas propias (re menor: Dm9 – B♭maj7 – Gm9 – A7sus4); no reproduce ningún tema existente."""
 import pathlib, wave
 import numpy as np
 
-SR = 44100; DUR = 5.0; N = int(SR * DUR)
+SR = 22050
+BPM = 96; BEAT = 60 / BPM; BARS = 16; LOOP = BARS * 4 * BEAT        # 40.0 s
 rng = np.random.default_rng(1020)
-T = np.arange(N) / SR
 
 
-def seg(a, b): return (T >= a) & (T < b)
+def hz(m): return 440.0 * 2 ** ((m - 69) / 12)
 
 
-def env(a, att, dec, b):
-    e = np.zeros(N); m = seg(a, b); x = T[m] - a
-    e[m] = np.minimum(1, x / att) * np.exp(-np.maximum(0, x - att) / dec); return e
+CHORDS = [  # (bajo, notas del colchón, notas del arpegio) — MIDI
+    (38, (50, 53, 57, 64), (62, 65, 69, 72, 76, 72, 69, 65)),          # Dm9
+    (34, (50, 53, 57, 58), (58, 62, 65, 69, 74, 69, 65, 62)),          # B♭maj7
+    (31, (50, 53, 55, 57), (55, 58, 62, 65, 69, 65, 62, 58)),          # Gm9
+    (33, (50, 52, 55, 57), (57, 62, 64, 67, 69, 67, 64, 62)),          # A7sus4
+]
 
 
-def lowpass(x, k):
-    return np.convolve(x, np.ones(k) / k, mode="same")
+def lp_fast(x, a):
+    k = max(1, int(SR / (a * 2.5))); return np.convolve(x, np.ones(k) / k, mode="same")
 
 
-def servo(a, d, f0, f1):            # motor: tono con armónicos + chirrido de engranes modulado
-    m = seg(a, a + d); x = (T - a).clip(0, d)
-    f = f0 + (f1 - f0) * np.sin(np.pi * x / d / 2)
-    ph = 2 * np.pi * np.cumsum(f * m) / SR
-    tone = np.sin(ph) * 0.5 + np.sin(2 * ph) * 0.25 + np.sign(np.sin(3 * ph)) * 0.08
-    grind = lowpass(rng.standard_normal(N), 6) * (0.5 + 0.5 * np.sin(2 * np.pi * 38 * T))
-    shape = np.where(m, np.sin(np.pi * x / d) ** 0.6, 0)
-    return (tone + 0.35 * grind) * shape
+def sweep(x, k, lo, hi):            # filtro que se abre: mezcla de dos pasabajos
+    return lp_fast(x, lo) * (1 - k) + lp_fast(x, hi) * k
 
 
-def turbine():                      # carga del repulsor: barrido ascendente con batido y aire filtrado
-    m = seg(0.9, 3.35); x = (T - 0.9).clip(0, 2.45) / 2.45
-    f = 90 * 2 ** (x ** 1.6 * 4.3)
-    ph = 2 * np.pi * np.cumsum(f * m) / SR
-    s = np.sin(ph) + 0.5 * np.sin(ph * 1.5 + 0.3) + 0.3 * np.sin(ph * 2.01)
-    air = lowpass(rng.standard_normal(N), 3) * x ** 2
-    out = (0.6 * s + 0.3 * air) * x ** 1.8 * m
-    tail = seg(3.35, 3.45); out[tail] *= np.linspace(1, 0, tail.sum())
-    return out
+def reverb_circ(x, secs=2.8, seed=7):
+    """Reverb por convolución circular (FFT) con respuesta de ruido que decae: la cola envuelve al inicio,
+    así el bucle no tiene costura."""
+    n = len(x); r = np.random.default_rng(seed); k = int(secs * SR); tt = np.arange(k) / SR
+    ir = r.standard_normal(k) * np.exp(-tt * 6.9 / secs); ir = lp_fast(ir, 5000); ir[:int(0.012 * SR)] = 0
+    h = np.zeros(n); h[:k] = ir / np.sqrt((ir ** 2).sum())
+    return np.real(np.fft.ifft(np.fft.fft(x) * np.fft.fft(h)))
 
 
-def brass(a, root, d):              # metales cálidos: sierra filtrada con ataque suave, quinta + octava
-    e = env(a, 0.06, d, a + d * 4); out = np.zeros(N)
-    for mult, g in ((1, 1), (1.5, 0.7), (2, 0.55), (3, 0.2)):
-        for det in (-0.004, 0.0, 0.004):
-            out += g * (2 * ((root * mult * (1 + det) * T) % 1) - 1)
-    return lowpass(out, 14) * e
+def saw(f, t, det=(-0.006, 0.0, 0.0055)):
+    return sum(2 * ((f * (1 + d) * t + i * 0.31) % 1) - 1 for i, d in enumerate(det)) / len(det)
 
 
-def pad(a):                          # colchón cinematográfico: triangulares desafinadas, entrada lenta
-    e = np.clip((T - a) / 1.2, 0, 1) * np.where(T > 4.4, np.clip((DUR - T) / 0.6, 0, 1), 1)
-    out = np.zeros(N)
-    for f in (73.42, 110.0, 146.83, 220.0, 277.18):       # re, la, re, la, do# (acorde mayor abierto)
-        for det in (-0.003, 0.003):
-            out += 2 * np.abs(2 * ((f * (1 + det) * T) % 1) - 1) - 1
-    return out * e * (T > a)
-
-
-def impact(a):                       # impacto grave: caída de 70 a 32 Hz + ruido de choque
-    m = T >= a; x = (T - a).clip(0)
-    boom = np.sin(2 * np.pi * np.cumsum((32 + 38 * np.exp(-x * 9)) * m) / SR) * np.exp(-x * 2.6)
-    crack = lowpass(rng.standard_normal(N), 4) * np.exp(-x * 30)
-    return (boom + 0.5 * crack) * m
-
-
-def bleeps():
-    out = np.zeros(N)
-    for a, f in ((0.15, 1760), (0.32, 2349), (0.5, 1975), (2.2, 2637), (2.32, 2637), (4.05, 3136), (4.2, 2349)):
-        e = env(a, 0.004, 0.035, a + 0.09)
-        out += np.sin(2 * np.pi * f * T) * e
-    return out
-
-
-def build():
-    L = R = 0
-    s1, s2, s3 = servo(0.05, 0.55, 180, 420), servo(0.45, 0.5, 240, 520), servo(0.95, 0.7, 150, 380)
-    tur, br, pd, im, bl = turbine(), brass(3.35, 73.42, 0.35) + 0.6 * brass(3.35, 146.83, 0.3), pad(2.4), impact(3.35), bleeps()
-    L = 0.45 * s1 + 0.2 * s2 + 0.35 * s3 + 0.5 * tur + 0.55 * br + 0.18 * pd + 0.9 * im + 0.12 * bl
-    R = 0.2 * s1 + 0.45 * s2 + 0.35 * s3 + 0.5 * tur + 0.55 * br + 0.18 * pd + 0.9 * im + 0.12 * np.roll(bl, 400)
+def ambiente():
+    n = int(LOOP * SR); t = np.arange(n) / SR; L = np.zeros(n); R = np.zeros(n)
+    bar = 4 * BEAT
+    for b in range(BARS):
+        bass, pad, arp = CHORDS[b % 4]
+        a0 = int(b * bar * SR); a1 = int((b + 1) * bar * SR); tt = t[a0:a1] - b * bar
+        # colchón cálido: sierras desafinadas filtradas, entrada/salida suave por compás (sin clics)
+        e = np.minimum(1, tt / 0.6) * np.minimum(1, (bar - tt) / 0.6) * 0.5 + 0.5
+        p = sum(saw(hz(m), tt) for m in pad) / len(pad)
+        p = lp_fast(p, 900 + 500 * np.sin(np.pi * b / BARS))
+        L[a0:a1] += 0.22 * p * e; R[a0:a1] += 0.22 * np.roll(p, 37) * e
+        # pulso de sub-bajo en corcheas con "bombeo"
+        for k in range(8):
+            s = int((b * bar + k * BEAT / 2) * SR); d = int(BEAT / 2 * SR); x = np.arange(d) / SR
+            env = np.exp(-x * 7) * np.minimum(1, x / 0.004)
+            v = np.sin(2 * np.pi * hz(bass) * x) * env * (1.0 if k % 2 == 0 else 0.6)
+            L[s:s + d] += 0.35 * v; R[s:s + d] += 0.35 * v
+        # arpegio brillante en semicorcheas (FM suave), paneo alterno
+        for k in range(16):
+            s = int((b * bar + k * BEAT / 4) * SR); d = int(BEAT * 0.9 * SR); x = np.arange(d) / SR
+            f = hz(arp[k % 8] + 12)
+            v = np.sin(2 * np.pi * f * x + 1.2 * np.exp(-x * 10) * np.sin(2 * np.pi * f * 2 * x)) * np.exp(-x * 9)
+            gain = 0.05 + 0.04 * (b >= 8); pan = 0.5 + 0.35 * np.sin(k * 0.9)
+            e2 = min(d, n - s); L[s:s + e2] += gain * (1 - pan) * v[:e2]; R[s:s + e2] += gain * pan * v[:e2]
+        # ritmo electrónico sutil: bombo suave en 1 y 3 (desde el compás 4), hats filtrados
+        for k in range(4):
+            s = int((b * bar + k * BEAT) * SR); d = int(0.35 * SR); x = np.arange(d) / SR
+            if b >= 4 and k in (0, 2):
+                kick = np.sin(2 * np.pi * np.cumsum(45 + 90 * np.exp(-x * 30)) / SR) * np.exp(-x * 9)
+                L[s:s + d] += 0.3 * kick; R[s:s + d] += 0.3 * kick
+            if b >= 2:
+                for h in (0.5,) if b < 8 else (0.25, 0.5, 0.75):
+                    hs = s + int(h * BEAT * SR); hd = int(0.05 * SR)
+                    hn = np.diff(rng.standard_normal(hd + 1)) * np.exp(-np.arange(hd) / SR * 80) * 0.02
+                    L[hs:hs + hd] += hn; R[hs:hs + hd] += hn * 0.8
+    # crecida cinematográfica: ruido y tono ascendente en los 2 últimos compases, vuelve al inicio del bucle
+    s = int((BARS - 2) * bar * SR); x = t[s:] - t[s]; k = x / x[-1]
+    sw = sweep(rng.standard_normal(len(x)), k, 400, 3400) * k ** 2 * 0.12
+    sw += np.sin(2 * np.pi * np.cumsum(110 * 2 ** (k * 2)) / SR) * k ** 3 * 0.06
+    L[s:] += sw; R[s:] += sw
+    # capa rock-electrónica áspera: quinta de potencia saturada en negras, muy filtrada, desde el compás 8
+    grit = np.zeros(n)
+    for b in range(8, BARS):
+        root = CHORDS[b % 4][0] + 12
+        for k in range(4):
+            s0 = int((b * bar + k * BEAT) * SR); d = int(BEAT * 0.95 * SR); x = np.arange(d) / SR
+            v = saw(hz(root), x) + 0.7 * saw(hz(root + 7), x)
+            grit[s0:s0 + d] += np.tanh(v * 3.0) * np.exp(-x * 3.5)
+    grit = lp_fast(grit, 700) * 0.09
+    L += grit; R += np.roll(grit, 90)
+    # reverb estéreo (dos semillas = ancho real) para colchones/arpegio
+    L += 0.32 * reverb_circ(L, seed=7); R += 0.32 * reverb_circ(R, seed=11)
+    # eco estéreo (brillo) envuelto al principio: bucle sin costuras
+    for src, dst, dly in ((L, R, 3 * BEAT / 4), (R, L, BEAT / 2)):
+        dd = int(dly * SR); dst += 0.28 * np.roll(src, dd)
     st = np.stack([L, R], 1)
-    st = np.tanh(st / np.max(np.abs(st)) * 1.6)            # pegamento suave tipo compresor
-    st[-int(SR * 0.15):] *= np.linspace(1, 0, int(SR * 0.15))[:, None]
-    st /= np.max(np.abs(st)) * 1.1
-    return (st * 32767).astype(np.int16)
+    st = st - st.mean(0)                                        # sin corriente continua
+    st = np.tanh(st / np.percentile(np.abs(st), 99.7) * 0.9)   # limitador suave (sin recorte duro)
+    f1, f2 = int(0.008 * SR), int(0.04 * SR)             # unión del bucle sin clic
+    st[:f1] *= np.linspace(0, 1, f1)[:, None]; st[-f2:] *= np.linspace(1, 0, f2)[:, None]
+    return (st / np.max(np.abs(st)) * 0.89 * 32767).astype(np.int16)   # pico −1 dBFS
+
+
+def encendido(loop):
+    d = int(6.0 * SR); x = np.arange(d) / SR; k = np.minimum(1, x / 3.2)
+    riser = sweep(rng.standard_normal(d), k, 300, 4300) * k ** 2 * (x < 3.3) * 0.5
+    riser += np.sin(2 * np.pi * np.cumsum(55 * 2 ** (k * 3)) / SR) * k ** 2 * (x < 3.3) * 0.3
+    m = x >= 3.3; y = (x - 3.3).clip(0)
+    hit = np.sin(2 * np.pi * np.cumsum((36 + 60 * np.exp(-y * 12)) * m) / SR) * np.exp(-y * 1.6) * m
+    chord = sum(saw(hz(mm), x) for mm in (38, 50, 57, 62, 65, 69)) / 6 * np.exp(-y * 0.7) * m
+    mono = riser + 0.9 * hit + 0.5 * lp_fast(chord, 1500)
+    st = np.stack([mono, np.roll(mono, 60)], 1)
+    head = loop[: d].astype(float) / 32767 * np.clip((x - 3.3) / 2.0, 0, 1)[:, None] * 0.5
+    st = np.tanh(st / np.max(np.abs(st)) * 1.3) + head
+    st[-int(0.3 * SR):] *= np.linspace(1, 0, int(0.3 * SR))[:, None]
+    return (st / np.max(np.abs(st)) * 0.9 * 32767).astype(np.int16)
+
+
+def write(path, data):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes(data.tobytes())
+    print(path)
 
 
 if __name__ == "__main__":
-    dest = pathlib.Path(__file__).resolve().parents[1] / "desktop/ui/audio/encendido.wav"
-    with wave.open(str(dest), "wb") as w:
-        w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes(build().tobytes())
-    print(dest)
+    out = pathlib.Path(__file__).resolve().parents[1] / "desktop/ui/audio"
+    amb = ambiente()
+    write(out / "ambiente.wav", amb)
+    write(out / "encendido.wav", encendido(amb))

@@ -15,7 +15,9 @@
     }
     new BroadcastChannel("jarvis-estado").onmessage = function (ev) { st.listening = !!(ev.data && ev.data.escuchando); };
   } catch (e) {}
-  window.JarvisNucleo = { escuchar: function (on) { st.listening = !!on; }, nivel: function (v) { st.manual = v; } };
+  window.JarvisNucleo = { escuchar: function (on) { st.listening = !!on; }, nivel: function (v) { st.manual = v; }, st: st,
+    // nucleo-gl.js (WebGL, three.js) toma el dibujo; este archivo sigue calculando el pulso de la voz y es el respaldo 2D.
+    gl: false, paso: null };
   function voiceTarget(now) {
     if (st.manual != null) return st.manual;
     if (st.demo) { var t = now / 1000, ph = t % 6; st.listening = ph < 1.5;
@@ -24,7 +26,8 @@
     var pos = c.t + (Date.now() - c.at) / 1000, i = Math.floor(pos * e.fps);
     return i >= 0 && i < e.values.length ? e.values[i] : 0;
   }
-  function fit() { var d = window.devicePixelRatio || 1; cv.width = innerWidth * d; cv.height = innerHeight * d; g.setTransform(d, 0, 0, d, 0, 0); }
+  function fit() { var d = Math.min(1.5, window.devicePixelRatio || 1);   // tope 1.5: la ultrawide 3840×1080 no se ahoga
+    cv.width = innerWidth * d; cv.height = innerHeight * d; g.setTransform(d, 0, 0, d, 0, 0); }
   addEventListener("resize", fit); fit();
   var RINGS = [ // radio, grosor, segmentos, hueco, velocidad (rad/s, signo = sentido), alfa
     [0.95, 1.5, 64, 0.35, 0.05, 0.35], [0.86, 6, 24, 0.25, -0.12, 0.55], [0.76, 2, 120, 0.5, 0.2, 0.45],
@@ -46,6 +49,8 @@
     var dt = now - last; last = now;
     var lv = follower.step(Math.min(1, voiceTarget(now)), dt); st.level = lv;
     st.listen += ((st.listening ? 1 : 0) - st.listen) * Math.min(1, dt / 250);
+    if (window.JarvisNucleo.gl) { if (window.JarvisNucleo.paso) window.JarvisNucleo.paso(now, dt, st); return void requestAnimationFrame(frame); }   // un solo bucle
+    if (document.hidden) return void requestAnimationFrame(frame);
     var w = innerWidth, h = innerHeight, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.42, t = now / 1000;
     var breath = 0.5 + 0.5 * Math.sin(t * 1.3), boost = 1 + lv * 0.6 + st.listen * 0.35;
     g.globalCompositeOperation = "source-over"; g.fillStyle = "#01060d"; g.fillRect(0, 0, w, h);
