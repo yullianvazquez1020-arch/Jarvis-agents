@@ -2,8 +2,9 @@
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
-function harness() {
+function harness(options = {}) {
   const els = {}, timers = new Map(), requests = [], pending = [];
+  const listeners = {}, audios = [], contexts = [];
   let serial = 0, captures = 0;
   function element(id) {
     return els[id] ||= { checked: false, value: '', classList: {add(){},remove(){}}, firstChild: {nodeValue:''},
@@ -17,21 +18,26 @@ function harness() {
     CustomEvent: function(){}, performance:{now:()=>0},
     sessionStorage:{getItem:()=>null,setItem(){}},localStorage:{getItem:()=>null,setItem(){}},
     setTimeout(fn){timers.set(++serial,fn);return serial},clearTimeout(id){timers.delete(id)},setInterval(){},clearInterval(){},
-    addEventListener(){},requestAnimationFrame(){},cancelAnimationFrame(){},
+    addEventListener(name,fn){(listeners[name] ||= []).push(fn);},requestAnimationFrame(){},cancelAnimationFrame(){},
     navigator:{mediaDevices:{getUserMedia(){captures++;return new Promise(resolve=>pending.push(resolve));}}},
     fetch(url,opt){requests.push([url,opt]);if(url.startsWith('/api/events'))return new Promise(()=>{});
       const data = url==='/api/state'?state:url==='/api/window/hello'?{owner:true}:{};
       return Promise.resolve({ok:true,json:()=>Promise.resolve(data)});},
-    Audio: function(){this.paused=false;this.addEventListener=()=>{};this.removeEventListener=()=>{};this.play=()=>Promise.resolve();this.pause=()=>{this.paused=true};}
+    Audio: function(){audios.push(this);this.paused=false;this.currentTime=0;this.addEventListener=()=>{};this.removeEventListener=()=>{};
+      this.play=()=>options.play?options.play(this):Promise.resolve();this.pause=()=>{this.paused=true};}
   };
-  win.AudioContext = function(){this.sampleRate=48000;this.createMediaStreamSource=()=>({connect(){},disconnect(){}});
-    this.createScriptProcessor=()=>({connect(){},disconnect(){}});this.close=()=>{};};
+  win.AudioContext = function(){contexts.push(this);this.state=options.contextState || 'running';this.sampleRate=48000;
+    this.createMediaStreamSource=()=>{if(options.failCaptureSetup)throw new Error('setup failed');return {connect(){},disconnect(){}};};
+    this.createScriptProcessor=()=>({connect(){},disconnect(){}});this.close=()=>{this.state='closed';};
+    this.resume=()=>{if(options.resume)return options.resume(this);this.state='running';return Promise.resolve();};};
   let src=fs.readFileSync(path.join(root,'desktop/ui/app.js'),'utf8');
   src=src.replace(/\}\)\(\);\s*$/,`window.test = {startMic,stopMic,handle,setOwner,resumeConversation,
     audio:()=>audioEl,recording:()=>rec,setCurrent:x=>{current=x},setPaused:x=>{conversationPaused=x}};})();`);
   vm.runInNewContext(src,context);
-  return {win,els,state,pending,requests,captures:()=>captures,flush(){const jobs=[...timers.values()];timers.clear();jobs.forEach(fn=>fn())}};
+  return {win,els,state,pending,requests,audios,contexts,gesture(){(listeners.pointerdown||[]).forEach(fn=>fn());},
+    captures:()=>captures,flush(){const jobs=[...timers.values()];timers.clear();jobs.forEach(fn=>fn())}};
 }
+function stream(){const track={stop(){this.stopped=true;}};return {track,getTracks:()=>[track],getAudioTracks:()=>[track]};}
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
 (async()=>{
   const h=harness();await settle();
@@ -63,5 +69,46 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   h.win.test.setPaused(true);h.win.test.stopMic(true);
   h.win.test.handle({type:'turn.error',turn:'late'});h.flush();
   assert.equal(h.captures(),7,'late errors cannot override an explicit pause');
-  console.log('Conversation lifecycle: 12 checks passed');
+  const failed=harness({play:()=>Promise.reject(Object.assign(new Error('unsupported'),{name:'NotSupportedError'}))});
+  await settle();failed.win.test.setCurrent('failed');
+  failed.win.test.handle({type:'audio.play',turn:'failed',id:'broken'});
+  failed.win.test.handle({type:'turn.done',turn:'failed'});await settle();failed.flush();
+  assert.equal(failed.win.test.audio(),null,'failed playback releases the audio lock');
+  assert.equal(failed.captures(),1,'failed playback re-arms listening');
+
+  let rejectOld;
+  const race=harness({play:a=>race.audios.length===1?new Promise((ok,bad)=>{rejectOld=bad;}):Promise.resolve()});
+  await settle();race.win.test.handle({type:'audio.play',turn:'old',id:'old'});
+  const oldEnd=race.audios[0].onended, oldError=race.audios[0].onerror;
+  race.win.test.handle({type:'audio.play',turn:'new',id:'new'});
+  oldEnd();oldError();rejectOld(new Error('late failure'));await settle();
+  assert.equal(race.win.test.audio(),race.audios[1],'old callbacks cannot stop newer audio');
+
+  let blocked=true;
+  const permission=harness({play:a=>{a.paused=blocked;return blocked?Promise.reject(Object.assign(new Error(),{name:'NotAllowedError'})):Promise.resolve();}});
+  await settle();permission.win.test.handle({type:'audio.play',turn:'permission',id:'p'});await settle();permission.flush();
+  assert.equal(permission.captures(),0,'permission block is not mistaken for working audio or microphone');
+  assert.match(permission.els.state.textContent,/Touch the page/);
+  blocked=false;permission.gesture();await settle();permission.win.test.audio().onended();permission.flush();
+  assert.equal(permission.captures(),1,'after permission gesture and playback, hands-free listening resumes');
+
+  const suspended=harness({contextState:'suspended'});await settle();suspended.flush();
+  const mic=stream();suspended.pending.shift()(mic);await settle();
+  assert.equal(suspended.contexts[0].state,'running','suspended capture is resumed');
+  assert.match(suspended.els.state.textContent,/listening/);
+  mic.track.onended();suspended.flush();
+  assert.equal(suspended.captures(),2,'device disconnect retries capture');
+  suspended.win.test.setPaused(true);suspended.win.test.stopMic(true);mic.track.onended();suspended.flush();
+  assert.equal(suspended.captures(),2,'obsolete track event cannot override pause');
+
+  const denied=harness({contextState:'suspended',resume:()=>Promise.reject(new Error('blocked'))});
+  await settle();denied.flush();const deniedMic=stream();denied.pending.shift()(deniedMic);await settle();
+  assert.equal(denied.win.test.recording(),null,'failed context startup releases capture');
+  assert.equal(deniedMic.track.stopped,true,'failed context startup stops the actual microphone');
+  assert.match(denied.els.state.textContent,/Press Talk/);
+  const setup=harness({failCaptureSetup:true});await settle();setup.flush();
+  const setupMic=stream();setup.pending.shift()(setupMic);await settle();
+  assert.equal(setupMic.track.stopped,true,'partial setup releases microphone tracks');
+  assert.equal(setup.contexts[0].state,'closed','partial setup closes audio context');
+  console.log('Conversation lifecycle: recovery, permissions, capture and stale-event checks passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
