@@ -421,7 +421,7 @@ class AudioOutput(unittest.TestCase):
         for bad in ("🎉", "**", "https", "ZZZZ", "YYYY"):
             self.assertNotIn(bad, spoken)
         args = (tmp / "args").read_text()
-        self.assertIn("-v Juan", args); self.assertIn("-r 144", args); self.assertNotIn("tienes", args)
+        self.assertIn("-v Juan", args); self.assertIn("-r 153", args); self.assertNotIn("tienes", args)
 
     def test_local_voice_prefers_male_juan_and_caches(self):
         listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nJuan es_MX # Hola\n"})()

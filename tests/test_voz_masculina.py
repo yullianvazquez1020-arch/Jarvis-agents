@@ -35,9 +35,9 @@ class VozMasculina(unittest.TestCase):
         with patch.dict(os.environ, {"JARVIS_VOZ_ES": "Diego", "JARVIS_VOZ_EN": "Oliver", "JARVIS_VOZ_RATE": "160"}):
             self.assertEqual(engines.choose_voices(FULL), ("Diego", "Oliver"))
             self.assertEqual(engines.speech_rate(), 160)
-        self.assertEqual(engines.speech_rate(), 170)
+        self.assertEqual(engines.speech_rate(), 180)
         with patch.dict(os.environ, {"JARVIS_VOZ_RATE": "abc"}):
-            self.assertEqual(engines.speech_rate(), 170)
+            self.assertEqual(engines.speech_rate(), 180)
 
     def test_bilingual_detection_and_voice(self):
         self.assertEqual(engines.detect_lang("Hello sir, how are you? Guess how much money we've made today."), "en")
@@ -56,9 +56,9 @@ class VozMasculina(unittest.TestCase):
         with patch.dict(os.environ, {"PIPER_MODEL": "", "JARVIS_SAY_VOICE": "Paulina"}), \
                 patch.object(voz_loop.subprocess, "run", return_value=listing):
             cmd = voz_loop.Speaker().command("Hola señor")
-            self.assertEqual(cmd[:3], ["say", "-v", "Juan"]); self.assertIn("170", cmd)
+            self.assertEqual(cmd[:3], ["say", "-v", "Juan"]); self.assertIn("180", cmd)
             cmd = voz_loop.Speaker().command("Hello sir, how are you?")
-            self.assertEqual(cmd[:3], ["say", "-v", "Daniel"]); self.assertIn("165", cmd)
+            self.assertEqual(cmd[:3], ["say", "-v", "Daniel"]); self.assertIn("180", cmd)
 
 
 if __name__ == "__main__":

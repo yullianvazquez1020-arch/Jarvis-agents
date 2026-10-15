@@ -69,16 +69,19 @@ class Speaker:
             from audio.engines import choose_voices, detect_lang, is_female, speech_rate
         except ImportError:
             from desktop.audio.engines import choose_voices, detect_lang, is_female, speech_rate
-        try:
-            listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=5).stdout
-        except (OSError, subprocess.SubprocessError):
-            listing = ""
+        listing = getattr(Speaker, "_listing", None)
+        if listing is None:                              # una sola consulta de voces: menos demora por frase
+            try:
+                listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=5).stdout
+            except (OSError, subprocess.SubprocessError):
+                listing = ""
+            Speaker._listing = listing
         es, en = choose_voices(listing)
         forced = os.getenv("JARVIS_SAY_VOICE", "").strip()
         if forced and not is_female(forced):
             es = forced
-        voice = (en if detect_lang(text) == "en" and en else es) or "Juan"
-        return ["say", "-v", voice, "-r", str(speech_rate(165 if voice == "Daniel" else 170)), text]
+        voice = (es if detect_lang(text) == "es" and es else en or es) or "Daniel"   # inglés primero
+        return ["say", "-v", voice, "-r", str(speech_rate(180)), text]
 
     def speak(self, text: str) -> None:
         self.stop()
