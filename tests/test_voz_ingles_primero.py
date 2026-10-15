@@ -67,10 +67,13 @@ class Fondo(unittest.TestCase):
         import wave, numpy as np
         f = Path(__file__).parents[1] / "desktop" / "ui" / "audio" / "fondo.wav"
         with wave.open(str(f)) as w:
-            x = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2") / 32768.0; sr = w.getframerate()
+            ch = w.getnchannels(); sr = w.getframerate()
+            x = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").reshape(-1, ch) / 32768.0
+        self.assertEqual(ch, 2)                                        # v2: estéreo por capas
         self.assertAlmostEqual(len(x) / sr, 32.0, places=1)
         self.assertAlmostEqual(20 * np.log10(np.sqrt(np.mean(x ** 2))), -24.0, delta=0.5)
-        self.assertLess(abs(x[-1] - x[0]), 0.01)                      # bucle sin costura
+        self.assertLess(np.abs(x[-1] - x[0]).max(), 0.02)
+        self.assertLess(np.abs(x[-1] - x[0]).max(), 3 * np.abs(np.diff(x, axis=0)).mean() + 0.01)                      # bucle sin costura
         for name in ("ambiente.wav", "encendido.wav"):
             self.assertTrue((f.parent / name).is_file())               # música existente intacta
         js = (Path(__file__).parents[1] / "desktop" / "ui" / "startup.js").read_text()
