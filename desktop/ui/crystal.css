@@ -23,3 +23,6 @@ body.ver-paneles .crystal-cards,body.ver-paneles .crystal-brand{display:none}bod
 body[data-voice="ESCUCHANDO"] #crystal-art:after{opacity:.8}body[data-voice="HABLANDO"] #crystal-art:after{animation:crystal-breathe 1.8s ease-in-out infinite}
 @keyframes crystal-breathe{0%,100%{opacity:.3;transform:scale(.95)}50%{opacity:.9;transform:scale(1.08)}}
 @media(prefers-reduced-motion:reduce){body[data-voice="HABLANDO"] #crystal-art:after{animation:none;opacity:.6}}
+
+#crystal-motion{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+#crystal-heard{color:#9fddff;font-size:13px;max-height:12vh;overflow:auto}

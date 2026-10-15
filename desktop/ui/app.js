@@ -130,7 +130,10 @@
   }
 
   // ---------- reply and detail (masked in discreet mode until "Mostrar") ----------
+  var lastHeard = "";
   function renderReply() {
+    var heard = document.getElementById("crystal-heard");
+    if (heard) heard.textContent = show(lastHeard || "Esperando voz");
     $("reply").textContent = show(lastReply);
     $("reveal").hidden = !(discreet() && M.hasSensitive(lastReply + (lastPanel ? (lastPanel.lines || []).join(" ") : "")));
     $("reveal").textContent = revealed ? "Ocultar" : "Mostrar";
@@ -184,7 +187,7 @@
     audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
     audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
     setState("speaking");
-    if (!document.getElementById("crystal-art")) voice.attach(audioEl, id);
+    voice.attach(audioEl, id);
     audioEl.addEventListener("playing",function(){if(audio === audioEl && window.JarvisAmbience)window.JarvisAmbience.duck(true);});
     attemptPlayback(audio);
   }
@@ -324,9 +327,15 @@
             releaseWarmMic(); stopMic(true); setState("ready", "Microphone disconnected; reconnecting"); resumeConversation();
           };
         });
+        var lastLevelAt = 0;
         node.onaudioprocess = function (ev) {
           if (rec !== capture) return;
           var data = new Float32Array(ev.inputBuffer.getChannelData(0));
+          if (performance.now() - lastLevelAt > 80) {
+            lastLevelAt = performance.now(); var energy = 0;
+            for (var i=0;i<data.length;i++) energy += data[i]*data[i];
+            window.dispatchEvent(new CustomEvent("jarvis-mic-level", {detail:Math.min(1,Math.sqrt(energy/data.length)*8)}));
+          }
           var r = det.push(data, data.length / rec.rate * 1000);
           phrase.push(data, det.heard);
           if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
@@ -365,7 +374,8 @@
     transcribing = true; var transcriptTicket = micGeneration; setState("transcribing");
     api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
       transcribing = false; if (transcriptTicket !== micGeneration) return; $("transcript").value = t.text;
-      if (!t.text) { setState("ready", "No speech detected"); resumeConversation(); return; }
+      lastHeard = t.text; renderReply();
+      if (!t.text) { setState("ready", "No distinguí palabras. Repite tu instrucción."); resumeConversation(); return; }
       if (!$("review").checked) send(t.text, "voice"); else setState("listo", "Review the transcript and press Send");
     }).catch(function (e) { transcribing = false; if (transcriptTicket !== micGeneration) return; setState("error", e.message); resumeConversation(); });
   }

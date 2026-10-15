@@ -10,13 +10,14 @@
 </head>
 <body class="nucleo-home">
   <div id="crystal-art" aria-hidden="true"></div>
+  <canvas id="crystal-motion" aria-hidden="true"></canvas>
   <div class="crystal-brand">JARVIS<span>NÚCLEO CRISTALINO</span></div>
   <div class="crystal-cards left">
     <section><h2>NEGOCIOS</h2><button id="crystal-business">ISLAFIX PRO · Ver resumen</button></section>
     <section><h2>CONTENIDO</h2><button data-launch="Abre YouTube Studio">YouTube Studio ↗</button><button data-launch="Abre CapCut">CapCut ↗</button><button data-launch="Abre ChatGPT">ChatGPT ↗</button><small>Accesos de apertura · sesión sin verificar</small></section>
   </div>
   <div class="crystal-cards right">
-    <section><h2>ASISTENTE</h2><p id="crystal-state" role="status">Preparando panel</p><p id="crystal-reply">Pulsa Hablar o escribe tu instrucción.</p></section>
+    <section><h2>ASISTENTE</h2><p id="crystal-state" role="status">Preparando panel</p><small>ÚLTIMA FRASE ENTENDIDA</small><p id="crystal-heard">Esperando voz</p><p id="crystal-reply">Pulsa Hablar o escribe tu instrucción.</p></section>
     <section><h2>CONTROL LOCAL</h2><p>Mouse: <span id="crystal-mouse">Sin comprobar</span></p><p>Accesibilidad: <span id="crystal-ax">Sin comprobar</span></p><small>Los estados se actualizan desde el ejecutor.</small></section>
   </div>
   <div id="estado" class="nucleo-estado">PREPARANDO</div>
@@ -120,5 +121,6 @@
 <script src="/ui/nucleo-home.js"></script>
 
 <script src="/ui/crystal.js?v=1"></script>
+<script src="/ui/crystal-motion.js?v=1"></script>
 </body>
 </html>
