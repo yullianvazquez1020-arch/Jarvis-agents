@@ -122,8 +122,9 @@ python3 autonomo.py --start claude --minutes 15 --run   # te pide un código; es
 ```
 - El agente lee `~/.jarvis-control/autonomo/pantalla.png` y `estado.json` (tamaño, cursor, app al frente, resultado de la última orden).
 - Deja su orden en `~/.jarvis-control/autonomo/siguiente.json`, por ejemplo `{"agent":"claude","action":"click","x":700,"y":400}`.
-- Permitido: move, click, double_click, scroll, screenshot, wait, type (≤200 caracteres, sin Enter ni secretos), open_url (hosts permitidos), open_app (Notes, Safari).
-- El puntero solo se mueve con Notes o Safari al frente. Outlook, Slack, Mail y el resto no.
+- Permitido: move, click, double_click, scroll, screenshot, wait, type (≤200 caracteres, sin Enter ni secretos), open_url (hosts permitidos), open_app (Notes, Safari, Microsoft Outlook, Slack).
+- El puntero se mueve con Notes, Safari, Microsoft Outlook o Slack al frente. Mail, Mensajes y el resto no.
+- En Outlook y Slack: mover, clicar, desplazar y leer. Nunca escribir (ni Enter ni Cmd+Enter), ni clicar Enviar/Send, Responder, Reenviar, Borrar, Papelera, Archivar, Mover ni Ajustes. Antes de cada clic se lee el elemento bajo el puntero (Accesibilidad, requiere `pip3 install pyobjc-framework-ApplicationServices`) y se vuelven a leer app y ventana; si algo no se puede leer o cambió, no hay clic. Los mensajes a clientes siguen saliendo solo con /aprobar y /confirmar en Jarvis.
 - En Safari, justo antes de cada clic se vuelve a leer la página. Si cambió (por ejemplo al correo), el clic no se hace.
 - Siempre bloqueado: atajos de teclado, bancos/pagos, mensajes/correo, Terminal, Finder, Ajustes, borrar, comandos y contraseñas.
 - La sesión vive en `~/.jarvis-owner/autonomo.json`, fuera del alcance de los agentes. Tope: 30 min, 20 acciones/min, 300 pasos.

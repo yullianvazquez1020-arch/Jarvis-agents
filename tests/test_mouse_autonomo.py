@@ -118,7 +118,7 @@ class Autonomo(Base):
         self.assertEqual(p.calls, [("move", 1, 1), ("move", 2, 2), ("move", 3, 3)])
         self.assertEqual(list(carpeta.glob("lote-*.jsonl")), [])
 
-    def test_autonomo_rechecks_the_page_and_stays_out_of_slack(self):
+    def test_autonomo_rechecks_the_page_and_fails_closed_in_slack(self):
         class Cambia:
             def __init__(self):
                 self.urls = ["https://github.com/ejemplo", "https://mail.google.com/mail"]
@@ -135,7 +135,14 @@ class Autonomo(Base):
             def frontmost(self):
                 return "Slack"
 
-        self.assertEqual(ae.frente_seguro({"action": "move"}, Slack()), "app_frente")
+        # Sin poder leer la ventana, ni siquiera se mueve en Slack (falla cerrado).
+        self.assertEqual(ae.frente_seguro({"action": "move"}, Slack()), "ventana_no_verificada")
+
+        class Mail:
+            def frontmost(self):
+                return "Mail"
+
+        self.assertEqual(ae.frente_seguro({"action": "move"}, Mail()), "app_frente")
 
         class Notas:
             def frontmost(self):

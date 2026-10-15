@@ -199,12 +199,100 @@ class RunTests(Base):
         p = self.go(script)
         self.assertEqual(len(p.calls), ae.MAX_PER_MINUTE)
 
-    def test_pointer_stays_out_of_outlook_and_slack(self):
+    def msg_pointer(self, front, script, labels=None, titles=None, fronts=None):
+        class Msg(FakePointer):
+            def window_title(self_):
+                return titles.pop(0) if titles else "Bandeja de entrada"
+
+            def element_label(self_, x, y):
+                return labels.pop(0) if labels else "Mensaje de Ana | fila"
+
+            def frontmost(self_):
+                return fronts.pop(0) if fronts else front
+        return Msg(front, script)
+
+    def run_msg(self, p, steps):
+        quiet(au.run, p, sleep=lambda s: None, max_steps=steps)
+        return [c[0] for c in p.calls]
+
+    def reasons(self):
+        rows = [json.loads(l) for l in (ae.control_dir() / "audit.jsonl").read_text().splitlines()]
+        return [r["reason"] for r in rows]
+
+    def test_outlook_and_slack_allow_move_click_scroll(self):
         for front in ("Microsoft Outlook", "Slack"):
             with self.subTest(front=front):
                 self.open()
-                p = self.go([{"agent": "claude", "action": "move", "x": 400, "y": 300}], front=front)
-                self.assertEqual([c[0] for c in p.calls], [])
+                p = self.msg_pointer(front, [
+                    {"agent": "claude", "action": "move", "x": 400, "y": 300},
+                    {"agent": "claude", "action": "click", "x": 400, "y": 300},
+                    {"agent": "claude", "action": "scroll", "dy": -3},
+                    {"agent": "claude", "action": "screenshot"},
+                ])
+                self.assertEqual(self.run_msg(p, 4)[:3], ["move", "click", "scroll"])
+                self.assertFalse(ae.stopped())
+
+    def test_outlook_and_slack_never_click_send_delete_or_settings(self):
+        for front in ("Microsoft Outlook", "Slack"):
+            for label in ("Send", "Enviar", "Responder a todos", "Reply", "Forward", "Delete", "Eliminar",
+                          "Move to Trash", "Papelera", "Archivar", "Settings", "Preferencias", "Post message"):
+                with self.subTest(front=front, label=label):
+                    self.open()
+                    p = self.msg_pointer(front, [{"agent": "claude", "action": "click", "x": 400, "y": 300}], labels=[label])
+                    self.assertEqual(self.run_msg(p, 1), [])
+                    self.assertIn("autonomo:accion_de_envio", self.reasons())
+
+    def test_outlook_and_slack_never_type_enter_or_hotkeys(self):
+        for front in ("Microsoft Outlook", "Slack"):
+            for order in ({"agent": "claude", "action": "type", "text": "hola"},
+                          {"agent": "claude", "action": "type", "text": "hola\n"},
+                          {"agent": "claude", "action": "hotkey", "keys": ["cmd", "enter"]},
+                          {"agent": "claude", "action": "hotkey", "keys": ["enter"]}):
+                with self.subTest(front=front, order=order):
+                    self.open()
+                    p = self.msg_pointer(front, [order])
+                    self.assertEqual(self.run_msg(p, 1), [])
+        self.assertTrue(ae.dangerous_keys(["cmd", "enter"]))
+
+    def test_outlook_click_needs_readable_element(self):
+        self.open()
+        p = self.msg_pointer("Microsoft Outlook", [{"agent": "claude", "action": "click", "x": 400, "y": 300}], labels=[None])
+        self.assertEqual(self.run_msg(p, 1), [])
+        self.assertIn("autonomo:elemento_no_verificado", self.reasons())
+        self.open()
+        p = FakePointer("Slack", [{"agent": "claude", "action": "click", "x": 400, "y": 300}])  # sin observadores
+        quiet(au.run, p, sleep=lambda s: None, max_steps=1)
+        self.assertEqual(p.calls, [])
+
+    def test_slack_click_aborts_if_window_or_app_changes(self):
+        self.open()
+        p = self.msg_pointer("Slack", [{"agent": "claude", "action": "click", "x": 400, "y": 300}],
+                             titles=["#general", "Preferences"])
+        self.assertEqual(self.run_msg(p, 1), [])
+        self.open()
+        p = self.msg_pointer("Slack", [{"agent": "claude", "action": "click", "x": 400, "y": 300}],
+                             fronts=["Slack", "Slack", "Mail"])
+        self.assertEqual(self.run_msg(p, 1), [])
+
+    def test_settings_window_blocks_even_move(self):
+        self.open()
+        p = self.msg_pointer("Microsoft Outlook", [{"agent": "claude", "action": "move", "x": 400, "y": 300}],
+                             titles=["Configuración"])
+        self.assertEqual(self.run_msg(p, 1), [])
+        self.assertIn("autonomo:ventana_de_ajustes", self.reasons())
+
+    def test_mail_and_messages_stay_blocked(self):
+        for front in ("Mail", "Messages", "Mensajes"):
+            with self.subTest(front=front):
+                self.open()
+                p = self.msg_pointer(front, [{"agent": "claude", "action": "move", "x": 400, "y": 300}])
+                self.assertEqual(self.run_msg(p, 1), [])
+
+    def test_stop_still_halts_in_slack(self):
+        self.open()
+        (ae.control_dir() / "STOP").touch()
+        p = self.msg_pointer("Slack", [{"agent": "claude", "action": "move", "x": 400, "y": 300}])
+        self.assertEqual(self.run_msg(p, 1), [])
 
     def test_click_aborts_when_safari_changes_page(self):
         self.open()
