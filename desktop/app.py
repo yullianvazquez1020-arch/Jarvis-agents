@@ -61,7 +61,7 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 "three/three.core.js": "text/javascript; charset=utf-8",
                 "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
@@ -1050,11 +1050,12 @@ def make_handler(app, host, port):
                     return self._send(404, {"error": "no existe"})
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                return self._send(200, (HERE / "ui" / "ironman.html").read_bytes(), "text/html; charset=utf-8")
-            if u.path in ("/", "/hud", "/avatar", "/torre", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
+                return self._send(200, (HERE / "ui" / "nucleo.html").read_bytes(), "text/html; charset=utf-8")   # sin Aincrad
+            if u.path in ("/", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "torre.html",
+                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "avatar.html", "/torre": "nucleo.html", "/nucleo": "nucleo.html",   # la Torre de Aincrad se retiró: solo el núcleo
+                       
                         "/mercado": "mercado.html", "/orbe": "orbe.html"}[u.path]
                 body = (HERE / "ui" / page).read_bytes()
                 if u.path == "/avatar" and not app.avatar_ironman:

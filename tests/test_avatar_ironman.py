@@ -169,7 +169,7 @@ class RouteOn(Route):
         self.assertTrue(self.app.avatar_ironman)
         status, body = self.get("/avatar/ironman", self.login())
         self.assertEqual(status, 200)
-        self.assertIn(b"TORRE DE AINCRAD", body)
+        self.assertIn(b"/ui/nucleo.js", body); self.assertNotIn(b"AINCRAD", body.upper())
 
     def test_vendor_hidden_while_off(self):
         status, body = self.get("/ui/vendor/three/three.module.js", self.login())

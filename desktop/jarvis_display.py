@@ -107,9 +107,9 @@ def render(health, powers, brain, err=None):
     keys = ("aincrad", "funnel", "evolve", "ops", "learn", "brief")
     at = Table.grid(padding=(0, 3))
     at.add_row(*[Text("%s: %s" % (k, (h.get(k) or {}).get("status", "—")), style="cyan") for k in keys])
-    note = Text("AINCRAD landing: %s · el repo no define los 100 pisos con datos todavía" %
+    note = Text("Landing: %s" %
                 (h.get("aincrad") or {}).get("landing", "—"), style="dim")
-    lay["bot"].update(Panel(Group(at, note), title="TORRE AINCRAD · módulos", border_style="cyan"))
+    lay["bot"].update(Panel(Group(at, note), title="NÚCLEO · módulos", border_style="cyan"))
     return lay
 
 

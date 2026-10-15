@@ -612,12 +612,14 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/torre.js">', body)
+        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
         self.assertNotIn(b"https://", body)
         self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
-        self.assertIn(b'href="/torre"', self.req("GET", "/")[3])
+        self.assertIn(b'href="/nucleo"', self.req("GET", "/")[3])
+        self.assertEqual(self.req("GET", "/ui/nucleo.js")[0], 200); self.assertEqual(self.req("GET", "/ui/nucleo.css")[0], 200)
         st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
         self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
         self.assertTrue(jpg.startswith(b"\xff\xd8"))
@@ -632,12 +634,14 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/torre.js">', body)
+        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
         self.assertNotIn(b"https://", body)
         self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
-        self.assertIn(b'href="/torre"', self.req("GET", "/")[3])
+        self.assertIn(b'href="/nucleo"', self.req("GET", "/")[3])
+        self.assertEqual(self.req("GET", "/ui/nucleo.js")[0], 200); self.assertEqual(self.req("GET", "/ui/nucleo.css")[0], 200)
         st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
         self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
         self.assertTrue(jpg.startswith(b"\xff\xd8"))

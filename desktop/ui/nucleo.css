@@ -1,0 +1,2 @@
+html,body{margin:0;height:100%;background:#01060d;overflow:hidden}canvas{display:block;width:100vw;height:100vh}
+#estado{position:fixed;bottom:4vh;width:100%;text-align:center;font:600 14px/1 "Helvetica Neue",Arial,sans-serif;letter-spacing:.5em;color:#8fdcff;text-shadow:0 0 12px #3cb4ff}
