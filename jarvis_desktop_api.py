@@ -390,7 +390,7 @@ _PANEL_INTENT = (
     ("cobros", re.compile(r"\b(cobros?|por cobrar|me deben|cuentas por cobrar)\b")),
     ("agenda", re.compile(r"\b(agenda|calendario|que tengo hoy|mis citas)\b")),
     ("practica", re.compile(r"\b(practica|simulador|simulado)\b")),
-    ("estado", re.compile(r"\b(como estas|estado del sistema|estado de jarvis|diagnostico)\b")),
+    ("estado", re.compile(r"\b(estado del sistema|estado de jarvis|diagnostico)\b")),
 )
 
 def classify(text):
@@ -399,7 +399,10 @@ def classify(text):
     for rx, reply in _REFUSE:
         if rx.search(n):
             return "refuse", reply
-    if len(n.split()) <= 8:
+    # Discussion and follow-up questions must keep their conversational context.
+    # Short explicit panel requests retain the existing zero-token shortcut.
+    discuss = re.search(r"\b(por que|como|compar\w*|investig\w*|mejor\w*|conviene|opinas|hablemos|explica\w*)\b", n)
+    if len(n.split()) <= 8 and not discuss:
         for name, rx in _PANEL_INTENT:
             if rx.search(n):
                 return "panel", name
