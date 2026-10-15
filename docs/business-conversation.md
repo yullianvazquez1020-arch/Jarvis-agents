@@ -4,6 +4,14 @@ Jarvis has six analytical specialties: coordinator, ISLAFIX, commerce, research,
 marketing and finance. They are instructions for the existing conversational
 model, not six processes or separate paid model calls. Existing commands remain.
 
+During open-ended discussion Jarvis is instructed to contribute an observation
+and ask one topic-specific follow-up, then use the owner's answer in the next
+turn. Quick requests and goodbyes do not force a question. Short replies use the
+preceding exchange, and ambiguous references require clarification. Silence does
+not trigger repeated prompts. This is conversational guidance, not a background
+agent or a change to action authorization. Actual conversational quality must be
+evaluated with the owner; passing code tests does not establish model compliance.
+
 The `business_context` tool reads the same durable owner facts, internal store
 plan, note index and saved research across authenticated channels. It includes
 source dates when present, unavailable sources and size omissions. It distinguishes
