@@ -14,7 +14,7 @@ UI = ROOT / "desktop/ui"
 class NucleoHUD(unittest.TestCase):
     def test_webgl_con_respaldo(self):
         gl = (UI / "nucleo-gl.js").read_text("utf-8")
-        for need in ("UnrealBloomPass", "EffectComposer", "TubeGeometry", "MeshStandardMaterial", "hex(", "texture2D(tDiffuse,vUv+off)"):
+        for need in ("UnrealBloomPass", "EffectComposer", "TubeGeometry", "MeshPhysicalMaterial", "PMREMGenerator", "rays", "hazeMat", "boltEnv", "hex(", "texture2D(tDiffuse,vUv+off)"):
             self.assertIn(need, gl)
         self.assertIn("N.gl = true", gl); self.assertIn("webglOk", gl)
         self.assertIn("nucleo-gl.js", app.UI_FILES)
