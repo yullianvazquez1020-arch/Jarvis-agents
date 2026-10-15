@@ -55,7 +55,7 @@ def send_to_jarvis(text: str, url: str, secret: str, post=None) -> bool:
 
 
 class Speaker:
-    """TTS interrumpible: Piper si existe (PIPER_MODEL), si no `say -v Paulina`."""
+    """TTS interrumpible: Piper si existe (PIPER_MODEL), si no `say` con voz masculina (Juan/Daniel)."""
 
     def __init__(self):
         self.proc: Optional[subprocess.Popen] = None
@@ -65,7 +65,20 @@ class Speaker:
         if model and shutil.which("piper") and shutil.which("afplay"):
             return ["sh", "-c", 'piper --model "$1" --output_file /tmp/jarvis_voz.wav && afplay /tmp/jarvis_voz.wav',
                     "piper", model]
-        return ["say", "-v", os.getenv("JARVIS_SAY_VOICE", "Paulina"), text]
+        try:
+            from audio.engines import choose_voices, detect_lang, is_female, speech_rate
+        except ImportError:
+            from desktop.audio.engines import choose_voices, detect_lang, is_female, speech_rate
+        try:
+            listing = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            listing = ""
+        es, en = choose_voices(listing)
+        forced = os.getenv("JARVIS_SAY_VOICE", "").strip()
+        if forced and not is_female(forced):
+            es = forced
+        voice = (en if detect_lang(text) == "en" and en else es) or "Juan"
+        return ["say", "-v", voice, "-r", str(speech_rate(165 if voice == "Daniel" else 170)), text]
 
     def speak(self, text: str) -> None:
         self.stop()

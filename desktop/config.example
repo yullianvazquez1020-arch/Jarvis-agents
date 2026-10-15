@@ -18,7 +18,7 @@ VOICE_STT_BACKEND=none
 
 # Text-to-speech. "auto" usa Piper si hay una voz .onnx, y si no la voz de macOS.
 VOICE_TTS_BACKEND=auto
-# VOICE_TTS_VOICE=Juan                 (macos_say: Juan es el español latino de doblaje. Paulina también. Jorge y Monica son de España.)
+# VOICE_TTS_VOICE=auto-latino         (macos_say: Juan es_MX para español y Daniel en_GB para inglés; nunca voces femeninas. JARVIS_VOZ_ES, JARVIS_VOZ_EN, JARVIS_VOZ_RATE=170)
 # VOICE_PIPER_BIN=/usr/local/bin/piper
 
 # Phase 2 (not implemented yet): keep false.
