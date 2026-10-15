@@ -60,7 +60,17 @@ DANGEROUS = {
 }
 FREE_ACTIONS = {"scroll", "screenshot", "wait", "move"}
 ALLOW_HOSTS = {"github.com", "jarvis-agents.onrender.com", "127.0.0.1", "localhost"}
-ALLOW_APPS = {"notes", "safari"}
+ALLOW_APPS = {"notes", "safari", "microsoft outlook", "outlook", "slack"}
+# Outlook y Slack: el puntero puede moverse, clicar, desplazarse y leer, pero NUNCA enviar, publicar,
+# responder, borrar, mover a la papelera ni cambiar ajustes. Sin escribir texto (no se redacta nada) y
+# cada clic exige leer antes el elemento bajo el puntero (accesibilidad). Si no se puede leer, no hay clic.
+MESSAGING_APPS = {"microsoft outlook", "outlook", "slack"}
+SEND_RE = re.compile(
+    r"(send|enviar|envia|post|publicar|reply|respond|forward|reenvia|submit|delete|eliminar|borrar|suprimir|"
+    r"trash|papelera|basura|junk|spam|archive|archivar|move to|mover a|mover|settings|preferences|preferencias|"
+    r"configuraci|ajustes|options|opciones|unsubscribe|leave|salir del canal|block|bloquear|remove|quitar|"
+    r"sign out|cerrar sesion|logout)")
+MSG_DENY_ACTIONS = {"type", "hotkey"}
 # Modo autónomo (opcional, apagado por defecto): JARVIS_AUTONOMO=1 o --autonomo.
 AUTO_ACTIONS = {"move", "click", "double_click", "scroll", "screenshot", "wait", "type", "open_url", "open_app"}
 AUTO_AGENT = "jarvis"
@@ -703,6 +713,15 @@ def _observador(pointer, name: str):
 def frente_seguro(action: dict, pointer) -> str | None:
     """Justo antes de mover o clicar en modo autónomo. None = se puede. En la Mac, app y página se leen otra vez."""
     kind = str(action.get("action") or "")
+    if kind in MSG_DENY_ACTIONS:
+        fm = _observador(pointer, "frontmost")
+        try:
+            al_frente = fm() if fm else ""
+        except Exception:
+            return "app_frente_desconocida"
+        if norm(al_frente or "") in MESSAGING_APPS:
+            return "mensajeria_sin_escribir"
+        return None
     if kind not in {"move", "click", "double_click"}:
         return None
     frontmost = _observador(pointer, "frontmost")
@@ -714,6 +733,8 @@ def frente_seguro(action: dict, pointer) -> str | None:
         return "app_frente_desconocida"
     if norm(front) not in ALLOW_APPS:
         return "app_frente"
+    if norm(front) in MESSAGING_APPS:
+        return mensajeria_segura(action, pointer, front)
     if norm(front) != "safari":
         return None
     page_url = _observador(pointer, "page_url")
@@ -734,6 +755,52 @@ def frente_seguro(action: dict, pointer) -> str | None:
         return "sitio_no_verificado"
     if otra != url or norm(frente) != norm(front):
         return "sitio_no_verificado"
+    return None
+
+
+def send_text(text: str) -> bool:
+    return bool(SEND_RE.search(norm(text or "")))
+
+
+def mensajeria_segura(action: dict, pointer, front: str) -> str | None:
+    """Outlook/Slack justo antes de mover o clicar. None = se puede. Falla cerrado.
+    - move: solo la ventana tiene que seguir siendo de la misma app y no ser de ajustes.
+    - click/double_click: además se lee el elemento bajo el puntero; si es Enviar/Responder/Borrar/Ajustes
+      (o no se puede leer) el clic no se hace. Luego se vuelve a leer app y ventana."""
+    kind = str(action.get("action") or "")
+    if kind in MSG_DENY_ACTIONS:
+        return "mensajeria_sin_escribir"
+    if kind not in {"move", "click", "double_click"}:
+        return None
+    frontmost = _observador(pointer, "frontmost")
+    window = _observador(pointer, "window_title")
+    if frontmost is None or window is None:
+        return "ventana_no_verificada"
+    try:
+        titulo = window() or ""
+    except Exception:
+        return "ventana_no_verificada"
+    if send_text(titulo):
+        return "ventana_de_ajustes"
+    if kind == "move":
+        return None
+    element = _observador(pointer, "element_label")
+    if element is None:
+        return "elemento_no_verificado"
+    try:
+        etiqueta = element(int(action["x"]), int(action["y"]))
+    except Exception:
+        return "elemento_no_verificado"
+    if etiqueta is None:
+        return "elemento_no_verificado"
+    if send_text(str(etiqueta)):
+        return "accion_de_envio"
+    try:
+        frente, titulo2 = frontmost() or "", window() or ""
+    except Exception:
+        return "ventana_no_verificada"
+    if norm(frente) != norm(front) or titulo2 != titulo:
+        return "ventana_no_verificada"
     return None
 
 
@@ -759,6 +826,46 @@ def finish(action: dict, how: str | None, pointer) -> str:
             return "BLOQUEADO"
     perform(action, pointer)
     return "HECHO"
+
+
+def window_title_mac() -> str | None:
+    if sys.platform != "darwin":
+        return None
+    import subprocess
+    try:
+        out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of front window of '
+                              '(first application process whose frontmost is true)'], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def element_label_mac(x: int, y: int) -> str | None:
+    """Necesita pyobjc (pip install pyobjc-framework-ApplicationServices) y permiso de Accesibilidad."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from ApplicationServices import (AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
+                                         AXUIElementCreateSystemWide)
+    except Exception:
+        return None
+    try:
+        err, el = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), float(x), float(y), None)
+        if err or el is None:
+            return None
+        parts = []
+        for _ in range(4):                       # el elemento y tres padres: un botón con icono también cuenta
+            for attr in ("AXTitle", "AXDescription", "AXHelp", "AXRoleDescription", "AXIdentifier"):
+                e2, val = AXUIElementCopyAttributeValue(el, attr, None)
+                if not e2 and isinstance(val, str) and val:
+                    parts.append(val[:120])
+            e3, parent = AXUIElementCopyAttributeValue(el, "AXParent", None)
+            if e3 or parent is None:
+                break
+            el = parent
+        return " | ".join(parts)
+    except Exception:
+        return None
 
 
 class MacPointer:
@@ -787,6 +894,14 @@ class MacPointer:
             ["osascript", "-e", 'tell application "Safari" to get URL of current tab of front window'],
             capture_output=True, text=True, timeout=5)
         return out.stdout.strip() if out.returncode == 0 else ""
+
+    def window_title(self) -> str | None:
+        """Título de la ventana al frente. None si no se puede leer (entonces no hay clic en Outlook/Slack)."""
+        return window_title_mac()
+
+    def element_label(self, x: int, y: int) -> str | None:
+        """Texto de accesibilidad del elemento en (x, y) y de sus padres. None si no se puede leer."""
+        return element_label_mac(x, y)
 
     def move(self, x: int, y: int) -> None:
         self.pg.moveTo(x, y, duration=0.16, tween=self.pg.easeOutQuad)

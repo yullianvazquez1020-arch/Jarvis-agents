@@ -28,7 +28,7 @@ def estado():
             "apps": sorted(ae.ALLOW_APPS),
             "parada": "esquina superior izquierda · Ctrl+C · ~/.jarvis-control/STOP",
             "nota": "La sesión solo la abre el dueño en su Terminal (python3 desktop/mac/autonomo.py). "
-                    "El puntero solo se mueve en Notes y Safari. Outlook, Slack y el correo no."}
+                    "El puntero se mueve en Notes, Safari, Outlook y Slack. En Outlook y Slack nunca envía, responde, borra ni cambia ajustes. Mail y Mensajes no."}
 
 
 def precheck(action, session):
