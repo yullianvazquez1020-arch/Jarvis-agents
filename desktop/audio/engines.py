@@ -103,44 +103,108 @@ class NoSTT:
 
 
 # --- TTS ------------------------------------------------------------------------------------------
+FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica", "angélica", "francisca",
+                 "luciana", "isabela", "esperanza", "sandy", "shelley", "grandma", "flo", "kate", "serena",
+                 "stephanie", "martha", "samantha", "karen", "moira", "tessa", "fiona", "victoria", "allison",
+                 "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
+ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
+EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
+DEFAULT_WPM = 170                         # 165–175 ppm: natural, ni apurado ni lento
+
+
+def is_female(name):
+    base = re.sub(r"\s*\(.*\)$", "", str(name or "")).strip().lower()
+    return base in FEMALE_VOICES
+
+
+def parse_say_listing(listing):
+    out = []
+    for line in str(listing or "").splitlines():
+        m = re.match(r"^(.+?)\s+([a-z]{2}_[A-Z0-9]{2,3})\s+#", line)
+        if m:
+            out.append((m.group(1).strip(), m.group(2)))
+    return out
+
+
+def choose_voices(listing):
+    """(voz_es, voz_en) masculinas instaladas; JARVIS_VOZ_ES / JARVIS_VOZ_EN mandan si existen."""
+    voices = parse_say_listing(listing)
+    names = {n for n, _ in voices}
+
+    def pick(env, preferred, prefix, fallback_locales):
+        forced = os.getenv(env, "").strip()
+        if forced:
+            return forced
+        for name, _loc in preferred:
+            if name in names:
+                return name
+        for loc in fallback_locales:
+            for name, l in voices:
+                if l == loc and not is_female(name):
+                    return name
+        for name, l in voices:
+            if l.startswith(prefix) and not is_female(name):
+                return name
+        return ""
+    es = pick("JARVIS_VOZ_ES", ES_PREFERRED, "es_", ("es_MX", "es_US", "es_CO", "es_AR", "es_CL", "es_ES"))
+    en = pick("JARVIS_VOZ_EN", EN_PREFERRED, "en_GB", ("en_GB",))
+    return es, en
+
+
+_EN_WORDS = set("the you your is are and of to what how hello sir i it this that with for have has be will "
+                "can do not we my me on in at today guess much money made".split())
+_ES_WORDS = set("el la los las de que y en un una es por para con no se lo como qué hola señor tu su "
+                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más".split())
+
+
+def detect_lang(text):
+    t = str(text or "").lower()
+    if re.search(r"[ñáéíóú¿¡]", t):
+        return "es"
+    words = re.findall(r"[a-z']+", t)
+    en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
+    return "en" if en > es else "es"
+
+
+def speech_rate(default=DEFAULT_WPM):
+    try:
+        return max(90, min(int(float(os.getenv("JARVIS_VOZ_RATE", "") or default)), 300))
+    except ValueError:
+        return default
+
+
 class MacSay:
     name = "macos_say"
-    BASE_WPM = 175
+    BASE_WPM = DEFAULT_WPM
 
     def __init__(self, voice=""):
-        self.voice = voice or "auto-latino"
+        voice = (voice or "").strip()
+        # Una voz femenina nunca se usa: se trata como auto (masculina bilingüe).
+        self.voice = "auto-latino" if (not voice or is_female(voice)) else voice
         self._resolved_voice = None
+        self._pair = None
 
-    def resolve_voice(self):
-        """Choose an installed Latin-American Spanish voice; never download one."""
+    def voices(self):
+        if self._pair is None:
+            try:
+                result = subprocess.run(["say", "-v", "?"], capture_output=True,
+                                        text=True, timeout=5, check=True)
+            except (OSError, subprocess.SubprocessError):
+                raise EngineError("no pude consultar las voces locales de macOS") from None
+            self._pair = choose_voices(result.stdout)
+        return self._pair
+
+    def resolve_voice(self, text=""):
+        """Voz masculina según el idioma: Juan (es) / Daniel (en_GB); nunca descarga ni elige femenina."""
         if self.voice != "auto-latino":
             return self.voice
-        if self._resolved_voice is not None:
-            return self._resolved_voice
-        try:
-            result = subprocess.run(["say", "-v", "?"], capture_output=True,
-                                    text=True, timeout=5, check=True)
-        except (OSError, subprocess.SubprocessError):
-            raise EngineError("no pude consultar las voces locales de macOS") from None
-        voices = []
-        for line in result.stdout.splitlines():
-            match = re.match(r"^(.+?)\s+(es_[A-Z]{2})\s+#", line)
-            if match:
-                voices.append((match.group(1).strip(), match.group(2)))
-        for name, loc in voices:
-            if loc == "es_PR":
-                self._resolved_voice = name
-                return name
-        for preferred in ("Juan", "Paulina", "Diego"):
-            if any(name == preferred and loc != "es_ES" for name, loc in voices):
-                self._resolved_voice = preferred
-                return preferred
-        for locale in ("es_MX", "es_CO", "es_AR", "es_CL", "es_ES"):
-            chosen = next((name for name, loc in voices if loc == locale), None)
-            if chosen:
-                self._resolved_voice = chosen
-                return chosen
-        raise EngineError("no hay una voz española instalada; selecciona una en macOS")
+        es, en = self.voices()
+        if text and detect_lang(text) == "en" and en:
+            return en
+        if es:
+            self._resolved_voice = es
+            return es
+        raise EngineError("no hay una voz masculina en español instalada (instala Juan en Ajustes → Accesibilidad → Contenido leído)")
 
     def problem(self):
         if sys.platform != "darwin" or not shutil.which("say"):
@@ -157,10 +221,10 @@ class MacSay:
         with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as tmp:
             src = Path(tmp) / "in.txt"; src.write_text(text, encoding="utf-8")   # text via file, never argv
             out = Path(tmp) / "out.wav"
-            wpm = DANIEL_WPM if (self.voice or "").strip() == "Daniel" else self.BASE_WPM
+            chosen = self.resolve_voice(text)
+            wpm = speech_rate(DANIEL_WPM if chosen == "Daniel" else self.BASE_WPM)
             cmd = ["say", "-r", str(int(wpm * rate)), "-o", str(out), "--file-format=WAVE",
                    "--data-format=LEI16@22050", "-f", str(src)]
-            chosen = self.resolve_voice()
             if chosen:
                 cmd[1:1] = ["-v", chosen]
             _run(cmd, timeout=60)

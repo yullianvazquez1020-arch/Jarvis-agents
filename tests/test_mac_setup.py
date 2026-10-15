@@ -9,10 +9,12 @@ spec.loader.exec_module(setup)
 
 
 class SetupTests(unittest.TestCase):
-    def test_prefers_pr_then_known_female_latin_voice(self):
-        listing = "Juan es_MX # Hola\nPaulina es_MX # Hola\nMonica es_ES # Hola\n"
-        self.assertEqual(setup.voice_choice(listing), ("Paulina", "es_MX"))
-        self.assertEqual(setup.voice_choice(listing + "Voz PR es_PR # Hola\n"), ("Voz PR", "es_PR"))
+    def test_prefers_male_juan_never_female(self):
+        listing = "Paulina es_MX # Hola\nJuan es_MX # Hola\nMonica es_ES # Hola\nDaniel en_GB # Hello\n"
+        self.assertEqual(setup.voice_choice(listing), ("Juan", "es_MX"))
+        self.assertEqual(setup.english_choice(listing), "Daniel")
+        self.assertEqual(setup.voice_choice("Paulina es_MX # Hola\nJorge es_ES # Hola\n"), ("Jorge", "es_ES"))
+        self.assertEqual(setup.voice_choice("Paulina es_MX # Hola\nSoledad es_CO # Hola\n"), ("", ""))
         self.assertEqual(setup.voice_choice("Alex en_US # Hello"), ("", ""))
 
     def test_wrong_platform_never_installs_or_moves(self):
