@@ -437,7 +437,8 @@ def _kv_raw(key, default):
 
 # Fase A (revisada): keys that jarvis_seal.py seals. Kept here too so that, if that file is missing from a
 # deploy, Jarvis still refuses to overwrite sealed data in clear (every other key is never affected).
-_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history"})
+_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history",
+                              "jarvis:bitacora"})
 _seal_warned = set()
 
 def _seal_module():
@@ -4974,6 +4975,8 @@ async def _tg_send_document(chat_id, filename, raw, caption="", mime="text/csv")
                           files={"document": (filename, raw, mime)})
     if r.status_code != 200 or r.json().get("ok") is not True:
         raise ValueError("Telegram no confirmó el archivo")
+    await asyncio.to_thread(jarvis_bitacora.registrar_seguro, "documento",
+                            f"[archivo {filename}] {caption}".strip(), chat_id)
 
 async def _tg_export(chat_id, arg):
     try:
@@ -6101,6 +6104,16 @@ READ_ONLY_TOOLS = frozenset({
     "paper_trades", "list_notes", "get_note", "list_documents", "list_recurring_invoices", "list_external_actions",
     "list_product_candidates", "growth_status"})
 
+# Bitácora compartida Friday <-> Jarvis: Jarvis lee las notas de trabajo de Friday (solo lectura).
+import jarvis_bitacora
+jarvis_bitacora.configurar(lambda k, d: kv_get(k, d), lambda k, v: kv_set(k, v), _now,
+                           lambda t: _redact_secrets(t)[0])
+TOOLS.append(_t("leer_bitacora", "Read the shared Friday<->Jarvis log: Friday's (Grok Bot) work notes and your own "
+                "recent outgoing Telegram messages, oldest first. fuente: 'friday', 'jarvis' or blank for both.",
+                {"limit": I, "fuente": {"type": "string", "enum": ["", "friday", "jarvis"]}}))
+HANDLERS["leer_bitacora"] = lambda limit=20, fuente="": {"entradas": jarvis_bitacora.leer(limit, fuente or None)}
+READ_ONLY_TOOLS = READ_ONLY_TOOLS | {"leer_bitacora"}
+
 async def run_tool(name, args, read_only=None):
     if read_only and name not in READ_ONLY_TOOLS:
         return {"error": f"la herramienta {name} no está en la lista de solo lectura de este canal"}
@@ -6810,6 +6823,7 @@ async def _tg_send(chat_id, text):
                 confirmed = False
             if not confirmed:
                 raise RuntimeError("Telegram did not confirm sendMessage")
+    await asyncio.to_thread(jarvis_bitacora.registrar_seguro, "telegram", text, chat_id)
 
 async def _handle_tg(chat_id, text, *, read_only=False):
     session = f"tg:{chat_id}"
@@ -7399,6 +7413,28 @@ async def encargo(req: Encargo, background: BackgroundTasks, x_jarvis_secret: st
         raise HTTPException(429, f"Más de {RATE_PER_MIN} encargos por minuto; espera un momento")
     background.add_task(_encargo_run, texto)
     return {"ok": True, "queued": True}
+
+
+class BitacoraNota(BaseModel):
+    texto: str = Field(min_length=1, max_length=4000)
+
+@app.get("/api/bitacora")
+async def bitacora_leer(limit: int = 10, fuente: str | None = None, x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+        raise HTTPException(401, "Bad secret")
+    entradas = await asyncio.to_thread(jarvis_bitacora.leer, limit, fuente)
+    return {"entradas": entradas, "orden": "antiguo_primero"}
+
+@app.post("/api/bitacora/friday")
+async def bitacora_friday(req: BitacoraNota, x_jarvis_secret: str = Header(None)):
+    if not _key_ok(x_jarvis_secret, ENCARGO_SECRET):
+        raise HTTPException(401, "Bad secret")
+    if not _rate_ok("bitacora"):
+        raise HTTPException(429, "Demasiadas notas por minuto")
+    try:
+        return await asyncio.to_thread(jarvis_bitacora.registrar, "friday", req.texto, None, "friday")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 # Bus de negocios (Jarvis <-> Grok Bot): registro y lectura de eventos de estado. No ejecuta acciones.
