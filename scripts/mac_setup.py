@@ -78,7 +78,7 @@ def main(argv=None):
         return 0
     except subprocess.CalledProcessError as exc:
         print("No se completó la preparación. " + (getattr(exc, "stderr", None) or "Revisa el error anterior."), file=sys.stderr)
-        print("Si falta Accesibilidad, habilita Terminal en Preferencias del Sistema → Seguridad y privacidad → Accesibilidad y vuelve a ejecutar. No se cambia ese permiso automáticamente.", file=sys.stderr)
+        print("Si falta Accesibilidad, habilita Terminal Y el python del agente (bash desktop/mac/diagnostico_mouse.sh te dice cuál) en Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y vuelve a ejecutar. No se cambia ese permiso automáticamente.", file=sys.stderr)
         return 2
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError) as exc:
         print("Diagnóstico incompleto: %s" % exc, file=sys.stderr)
