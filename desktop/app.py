@@ -948,6 +948,11 @@ class Companion:
             if kind == "stop_mouse":                                # parada remota del mouse: crea STOP
                 _crear_stop_mouse(); self.emit({"type": "audio.stop"})
                 return self._finish(tid, "done", "Mouse stopped, sir. To turn it back on, delete ~/.jarvis-control/STOP on the Mac.")
+            if kind == "mouse":                                     # voz -> ejecutor del mouse (supervisado: /confirmar)
+                r = mouse_autonomo.encargar_voz(arg)
+                msg = ("On it, sir. Confirm on Telegram with /confirmar if it asks." if r["ok"]
+                       else "I can't do that with the mouse right now, sir: " + str(r.get("motivo")) + ".")
+                return self._finish(tid, "done", msg)
             if kind == "stop_audio":
                 self.stop_local_audio(); self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
             if kind == "mic_off":

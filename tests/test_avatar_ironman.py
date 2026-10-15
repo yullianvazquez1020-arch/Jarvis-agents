@@ -213,3 +213,20 @@ class RouteOn(Route):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JarvisCombinadoV2(unittest.TestCase):
+    def test_voice_mouse_and_status(self):
+        import sys as _s
+        from pathlib import Path as P
+        root = P(__file__).resolve().parent.parent
+        _s.path.insert(0, str(root / "desktop"))
+        import intents, mouse_autonomo
+        self.assertEqual(intents.parse("open safari"), ("mouse", {"action": "open_app", "app": "Safari"}))
+        self.assertEqual(intents.parse("scroll down")[0], "mouse")
+        self.assertIn("concedido", mouse_autonomo.accesibilidad())
+        js = (root / "desktop" / "ui" / "app.js").read_text("utf-8")
+        for k in ("function ack()", "setInterval(rearm", "jarvis-convo", "silenceMs: 350", "st-ax"):
+            self.assertIn(k, js)
+        gl = (root / "desktop" / "ui" / "nucleo-gl.js").read_text("utf-8")
+        self.assertIn("const HB = 66 / 60", gl)

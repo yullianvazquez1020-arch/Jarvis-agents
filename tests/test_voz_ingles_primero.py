@@ -57,7 +57,7 @@ class Latencia(unittest.TestCase):
 
     def test_vad_and_prewarm(self):
         js = (Path(__file__).parents[1] / "desktop" / "ui" / "app.js").read_text()
-        self.assertIn("silenceMs: 450", js)
+        self.assertIn("silenceMs: 350", js)
         self.assertIn("app.prewarm_tts()", SRC)
         self.assertIn("ONLY in", (Path(__file__).parents[1] / "jarvis_desktop_api.py").read_text())
 

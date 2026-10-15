@@ -43,6 +43,14 @@ _LOCAL = (
     ("faster", re.compile(r"\b(mas rapido|habla (mas )?rapido|sube la velocidad)\b")),
 )
 
+_MOUSE = (
+    ("mouse", re.compile(r"\b(open|abre|abrir) (safari)\b"), {"action": "open_app", "app": "Safari"}),
+    ("mouse", re.compile(r"\b(open|abre|abrir) (notes|notas)\b"), {"action": "open_app", "app": "Notes"}),
+    ("mouse", re.compile(r"\b(scroll|baja|desliza) (down|abajo)\b|^scroll down$"), {"action": "scroll", "dy": -5}),
+    ("mouse", re.compile(r"\b(scroll|sube|desliza) (up|arriba)\b|^scroll up$"), {"action": "scroll", "dy": 5}),
+    ("mouse", re.compile(r"\b(take a screenshot|captura (de )?pantalla)\b"), {"action": "screenshot"}),
+)
+
 _PANEL = (
     ("brief", re.compile(r"\b(brief|resumen comercial|informe comercial)\b")),
     ("caja", re.compile(r"\b(caja|flujo de efectivo)\b")),
@@ -65,6 +73,9 @@ def parse(text):
     for kind, rx in _LOCAL:
         if rx.search(n):
             return kind, None
+    for kind, rx, arg in _MOUSE:                     # voz -> orden al mouse (el ejecutor revalida y pide /confirmar)
+        if rx.search(n):
+            return kind, arg
     if len(n.split()) <= 8 and _NAV.search(n):
         for name, rx in _PANEL:
             if rx.search(n):

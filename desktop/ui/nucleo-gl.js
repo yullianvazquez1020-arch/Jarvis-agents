@@ -333,6 +333,9 @@ function arrancar() {
 
   let mx = 0, my = 0, env = 0, envV = 0, nextLab = 0, ph = 0, sw = 0, smx = 0, smy = 0; const coreW = new THREE.Vector3(); addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   const lab = document.getElementById("estado");   // cacheado: sin consultas al DOM en el bucle
+  // latido "lub-dub" a 66 ppm, siempre visible (también en reposo); más fuerte al hablar (hbAmp sigue al nivel de voz)
+  const HB = 66 / 60, gs = (x) => Math.exp(-(x * x) / 0.0022);
+  const heart = (tt) => { const p = (tt * HB) % 1; return gs(p) + gs(p - 1) + 0.6 * gs(p - 0.2); };
   let t0 = -1; const easeBack = (x) => { const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
   N.paso = function (now, dt, st) {
     dt = Math.min(Math.max(dt, 0), 50);              // dt acotado: sin saltos tras pestaña oculta o tirón
@@ -340,12 +343,12 @@ function arrancar() {
     { // resorte críticamente amortiguado, solución exacta (estable con cualquier dt): sube ya (~35 ms) sin escalón, baja suave (~160 ms)
       const w = raw > env ? 0.045 : 0.012, x0 = env - raw, k = Math.exp(-w * dt), q = (envV + w * x0) * dt;
       env = raw + (x0 + q) * k; envV = (envV - w * q) * k; if (env < 0) { env = 0; envV = 0; } }
-    const lv = Math.min(1, env * 1.6), breath = Math.pow(0.5 + 0.5 * Math.sin(t * 2.6), 4), boost = 1 + lv * 0.55 + li * 0.25;
+    const lv = Math.min(1, env * 1.6), hbAmp = 1 + 1.6 * lv, breath = Math.min(1.6, heart(t) * hbAmp), boost = 1 + lv * 0.55 + li * 0.25;
     if (t0 < 0) t0 = now;
     { const ts = (now - t0) / 1000;                      // arranque: los anillos llegan girando y encajan con un pequeño rebote
       for (let i = 0; i < gears.length; i++) { const g = gears[i], x = Math.min(1, Math.max(0, (ts - 0.2 - i * 0.35) / 0.7)), e = x < 1 ? easeBack(x) : 1;
         g.scale.setScalar(0.001 + 0.999 * e); g.rotation.z += g.userData.spin * dt * 0.001 * (1 + 1.5 * env) + (x < 1 ? (1 - x) * dt * 0.006 * (i % 2 ? -1 : 1) : 0); }
-      for (let i = 0; i < layers.length; i++) { const x = Math.min(1, Math.max(0, (ts - 0.1 - i * 0.12) / 0.6)); layers[i].scale.setScalar(0.001 + 0.999 * (x < 1 ? easeBack(x) : 1)); } }
+      for (let i = 0; i < layers.length; i++) { const x = Math.min(1, Math.max(0, (ts - 0.1 - i * 0.12) / 0.6)); layers[i].scale.setScalar((0.001 + 0.999 * (x < 1 ? easeBack(x) : 1)) * (1 + 0.035 * hbAmp * heart(t - 0.05 * i))); } }   // onda del latido hacia fuera
     adapt(dt, now); const kr = 1 - Math.exp(-dt / 300), km = 1 - Math.exp(-dt / 140);
     smx += (mx - smx) * km; smy += (my - smy) * km;                 // ratón doblemente suavizado: el paralaje nunca da tirones
     rig.rotation.x += ((-smy * 0.32 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * kr;   // inclinación + paralaje
@@ -355,12 +358,12 @@ function arrancar() {
     ringMats.forEach((m, k) => { m.opacity = Math.min(1, RINGS[k][5] * (0.8 + 0.2 * breath) * boost); });
     tris[0].rotation.z = t * 0.25; tris[1].rotation.z = -t * 0.25;
     triMats.forEach((m) => { m.opacity = Math.min(1, 0.85 * boost); });
-    const s = 1 + 0.06 * breath + 0.2 * lv + 0.05 * li, flick = 0.97 + 0.03 * Math.sin(t * 5.1) * Math.sin(t * 2.3);   // parpadeo suave, sin ruido por frame
+    const s = 1 + 0.12 * breath + 0.2 * lv + 0.05 * li, flick = 0.97 + 0.03 * Math.sin(t * 5.1) * Math.sin(t * 2.3);   // parpadeo suave, sin ruido por frame
     core.scale.setScalar(s); vol.scale.setScalar(1 + 0.08 * breath + 0.35 * lv);
-    volMat.uniforms.uI.value = (0.5 + 0.18 * breath + 0.45 * lv) * flick; volMat.uniforms.uT.value = t;
-    coreLight.intensity = (14 + 8 * breath + 18 * lv) * flick;
+    volMat.uniforms.uI.value = (0.5 + 0.35 * breath + 0.45 * lv) * flick; volMat.uniforms.uT.value = t;
+    coreLight.intensity = (14 + 16 * breath + 18 * lv) * flick;
     flare.material.opacity = (0.1 + 0.2 * lv) * boost;
-    bloom.strength = (quality > 1 ? 0.72 : 0.62) + lv * 0.25 + li * 0.06;
+    bloom.strength = (quality > 1 ? 0.72 : 0.62) + breath * 0.22 + lv * 0.25 + li * 0.06;
     for (let i = 0; i < PN; i++) { const p = pdat[i]; p.a += p.s * dt / 1000 * (1 + lv * 3);
       ppos[i * 3] = Math.cos(p.a) * p.r; ppos[i * 3 + 1] = Math.sin(p.a) * p.r; ppos[i * 3 + 2] = p.z; }
     pgeo.attributes.position.needsUpdate = true;
@@ -372,7 +375,7 @@ function arrancar() {
     hudMat.uniforms.uPh.value = ph; hudMat.uniforms.uSw.value = sw % 6.2831853; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5; hazeMat.uniforms.uT.value = t; hazeMat.uniforms.uLv.value = lv;
     core.getWorldPosition(coreW).project(cam); rays.uniforms.uL.value.set(coreW.x * 0.5 + 0.5, coreW.y * 0.5 + 0.5);
-    rays.uniforms.uI.value = 0.42 + 0.35 * breath * 0.3 + 0.55 * lv; rays.uniforms.uR.value = 0.036 * s;
+    rays.uniforms.uI.value = 0.42 + 0.3 * breath + 0.55 * lv; rays.uniforms.uR.value = 0.036 * s;
     composer.render();
     if (lab && now > nextLab) { nextLab = now + 100; const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
   };

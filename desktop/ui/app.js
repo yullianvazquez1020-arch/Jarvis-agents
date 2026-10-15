@@ -96,12 +96,12 @@
     else if (e.type === "alert") addAlert(e);
     else if (e.type === "audio.play" && isOwner) { if (e.seq && e.turn === playTurn && audioEl) playQ.push(e.id); else { playTurn = e.turn; play(e.id); } }
     else if (e.type === "audio.stop") stopAudio();
-    else if (e.type === "mic.off") stopMic(true);
-    else if (e.type === "mic.on") setState("micrófono listo", "pulsa Hablar o Espacio");
+    else if (e.type === "mic.off") { handsOff = true; stopMic(true); }
+    else if (e.type === "mic.on" && !(handsOff = false)) setState("micrófono listo", "pulsa Hablar o Espacio");
     else if (e.type === "turn.done" || e.type === "turn.error" || e.type === "turn.cancelled") {
       if (e.turn === current) { current = null; $("cancel").disabled = true; }
       if (e.type === "turn.done" && $("convo").checked && isOwner && state.prefs.mic) {
-        setTimeout(function () { if (!audioEl || audioEl.paused) startMic(); }, 600);
+        setTimeout(rearm, 150);
       }
     }
     else if (e.type === "pairing") { loadState(); $("pair-msg").textContent = pairMsg(e); }
@@ -153,7 +153,7 @@
   function play(id, keepQ) {
     if (!keepQ) playQ = [];
     stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
-    audioEl.onended = function () { if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("listo"); } };
+    audioEl.onended = function () { if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("listo"); setTimeout(rearm, 150); } };
     setState("hablando");
     voice.attach(audioEl, id);
     audioEl.addEventListener("playing",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(true);});
@@ -253,22 +253,36 @@
     navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
       .then(function (stream) {
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
-        var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(4096, 1, 1);
-        var chunks = [], det = new W.Detector({ silenceMs: 450, maxMs: 30000 });   // fin de frase en ~0,45 s (latencia <1 s)
+        var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
+        var chunks = [], det = new W.Detector({ silenceMs: 350, maxMs: 30000 });   // fin de frase en ~0,35 s; bloques de 1024 (~21 ms)
         rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
         node.onaudioprocess = function (ev) {
           if (!rec) return;
           var data = new Float32Array(ev.inputBuffer.getChannelData(0)); chunks.push(data);
           var r = det.push(data, data.length / rec.rate * 1000);
-          if (r === "silence-end" || r === "max") stopMic(false);
-          else if (r === "no-speech") { stopMic(true); setState("listo", "no te escuché"); }
+          if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
+          else if (r === "no-speech") { stopMic(true); setState(handsFree() ? "escuchando" : "listo", handsFree() ? "" : "no te escuché"); }
         };
         src.connect(node); node.connect(ctx.destination);
         micUi(true); $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Detener ";
         setState("escuchando");
       })
-      .catch(function () { setState("error", "permiso de micrófono denegado"); });
+      .catch(function () { micDenied = true; setState("error", "permiso de micrófono denegado: permítelo en Firefox (icono del micrófono) y recarga"); });
   }
+  // ---------- manos libres: conversación encendida por defecto (persistida), micrófono que se re-arma solo ----------
+  var sttBusy = false, micDenied = false, handsOff = false, ackCtx = null;
+  function handsFree() { return $("convo").checked && !handsOff && !micDenied; }
+  function ack() {                                  // "tic" inmediato al terminar de hablar (<10 ms tras el VAD), antes de STT/IA
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext; ackCtx = ackCtx || new Ctx(); ackCtx.resume();
+      var o = ackCtx.createOscillator(), g = ackCtx.createGain(), t0 = ackCtx.currentTime;
+      o.frequency.setValueAtTime(1320, t0); o.frequency.exponentialRampToValueAtTime(880, t0 + 0.07);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09);
+      o.connect(g); g.connect(ackCtx.destination); o.start(t0); o.stop(t0 + 0.1);
+      window.JarvisAckAt = performance.now();
+    } catch (err) { /* sin audio: seguimos */ }
+  }
+  function rearm() { if (isOwner && handsFree() && !rec && !current && !sttBusy && (!audioEl || audioEl.paused)) startMic(); }
   function stopMic(discard) {
     var r = rec; if (!r) return; rec = null;
     try { r.node.disconnect(); r.src.disconnect(); } catch (err) { /* already closed */ }
@@ -278,12 +292,12 @@
     var n = 0; r.chunks.forEach(function (c) { n += c.length; });
     var all = new Float32Array(n), o = 0; r.chunks.forEach(function (c) { all.set(c, o); o += c.length; });
     var wav = W.encodeWav(W.downsample(all, r.rate, W.OUT_RATE));
-    setState("transcribiendo");
-    api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
+    setState("transcribiendo"); sttBusy = true;
+    api("POST", "/voice/transcribe", undefined, wav).then(function (t) { sttBusy = false;
       $("transcript").value = t.text;
       if (!t.text) { setState("listo", "no entendí nada"); return; }
       if (!$("review").checked) send(t.text, "voice"); else setState("listo", "revisa el texto y pulsa Enviar");
-    }).catch(function (e) { setState("error", e.message); });
+    }).catch(function (e) { sttBusy = false; setState("error", e.message); });
   }
 
   // ---------- turns ----------
@@ -299,13 +313,17 @@
   function showCode(code) { $("pair-code").hidden = false; $("pair-code").textContent = code;
     $("pair-msg").textContent = "En tu chat privado de Telegram con Jarvis escribe: /emparejar " + code; }
 
-  $("talk").onclick = function () { rec ? stopMic(false) : startMic(); };
+  try { $("convo").checked = localStorage.getItem("jarvis-convo") !== "0"; } catch (err) { $("convo").checked = true; }
+  $("convo").onchange = function () { try { localStorage.setItem("jarvis-convo", this.checked ? "1" : "0"); } catch (err) { /* ignore */ }
+    handsOff = false; if (this.checked) rearm(); else if (rec) stopMic(true); };
+  setInterval(rearm, 800);                          // perro guardián: escucha continua sin clics
+  $("talk").onclick = function () { handsOff = false; rec ? stopMic(false) : startMic(); };
   $("send").onclick = function () { send($("transcript").value, "text"); };
   $("cancel").onclick = function () { if (current) api("POST", "/conversation/turns/" + current + "/cancel", {}).then(function (r) {
     $("reply-meta").textContent = r.note; }); };
   $("repeat").onclick = function () { send("repite", "text"); };
   $("stop").onclick = function () { stopAudio(); api("POST", "/api/audio/stop", {}); };
-  $("mic-off").onclick = function () { stopMic(true); api("POST", "/api/prefs", { mic: false }); };
+  $("mic-off").onclick = function () { handsOff = true; stopMic(true); api("POST", "/api/prefs", { mic: false }); };
   $("claim").onclick = function () { api("POST", "/api/audio/claim", { window: windowId }).then(function () { setOwner(true); }); };
   $("review").onchange = function () { api("POST", "/api/prefs", { review: this.checked }); };
   $("discreet").onchange = function () { revealed = false; api("POST", "/api/prefs", { discreet: this.checked }); };
@@ -327,12 +345,21 @@
     }
   });
 
+  function mouseStatus() {                          // estado del mouse en la misma página (solo lectura)
+    api("GET", "/api/mouse-autonomo").then(function (m) {
+      $("st-mouse").textContent = m.stop ? "STOP activo" : (m.sesion ? "listo (" + m.agente + ")" : "en espera");
+      var ax = m.accesibilidad || {}, el = $("st-ax");
+      el.textContent = ax.concedido === true ? "concedida ✓" : ax.concedido === false ? "NO concedida: Ajustes › Privacidad › Accesibilidad › python3.9" : "sin dato (¿LaunchAgent corriendo?)";
+      el.style.color = ax.concedido === true ? "#6f6" : ax.concedido === false ? "#f66" : "";
+    }).catch(function () { $("st-mouse").textContent = "sin dato"; });
+  }
+  mouseStatus(); setInterval(mouseStatus, 10000);
   tick(); setInterval(tick, 15000);
   api("POST", "/api/window/hello", { window: windowId }).then(function (r) { setOwner(r.owner); })
     .then(loadState).then(function () {
       var last = null; try { last = sessionStorage.getItem("jarvis-panel"); } catch (err) { /* ignore */ }
       if (last && PANEL_NAMES[last]) openPanel(last);
-      setState("listo"); poll();
+      setState("listo"); poll(); setTimeout(rearm, 300);
       if (isOwner && state.startup && state.startup.audio && !state.tts.problem) {
         api("POST", "/conversation/turns", {request_id:rid(),text:"estado del sistema",source:"text"})
           .catch(function(e){setState("listo",e.message);});
