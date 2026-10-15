@@ -296,6 +296,10 @@ def startup_sound(cfg):
         p = Path(own).expanduser()
         if p.is_file() and p.suffix.lower() in SOUND_TYPES and p.stat().st_size <= 20 * 2 ** 20:
             return p, SOUND_TYPES[p.suffix.lower()]
+    if str(cfg.get("JARVIS_ARRANQUE", "") or "").strip().lower() == "rock":
+        rock = HERE / "ui" / "audio" / "arranque-rock.wav"  # intro rock original (scripts/gen_arranque_rock.py)
+        if rock.is_file():
+            return rock, "audio/wav"
     default = HERE / "ui" / "audio" / "encendido.wav"
     return (default, "audio/wav") if default.is_file() else None
 
