@@ -116,5 +116,16 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   warm.win.test.startMic();await settle();assert.equal(warm.captures(),1,'no repeated device acquisition between turns');
   assert.equal(warmDevice.track.enabled,true,'device enabled only for capture');
   warm.els['mic-off'].onclick();assert.equal(warmDevice.track.stopped,true,'explicit mic off releases hardware');
+  const claim=harness();await settle();claim.win.test.setOwner(false);
+  assert.equal(claim.els.claim.hidden,false,'voice recovery must be visible when another tab owns audio');
+  assert.equal(claim.els.talk.disabled,true);
+  claim.els.claim.onclick();await settle();
+  assert.equal(claim.els.claim.hidden,true,'claim control hides only after success');
+  assert.equal(claim.els.talk.disabled,false);
+  assert.equal(claim.captures(),1,'explicit claim starts microphone capture');
+  const device=harness();await settle();device.flush();const firstDevice=stream();device.pending.shift()(firstDevice);await settle();
+  device.els['mic-source'].value='second-microphone';device.els['mic-source'].onchange();await settle();
+  assert.equal(firstDevice.track.stopped,true,'changing devices releases the previous microphone');
+  assert.equal(device.captures(),2,'changing devices requests a fresh stream');
   console.log('Conversation lifecycle: recovery, permissions, capture and stale-event checks passed');
 })().catch(err=>{console.error(err);process.exitCode=1});

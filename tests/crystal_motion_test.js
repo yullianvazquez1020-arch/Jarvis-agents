@@ -1,7 +1,7 @@
 const fs=require('fs'), vm=require('vm'), assert=require('assert');
 let now=0, queued=null, arcs=[], listeners={}, docListeners={};
 let reduced={matches:false,addEventListener(){}};
-const ctx={setTransform(){},clearRect(){arcs=[]},beginPath(){},moveTo(){},lineTo(){},stroke(){},fill(){},fillRect(){},arc(x,y){arcs.push([x,y])},createRadialGradient(){return{addColorStop(){}}}};
+const ctx={setTransform(){},clearRect(){arcs=[]},closePath(){},createLinearGradient(){return{addColorStop(){}}},beginPath(){},moveTo(){},lineTo(){},stroke(){},fill(){},fillRect(){},arc(x,y){arcs.push([x,y])},createRadialGradient(){return{addColorStop(){}}}};
 let doc={hidden:false,getElementById(){return{getContext(){return ctx}}},addEventListener(k,f){docListeners[k]=f}};
 let sandbox={document:doc,innerWidth:1916,innerHeight:821,devicePixelRatio:1,performance:{now:()=>now,timeOrigin:0},Date,Math,Number,requestAnimationFrame(f){queued=f;return 1},cancelAnimationFrame(){queued=null},addEventListener(k,f){listeners[k]=f}};
 sandbox.window={matchMedia:()=>reduced};

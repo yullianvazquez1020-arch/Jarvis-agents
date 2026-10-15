@@ -61,7 +61,7 @@
         <label class="check"><input id="review" type="checkbox"> Review before sending</label>
       </div>
       <div id="owner-note" class="note" hidden>
-        This window is display-only. <button id="claim" type="button" class="link">Use this window for voice</button>
+        Esta ventana solo muestra el panel. Usa «Activar voz aquí» abajo.
       </div>
       <div id="processing" class="small"></div>
     </section>
@@ -99,7 +99,10 @@
   </main>
 
   <footer class="foot">
+    <button id="claim" type="button" hidden>Activar voz aquí</button>
     <button id="talk" class="talk" type="button">Hablar <kbd>Espacio</kbd></button>
+    <label class="mic-source">Micrófono <select id="mic-source" aria-label="Micrófono de entrada"><option value="">Predeterminado del sistema</option></select></label>
+    <meter id="mic-level" min="0" max="1" value="0" aria-label="Nivel real del micrófono"></meter>
     <span id="mic-dot" class="mic" aria-live="polite">● micrófono apagado</span>
     <button id="mic-off" type="button" class="ghost">Apagar micrófono</button>
     <button id="stop" type="button" class="ghost">Detener audio <kbd>Esc</kbd></button>
