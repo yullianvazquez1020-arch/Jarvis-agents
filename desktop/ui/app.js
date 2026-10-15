@@ -254,7 +254,7 @@
       .then(function (stream) {
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(4096, 1, 1);
-        var chunks = [], det = new W.Detector({ silenceMs: 1200, maxMs: 30000 });
+        var chunks = [], det = new W.Detector({ silenceMs: 450, maxMs: 30000 });   // fin de frase en ~0,45 s (latencia <1 s)
         rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
         node.onaudioprocess = function (ev) {
           if (!rec) return;

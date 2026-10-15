@@ -86,7 +86,7 @@ class Speaker:
         forced = os.getenv("JARVIS_SAY_VOICE", "").strip()
         if forced and not is_female(forced):
             es = forced
-        voice = (es if detect_lang(text) == "es" and es else en or es) or "Daniel"   # inglés primero
+        voice = en or "Daniel"                          # SOLO inglés (Daniel en-GB)
         return ["say", "-v", voice, "-r", str(speech_rate()), text]
 
     def speak(self, text: str) -> None:

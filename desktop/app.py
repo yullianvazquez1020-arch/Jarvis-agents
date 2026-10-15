@@ -41,7 +41,7 @@ sys.path.insert(0, str(HERE))
 
 import intents                                    # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
-from audio import engines, una_voz                # noqa: E402
+from audio import engines, latencia, una_voz      # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
 import negocios                                  # noqa: E402
 import mouse_autonomo                            # noqa: E402
@@ -84,7 +84,7 @@ WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
             "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "JARVIS_FONDO": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
             "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
@@ -629,7 +629,8 @@ class Companion:
                     "paired": bool(self._token()), "server_version": self.server_version,
                     "startup": {"camera": truthy(self.cfg.get("VOICE_AUTO_CAMERA", "false")), "audio": truthy(self.cfg.get("VOICE_STARTUP_AUDIO", "false")),
                                 "greeting": truthy(self.cfg.get("VOICE_STARTUP_GREETING", "true")),
-                                "sound": startup_sound(self.cfg) is not None},
+                                "sound": startup_sound(self.cfg) is not None,
+                                "fondo": truthy(self.cfg.get("JARVIS_FONDO", "true")) and (HERE / "ui" / "audio" / "fondo.wav").is_file()},
                     "stt": {"engine": self.stt.name, "problem": self.stt.problem()},
                     "tts": {"engine": self.tts.name, "problem": self.tts.problem()},
                     "processing": "Todo el audio se procesa en esta Mac" if self.stt.name != "none" else
@@ -739,16 +740,20 @@ class Companion:
         with self.lock:
             discreet = self.prefs["discreet"]; rate = self.prefs["rate"]; owner = self.owner
         if discreet and (sensitive or re.search(r"\d", text or "")):
-            text = "Te lo dejé en pantalla."
+            text = "I left it on screen, sir."
         if (not owner and not self._playback_native()) or self.tts.problem():
             return None                                      # sin ventana dueña: en auto suena por los altavoces
         gen0 = getattr(self, "_voz_gen", 0)                  # generación tomada ANTES de sintetizar: un stop posterior la invalida
         native = self._playback_native()
         parts = speech_chunks(text)                          # baja latencia: la 1.ª frase suena mientras se sintetiza el resto
         first, total = None, 0.0
+        t_tts = latencia.now_ms()
         for i, part in enumerate(parts):
             try:
                 audio, ctype = self.tts.synthesize(part, rate=rate)
+                if i == 0 and turn_id:
+                    lat = self._lat(turn_id); lat["tts_first_audio_ms"] = latencia.now_ms() - t_tts
+                    latencia.write(turn_id, lat)
             except engines.EngineError as e:
                 if i == 0:
                     self.emit({"type": "state", "state": "error", "detail": f"voz: {e}"}); return None
@@ -773,6 +778,22 @@ class Companion:
             total += _wav_secs(audio)
         self.speaking_until = time.time() + (total or 3)
         return first
+
+    def _lat(self, tid):
+        with self.lock:
+            t = self.turns.get(tid)
+            return t.setdefault("lat", {}) if t is not None else {}
+
+    def prewarm_tts(self):
+        """Precalienta say/Piper al arrancar (y deja el saludo en caché): la primera respuesta no paga el arranque."""
+        def run():
+            for line in (GREETING, "Yes, sir."):
+                try:
+                    self.tts.synthesize(line, rate=self.prefs["rate"])
+                except Exception:
+                    return
+        if not self.tts.problem():
+            threading.Thread(target=run, daemon=True).start()
 
     def _playback_mode(self):
         return str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).strip().lower()
@@ -862,7 +883,8 @@ class Companion:
             if any(x["state"] in ("accepted", "consultando") for x in self.turns.values()):
                 raise ValueError("ya hay una consulta en curso")
             self.turns[request_id] = {"text": text, "state": "accepted", "cancelled": False, "source": source,
-                                      "at": time.time()}
+                                      "at": time.time(), "lat": dict(getattr(self, "_lat_pending", None) or {})}
+            self._lat_pending = None
             for old in sorted(self.turns, key=lambda k: self.turns[k]["at"])[:-100]:
                 self.turns.pop(old, None)
         self.emit({"type": "transcript.final", "turn": request_id, "text": text})
@@ -915,35 +937,35 @@ class Companion:
         try:
             if kind == "stop_mouse":                                # parada remota del mouse: crea STOP
                 _crear_stop_mouse(); self.emit({"type": "audio.stop"})
-                return self._finish(tid, "done", "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.")
+                return self._finish(tid, "done", "Mouse stopped, sir. To turn it back on, delete ~/.jarvis-control/STOP on the Mac.")
             if kind == "stop_audio":
                 self.stop_local_audio(); self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
             if kind == "mic_off":
                 self.set_prefs(mic=False); self.emit({"type": "mic.off"})
-                return self._finish(tid, "done", "Apagué el micrófono.")
+                return self._finish(tid, "done", "Microphone off, sir.")
             if kind == "mic_on":                                   # 4.0.5 (3.4)
                 self.set_prefs(mic=True); self.emit({"type": "mic.on"})
-                return self._finish(tid, "done", "Micrófono encendido. Pulsa Hablar o la barra espaciadora.")
+                return self._finish(tid, "done", "Microphone on. Press Talk or the space bar.")
             if kind in ("discreet_on", "discreet_off"):
                 self.set_prefs(discreet=kind == "discreet_on")
-                return self._finish(tid, "done", "Modo discreto activado: no leeré montos ni códigos." if kind == "discreet_on"
-                                    else "Modo discreto desactivado.")
+                return self._finish(tid, "done", "Discreet mode on: I won't read amounts or codes aloud." if kind == "discreet_on"
+                                    else "Discreet mode off.")
             if kind == "health":
                 return self._finish(tid, "done", self.local_health_text())
             if kind == "business":
                 return self._finish(tid, "done",
-                    "Enfoque: negocios externos. Te leo caja, cobros, agenda y el resumen comercial. "
-                    "No compro, no llamo, no publico y no muevo dinero.")
+                    "Focus: your external businesses. I can read cash, collections, the agenda and the sales summary. "
+                    "I don't buy, call, post or move money.")
             if kind == "repeat":
                 with self.lock:
                     aid, last = self.last["audio"], self.last["text"]
                 if aid and aid in self.audio:
                     self.emit({"type": "audio.play", "id": aid, "turn": tid}); return self._finish(tid, "done")
-                return self._finish(tid, "done", last or "Todavía no he dicho nada.")
+                return self._finish(tid, "done", last or "I haven't said anything yet, sir.")
             if kind in ("slower", "faster"):
                 self.set_prefs(rate=self.prefs["rate"] + (-0.15 if kind == "slower" else 0.15))
-                return self._finish(tid, "done", "Listo, hablaré más despacio." if kind == "slower"
-                                    else "Listo, hablaré más rápido.")
+                return self._finish(tid, "done", "Very well, I'll speak more slowly." if kind == "slower"
+                                    else "Very well, I'll speak a little faster.")
             if kind == "refuse":
                 return self._finish(tid, "done", arg)
             if kind == "panel":
@@ -951,31 +973,33 @@ class Companion:
                 return self._finish(tid, "done", p.get("speak") or p["title"], sensitive=p.get("sensitive", False),
                                     panel_data=p)
             if kind == "empty":
-                return self._finish(tid, "done", "No te escuché.")
+                return self._finish(tid, "done", "I didn't catch that, sir.")
             if self.demo:
-                return self._finish(tid, "done", "DEMO: no estoy conectado a tu Jarvis, así que no consulto tus "
-                                                 "datos. Prueba «abre la agenda» para ver un panel de ejemplo.")
+                return self._finish(tid, "done", "Demo mode: I'm not connected to your Jarvis, so I can't read your "
+                                                 "data. Try \"open the agenda\" to see a sample panel.")
             if not self.client.url or not self._token():
-                return self._finish(tid, "error", "Sin conexión real con Jarvis. Configura y empareja este equipo; no se ejecutó ninguna acción.")
-            r = self.client.turn(tid, text)
+                return self._finish(tid, "error", "No live connection to Jarvis. Please pair this computer; nothing was executed.")
+            t_llm = latencia.now_ms()
+            r = self.client.turn(tid, text)          # respuesta del servidor (sin streaming: = primer token)
+            self._lat(tid)["llm_first_token_ms"] = latencia.now_ms() - t_llm
             state = r.get("state")
             if state == "uncertain":
-                return self._finish(tid, "error", r.get("reply") or "No sé si Jarvis contestó; pregúntame otra vez.")
+                return self._finish(tid, "error", r.get("reply") or "I'm not sure Jarvis answered; please ask me again.")
             if state == "running":
-                return self._finish(tid, "error", "Jarvis todavía está trabajando en esa consulta; intenta en un momento.")
+                return self._finish(tid, "error", "Jarvis is still working on that; try again in a moment.")
             self._finish(tid, "done" if state == "done" else "error", str(r.get("reply") or "")[:4000],
                          sensitive=bool(r.get("sensitive")), events=safe_events(r.get("events")),
                          llm=bool(r.get("llm_used")))
         except ServerError as e:
             if e.status == 401:
                 self._auth_lost(e.detail)
-            msg = ("No pude hablar con Jarvis (sin conexión). Tu pregunta no se repetirá sola; inténtalo otra vez."
-                   if e.status == 0 else f"Jarvis respondió con un error: {e.detail}")
+            msg = ("I couldn't reach Jarvis, sir, no connection. Please try again."
+                   if e.status == 0 else f"Jarvis returned an error: {e.detail}")
             self.emit({"type": "state", "state": "sin conexión" if e.status == 0 else "error"})
             self._finish(tid, "error", msg)
         except Exception as e:                                   # never leave a turn stuck
             log.warning("turn failed: %s", type(e).__name__)
-            self._finish(tid, "error", "Algo falló en el panel local; inténtalo otra vez.")
+            self._finish(tid, "error", "Something failed in the local panel; please try again.")
 
 
 INDEX_401 = (b"<!doctype html><meta charset=utf-8><title>Jarvis</title><body style='background:#071426;color:#cfe;"
@@ -1093,6 +1117,11 @@ def make_handler(app, host, port):
                 if not amb.is_file():
                     return self._send(404, {"error": "sin música"})
                 return self._send(200, amb.read_bytes(), "audio/wav")
+            if u.path == "/api/fondo-music":                  # fondo ambiental original (gen_fondo.py); JARVIS_FONDO=off lo apaga
+                fondo = HERE / "ui" / "audio" / "fondo.wav"
+                if not truthy(app.cfg.get("JARVIS_FONDO", "true")) or not fondo.is_file():
+                    return self._send(404, {"error": "fondo apagado"})
+                return self._send(200, fondo.read_bytes(), "audio/wav")
             if u.path == "/api/startup-sound":                # sonido de arranque (original o archivo propio local)
                 found = startup_sound(app.cfg)
                 if not found:
@@ -1155,7 +1184,9 @@ def make_handler(app, host, port):
                         return self._send(415, {"error": "se espera audio/wav"})
                     wav = self.rfile.read(n)
                     app.emit({"type": "state", "state": "transcribiendo"})
+                    t0 = latencia.now_ms()
                     out = app.transcribe(wav); out["id"] = uuid.uuid4().hex
+                    app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0}
                     app.emit({"type": "state", "state": "listo"})
                     return self._send(200, out)
                 data = self._json()
@@ -1243,6 +1274,7 @@ def serve(cfg, open_browser=True):
     host = check_bind(cfg["VOICE_BIND_HOST"], truthy(cfg["VOICE_ALLOW_LAN"]))
     port = int(cfg["VOICE_PORT"])
     app = Companion(cfg)
+    app.prewarm_tts()                                  # TTS listo antes de la primera respuesta
     httpd = Server((host, port), http.server.BaseHTTPRequestHandler)
     real_port = httpd.server_address[1]                  # differs from port only when port is 0 (tests)
     httpd.RequestHandlerClass = make_handler(app, host, real_port)
@@ -1318,13 +1350,20 @@ def _wav_secs(audio):
         return 0.0
 
 
-def speech_chunks(text, first_max=140):
-    """Primera frase sola (empieza a sonar enseguida); el resto en un segundo bloque."""
+def speech_chunks(text, first_max=140, first_words=6):
+    """Primera cláusula corta sola (frase corta, coma o ~6 palabras): suena en <1 s; el resto en un segundo bloque."""
     t = str(text or "").strip()
-    m = re.search(r"[.!?…](\s+)", t)
-    if not m or m.end() >= len(t) or m.start() > first_max:
+    words = t.split()
+    if len(words) <= 4:                                  # «Yes, sir.»: una sola pieza
         return [t]
-    return [t[:m.start() + 1], t[m.end():]]
+    for pat in (r"[.!?…](\s+)", r"[,;:](\s+)"):
+        m = re.search(pat, t)
+        if m and m.end() < len(t) and m.start() <= first_max and len(t[:m.start()].split()) <= first_words + 2 \
+                and len(t[m.end():].split()) >= 3:
+            return [t[:m.start() + 1], t[m.end():]]
+    if len(words) <= first_words + 3:
+        return [t]
+    return [" ".join(words[:first_words]), " ".join(words[first_words:])]
 
 
 def main(argv=None):
