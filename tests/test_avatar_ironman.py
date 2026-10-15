@@ -147,6 +147,16 @@ class Route(unittest.TestCase):
         status, _ = self.get("/ui/vendor/three/three.module.js")      # sin sesión, nada
         self.assertNotEqual(status, 200)
 
+    def test_every_three_module_served_as_js_while_off(self):   # postprocessing/* incluido (antes 404 JSON → 2D viejo)
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent / "desktop" / "ui" / "vendor"
+        files = sorted((root / "three").rglob("*.js"))
+        self.assertGreater(len(files), 10)
+        cookie = self.login()
+        for f in files:
+            status, _ = self.get("/ui/vendor/" + f.relative_to(root).as_posix(), cookie)
+            self.assertEqual(status, 200, f)
+
     def test_state_reports_the_flag(self):
         status, body = self.get("/api/state", self.login())
         self.assertEqual(status, 200)

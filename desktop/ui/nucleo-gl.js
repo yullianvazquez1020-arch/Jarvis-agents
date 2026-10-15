@@ -259,7 +259,8 @@ function arrancar() {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, cam));
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.72, 0.3, 0.9);
-  let bloomRes = 1; const bloomSize = bloom.setSize.bind(bloom);   // bloom a resolución completa (calidad cine) bloom.setSize = (w, h) => bloomSize(Math.max(1, Math.round(w * bloomRes)), Math.max(1, Math.round(h * bloomRes)));
+  let bloomRes = 0.5; const bloomSize = bloom.setSize.bind(bloom);   // arranca a media resolución (GPU débil: MacBook Pro 2015); sube si sobra margen
+  bloom.setSize = (w, h) => bloomSize(Math.max(1, Math.round(w * bloomRes)), Math.max(1, Math.round(h * bloomRes)));
   const rays = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, uL: { value: new THREE.Vector2(0.5, 0.5) }, uN: { value: 56 }, uI: { value: 0.5 }, uAsp: { value: 1 }, uR: { value: 0.05 } },
     vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }",
@@ -300,7 +301,8 @@ function arrancar() {
   composer.addPass(lens); composer.addPass(new OutputPass());
 
   // --- tamaño adaptativo y calidad según FPS ---
-  let scale = 1, W = 0, H = 0, cnt = 0, quality = 2, good = 0, coolUntil = 0;
+  let scale = 0.75, W = 0, H = 0, cnt = 0, quality = 1,   // arranque en calidad baja; el auto-escalado sube con margen
+      good = 0, coolUntil = 0;
   const FT = new Float32Array(120), FS = new Float32Array(120);   // ventana de frame-times (prealocada)
   function fit() {
     W = innerWidth; H = innerHeight; const pr = Math.min(DPR_MAX, devicePixelRatio || 1) * scale;
@@ -308,6 +310,7 @@ function arrancar() {
     cam.aspect = W / H; cam.fov = 38; cam.position.z = 4.5 / Math.tan(THREE.MathUtils.degToRad(19)) / Math.min(1, cam.aspect / 1.15); cam.updateProjectionMatrix();
     lens.uniforms.uRes.value.set(W * pr, H * pr); rays.uniforms.uAsp.value = W / H;   // el HUD cabe en alto (ultrawide 3840×1080) y en ancho
   }
+  rays.uniforms.uN.value = 28; hazeMat.uniforms.uQ.value = 1;   // coherente con quality = 1
   addEventListener("resize", fit); fit();
   let p95 = 16.7, avgMs = 16.7;
   function adapt(dt, now) {                         // escala dinámica por p95 (no por promedio), con histéresis y enfriamiento

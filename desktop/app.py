@@ -63,17 +63,8 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
             "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8"}
-VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
-                "three/three.core.js": "text/javascript; charset=utf-8",
-                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
-                **{f"three/{d}/{n}.js": "text/javascript; charset=utf-8" for d, names in (
-                    ("postprocessing", ("EffectComposer", "RenderPass", "ShaderPass", "MaskPass", "Pass",
-                                        "UnrealBloomPass", "BokehPass", "OutputPass")),
-                    ("shaders", ("CopyShader", "LuminosityHighPassShader", "BokehShader", "OutputShader",
-                                 "GTAOShader", "PoissonDenoiseShader", "AfterimageShader")),
-                    ("postprocessing", ("GTAOPass", "AfterimagePass")), ("math", ("SimplexNoise",)),
-                    ("loaders", ("HDRLoader",)))
-                   for n in names}}
+VENDOR_FILES = {p.relative_to(HERE / "ui" / "vendor").as_posix(): "text/javascript; charset=utf-8"
+                for p in sorted((HERE / "ui" / "vendor" / "three").rglob("*.js"))}   # todo three/**.js (MIT, local)
 # Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.
 ASSET_FILES = {**{f"piedra-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad", "ao")},
                **{f"roca-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad")},
