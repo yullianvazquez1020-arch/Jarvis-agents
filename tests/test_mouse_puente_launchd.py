@@ -68,3 +68,25 @@ class Puente(Base):
     def test_stop(self):
         self.latido(); (self.dir / "STOP").touch()
         self.assertFalse(ma.encargar({"action": "move", "x": 400, "y": 300})["ok"])
+
+
+import importlib.util as _iu  # noqa: E402
+_s = _iu.spec_from_file_location("mac_setup", Path(__file__).resolve().parents[1] / "scripts" / "mac_setup.py")
+mac_setup = _iu.module_from_spec(_s); _s.loader.exec_module(mac_setup)
+
+
+class Informe(Base):
+    def test_sin_venv_no_miente(self):
+        r = mac_setup.mouse_report(self.dir / "nada" / "python")
+        self.assertIn("NO instalado", r); self.assertNotIn("concedida", r)
+
+    def test_sin_quartz_ni_agente(self):
+        py = self.dir / "python"; py.touch()
+        class R:
+            def __init__(s, out, rc=0): s.stdout, s.returncode = out, rc
+        salidas = [R('{"python": "/x/python3.9", "modulos": false, "error": "No module named Quartz", "accesibilidad": false}'),
+                   R("Could not find service", 113)]
+        with patch.object(mac_setup.subprocess, "run", side_effect=lambda *a, **k: salidas.pop(0)):
+            r = mac_setup.mouse_report(py, probar=True)
+        self.assertIn("FALTAN", r); self.assertIn("NO —", r); self.assertIn("NO cargado", r)
+        self.assertNotIn("FUNCIONA", r)
