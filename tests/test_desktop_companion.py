@@ -607,7 +607,7 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc1">', body)              # Aincrad retirado: /torre muestra el núcleo
         self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
@@ -629,7 +629,7 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc1">', body)              # Aincrad retirado: /torre muestra el núcleo
         self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
@@ -651,7 +651,7 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # /avatar = núcleo; sin ciudad orbital ni 100 pisos
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc1">', body)              # /avatar = núcleo; sin ciudad orbital ni 100 pisos
         self.assertNotIn("ÓRBITA".encode(), body); self.assertNotIn(b"PISOS", body)
         self.assertNotIn(b'<script>', body)
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
@@ -810,7 +810,7 @@ class GalaxyTheme(CompanionBase):
 
     def test_home_is_the_nucleo_full_screen(self):
         body = self.req("GET", "/")[3]
-        self.assertIn(b'<canvas id="nucleo"', body); self.assertIn(b'<script src="/ui/nucleo.js"></script>', body)
+        self.assertIn(b'<canvas id="nucleo"', body); self.assertIn(b'<script src="/ui/nucleo.js?v=arc1"></script>', body)
         self.assertIn(b'<script src="/ui/nucleo-home.js"></script>', body); self.assertIn(b'<script src="/ui/app.js"></script>', body)
         for banned in (b"negocios.js", b"atlas.js", b"torre", "ÓRBITA".encode(), b"PISOS", b"CIUDADELA", b"/avatar\""):
             self.assertNotIn(banned, body, banned)

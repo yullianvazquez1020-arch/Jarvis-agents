@@ -141,9 +141,11 @@ class Route(unittest.TestCase):
         status, _ = self.get("/avatar/ironman", self.login())
         self.assertEqual(status, 404)
 
-    def test_vendor_hidden_while_off(self):
+    def test_three_served_for_core_while_off(self):   # el núcleo WebGL necesita three.js aunque el avatar esté apagado
         status, _ = self.get("/ui/vendor/three/three.module.js", self.login())
-        self.assertEqual(status, 404)
+        self.assertEqual(status, 200)
+        status, _ = self.get("/ui/vendor/three/three.module.js")      # sin sesión, nada
+        self.assertNotEqual(status, 200)
 
     def test_state_reports_the_flag(self):
         status, body = self.get("/api/state", self.login())

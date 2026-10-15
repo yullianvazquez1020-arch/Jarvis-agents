@@ -1077,8 +1077,8 @@ def make_handler(app, host, port):
                     return self._send(404, {"error": "no existe"})
                 return self._send(200, (HERE / "ui" / "assets" / u.path[11:]).read_bytes(), ASSET_FILES[u.path[11:]])
             if u.path.startswith("/ui/vendor/") and u.path[11:] in VENDOR_FILES:
-                if not app.avatar_ironman:
-                    return self._send(404, {"error": "no existe"})
+                if not app.avatar_ironman and not u.path[11:].startswith("three/"):   # three.js (MIT, local) lo usa el núcleo WebGL siempre;
+                    return self._send(404, {"error": "no existe"})                    # antes daba 404 sin JARVIS_AVATAR_IRONMAN → caía al 2D viejo
                 return self._send(200, (HERE / "ui" / "vendor" / u.path[11:]).read_bytes(), VENDOR_FILES[u.path[11:]])
             if u.path == "/api/hand-mouse/status":
                 return self._send(200, app.hand_mouse.status())

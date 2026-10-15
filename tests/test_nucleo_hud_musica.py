@@ -19,7 +19,7 @@ class NucleoHUD(unittest.TestCase):
         self.assertIn("N.gl = true", gl); self.assertIn("webglOk", gl)
         self.assertIn("nucleo-gl.js", app.UI_FILES)
         for page in ("index.html", "nucleo.html"):
-            self.assertIn('<script type="module" src="/ui/nucleo-gl.js"></script>', (UI / page).read_text("utf-8"))
+            self.assertIn('<script type="module" src="/ui/nucleo-gl.js?v=arc1"></script>', (UI / page).read_text("utf-8"))
 
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")

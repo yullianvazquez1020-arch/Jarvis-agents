@@ -85,10 +85,29 @@ function arrancar() {
   rig.add(fins);
   const housing = new THREE.Mesh(new THREE.TorusGeometry(1.32, 0.16, 24, 96), metal); housing.position.z = -0.2; rig.add(housing);
   const housing2 = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.07, 16, 72), metal); housing2.position.z = 0.05; rig.add(housing2);
-  for (let i = 0; i < 10; i++) {                   // bobinas del reactor, metálicas
-    const coil = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.14), metal), a = i * Math.PI / 5;
-    coil.position.set(Math.cos(a) * 1.05, Math.sin(a) * 1.05, -0.05); coil.rotation.z = a; rig.add(coil);
+  // reactor de arco (diseño original): 10 bobinas de cobre bobinado sobre núcleo de hierro, separadores de metal
+  const copperC = document.createElement("canvas"); copperC.width = 64; copperC.height = 256;
+  { const g = copperC.getContext("2d"); for (let y = 0; y < 256; y += 4) { const v = 150 + ((y * 37) % 60);
+      g.fillStyle = "rgb(" + v + "," + (v * 0.55 | 0) + "," + (v * 0.32 | 0) + ")"; g.fillRect(0, y, 64, 3); g.fillStyle = "#2a160c"; g.fillRect(0, y + 3, 64, 1); } }
+  const copperT = new THREE.CanvasTexture(copperC); copperT.colorSpace = THREE.SRGBColorSpace;
+  const copper = new THREE.MeshPhysicalMaterial({ map: copperT, bumpMap: copperT, bumpScale: 1.2, metalness: 1, roughness: 0.28, clearcoat: 0.6, clearcoatRoughness: 0.1, color: 0xffc7a0 });
+  const coilGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.34, 20, 1);
+  for (let i = 0; i < 10; i++) {
+    const a = i * Math.PI / 5 + Math.PI / 10, coil = new THREE.Mesh(coilGeo, copper);
+    coil.position.set(Math.cos(a) * 1.05, Math.sin(a) * 1.05, -0.02); coil.rotation.z = a; rig.add(coil);
+    const sep = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.2), metal), b = i * Math.PI / 5;
+    sep.position.set(Math.cos(b) * 1.05, Math.sin(b) * 1.05, -0.02); sep.rotation.z = b; rig.add(sep);
   }
+  // anillos mecánicos con dientes de engranaje que giran en sentidos opuestos (encajan con "clic" al arrancar)
+  function gear(r0, r1, teeth, depth) {
+    const sh = new THREE.Shape(), n = teeth * 4;
+    for (let i = 0; i <= n; i++) { const a = i / n * Math.PI * 2, out = (i % 4 === 1 || i % 4 === 2) ? depth : 0;
+      const x = Math.cos(a) * (r1 + out), y = Math.sin(a) * (r1 + out); i ? sh.lineTo(x, y) : sh.moveTo(x, y); }
+    const hole = new THREE.Path(); hole.absarc(0, 0, r0, 0, Math.PI * 2, true); sh.holes.push(hole);
+    return new THREE.ExtrudeGeometry(sh, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.012, bevelSegments: 2, curveSegments: 96 });
+  }
+  const gears = [[1.98, 2.1, 72, 0.05, -0.55, 0.09], [2.42, 2.5, 96, 0.04, -0.75, -0.06], [1.38, 1.46, 40, 0.05, -0.15, 0.14]].map((q) => {
+    const m = new THREE.Mesh(gear(q[0], q[1], q[2], q[3]), q[2] > 80 ? metalDark : metal); m.position.z = q[4]; m.userData.spin = q[5]; rig.add(m); return m; });
   const coreLight = new THREE.PointLight(0x7fd8ff, 40, 9, 2); coreLight.position.z = 0.6; rig.add(coreLight);
   scene.add(new THREE.AmbientLight(0x0b1c2a, 1.2));
   const rim = new THREE.DirectionalLight(0x9fd0ff, 1.4); rim.position.set(-3, 4, 5); scene.add(rim);
@@ -311,6 +330,7 @@ function arrancar() {
 
   let mx = 0, my = 0, env = 0, envV = 0, nextLab = 0, ph = 0, sw = 0, smx = 0, smy = 0; const coreW = new THREE.Vector3(); addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   const lab = document.getElementById("estado");   // cacheado: sin consultas al DOM en el bucle
+  let t0 = -1; const easeBack = (x) => { const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
   N.paso = function (now, dt, st) {
     dt = Math.min(Math.max(dt, 0), 50);              // dt acotado: sin saltos tras pestaña oculta o tirón
     const t = now / 1000, raw = st.level || 0, li = st.listen || 0;
@@ -318,6 +338,11 @@ function arrancar() {
       const w = raw > env ? 0.045 : 0.012, x0 = env - raw, k = Math.exp(-w * dt), q = (envV + w * x0) * dt;
       env = raw + (x0 + q) * k; envV = (envV - w * q) * k; if (env < 0) { env = 0; envV = 0; } }
     const lv = Math.min(1, env * 1.6), breath = Math.pow(0.5 + 0.5 * Math.sin(t * 2.6), 4), boost = 1 + lv * 0.55 + li * 0.25;
+    if (t0 < 0) t0 = now;
+    { const ts = (now - t0) / 1000;                      // arranque: los anillos llegan girando y encajan con un pequeño rebote
+      for (let i = 0; i < gears.length; i++) { const g = gears[i], x = Math.min(1, Math.max(0, (ts - 0.2 - i * 0.35) / 0.7)), e = x < 1 ? easeBack(x) : 1;
+        g.scale.setScalar(0.001 + 0.999 * e); g.rotation.z += g.userData.spin * dt * 0.001 * (1 + 1.5 * env) + (x < 1 ? (1 - x) * dt * 0.006 * (i % 2 ? -1 : 1) : 0); }
+      for (let i = 0; i < layers.length; i++) { const x = Math.min(1, Math.max(0, (ts - 0.1 - i * 0.12) / 0.6)); layers[i].scale.setScalar(0.001 + 0.999 * (x < 1 ? easeBack(x) : 1)); } }
     adapt(dt, now); const kr = 1 - Math.exp(-dt / 300), km = 1 - Math.exp(-dt / 140);
     smx += (mx - smx) * km; smy += (my - smy) * km;                 // ratón doblemente suavizado: el paralaje nunca da tirones
     rig.rotation.x += ((-smy * 0.32 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * kr;   // inclinación + paralaje
