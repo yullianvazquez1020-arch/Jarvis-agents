@@ -88,30 +88,30 @@ function arrancar() {
   //     distintas velocidades, marcas densas, radios, barrido de radar y onda de voz alrededor del centro.
   //     Coste fijo por píxel, cero asignaciones por fotograma; nítido a cualquier devicePixelRatio (fwidth).
   const hudMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-    extensions: { derivatives: true }, uniforms: { uT: { value: 0 }, uLv: { value: 0 }, uLi: { value: 0 } },
+    extensions: { derivatives: true }, uniforms: { uT: { value: 0 }, uLv: { value: 0 }, uLi: { value: 0 }, uPh: { value: 0 }, uSw: { value: 0 } },
     vertexShader: "varying vec2 vP; void main(){ vP=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }",
-    fragmentShader: `uniform float uT; uniform float uLv; uniform float uLi; varying vec2 vP;
+    fragmentShader: `uniform float uT; uniform float uLv; uniform float uLi; uniform float uPh; uniform float uSw; varying vec2 vP;
       #define TAU 6.2831853
       float line(float d,float w){ float f=fwidth(d); return 1.-smoothstep(w,w+f*1.2,abs(d)); }
       float seg(float a,float n,float gap,float rot){ float u=fract((a+rot)/TAU*n); return step(gap,u); }
       void main(){
         float r=length(vP), a=atan(vP.y,vP.x)+3.14159265; vec3 cy=vec3(.02,.8,1.7), ic=vec3(.7,1.1,1.5); vec3 c=vec3(0.);
-        float t=uT, sp=1.+uLv*2.5;
+        float t=uT;   // uPh/uSw: fases integradas en CPU con dt (cambiar la velocidad nunca hace saltar el ángulo)
         // anillos finos de fondo (cada uno con su propio giro y segmentación)
         for(int i=0;i<14;i++){ float fi=float(i), rr=1.55+fi*.205, dir=mod(fi,2.)<1.?1.:-1.;
           float n=floor(8.+mod(fi*37.,90.)), g=.08+.5*fract(fi*.618);
-          float k=line(r-rr,.004+.006*fract(fi*.37))*seg(a,n,g,dir*t*(.03+.22*fract(fi*.91)*fract(fi*.91))*sp);
+          float k=line(r-rr,.004+.006*fract(fi*.37))*seg(a,n,g,dir*uPh*(.03+.22*fract(fi*.91)*fract(fi*.91)));
           c+=mix(cy,ic,fract(fi*.43))*k*(.35+.35*fract(fi*.71)); }
         // marcas densas (360 y 72) con rotación lenta
         float tk1=step(.86,fract((a+t*.02)/TAU*360.))*step(abs(r-4.32),.035);
         float tk2=step(.8,fract((a-t*.035)/TAU*72.))*step(abs(r-1.62),.06);
         c+=ic*(tk1*.55+tk2*.7);
         // arcos gruesos de datos que barren con aceleración
-        for(int j=0;j<4;j++){ float fj=float(j), rr=1.9+fj*.62, ph=t*(.11+fj*.05)*(mod(fj,2.)<1.?1.:-1.)*sp, len=.6+fj*.35;
+        for(int j=0;j<4;j++){ float fj=float(j), rr=1.9+fj*.62, ph=uPh*(.11+fj*.05)*(mod(fj,2.)<1.?1.:-1.), len=.6+fj*.35;
           float da=mod(a-ph*TAU*.4,TAU); c+=cy*line(r-rr,.018)*step(da,len)*(1.-.6*da/len)*1.2; }
         // radios finos y barrido de radar
         c+=ic*.12*line(fract(a/TAU*24.)-.5,.0015*24./max(r,.5))*step(1.6,r)*step(r,4.4);
-        float sw=mod(a-t*(1.4+2.*uLv),TAU); c+=cy*.22*exp(-sw*3.)*step(1.55,r)*step(r,4.4);
+        float sw=mod(a-uSw,TAU); c+=cy*.22*exp(-sw*3.)*step(1.55,r)*step(r,4.4);
         // onda de voz alrededor del núcleo
         float wv=.95+(.06+.45*uLv+.06*uLi)*sin(a*12.+t*6.)*sin(a*5.-t*3.7);
         c+=ic*line(r-wv,.012)*(.7+2.6*uLv) + cy*line(r-1.18,.006)*.7;
@@ -246,7 +246,7 @@ function arrancar() {
   if (fpsBox) { fpsBox.style.cssText = "position:fixed;top:8px;left:8px;z-index:9;font:12px ui-monospace,monospace;color:#7fe6ff;background:rgba(0,10,20,.6);padding:4px 8px;pointer-events:none;white-space:pre";
     setInterval(() => { fpsBox.textContent = (1000 / avgMs).toFixed(0) + " fps  p95 " + p95.toFixed(1) + " ms\nres " + (renderer.getPixelRatio()).toFixed(2) + "x  bloom " + (bloomRes === 1 ? "full" : "1/2") + "  dof " + lens.uniforms.uDof.value; }, 250); }
 
-  let mx = 0, my = 0, env = 0, nextLab = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+  let mx = 0, my = 0, env = 0, nextLab = 0, ph = 0, sw = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   const lab = document.getElementById("estado");   // cacheado: sin consultas al DOM en el bucle
   N.paso = function (now, dt, st) {
     dt = Math.min(Math.max(dt, 0), 50);              // dt acotado: sin saltos tras pestaña oculta o tirón
@@ -274,7 +274,8 @@ function arrancar() {
     for (let i = 0; i < bolts.length; i++) { const b = bolts[i]; b.mesh.visible = now - b.born < b.life; }
     boltMat.opacity = Math.min(1, (0.8 + 0.2 * Math.sin(t * 40.0)) * (0.7 + 0.8 * lv));
     if (now > nextRead) { readouts(t, lv); nextRead = now + 500; }
-    hudMat.uniforms.uT.value = t; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
+    hudMat.uniforms.uT.value = t; ph += dt * 0.001 * (1 + 2.5 * lv); sw += dt * 0.001 * (1.4 + 2 * lv);
+    hudMat.uniforms.uPh.value = ph; hudMat.uniforms.uSw.value = sw % 6.2831853; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
     composer.render();
     if (lab && now > nextLab) { nextLab = now + 100; const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }

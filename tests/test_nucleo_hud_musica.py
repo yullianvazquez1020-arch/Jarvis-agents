@@ -34,7 +34,7 @@ class NucleoHUD(unittest.TestCase):
         paso = gl[gl.index("N.paso = function"):]
         for bad in ("new THREE.", "dispose(", ".clone()", "TubeGeometry"):
             self.assertNotIn(bad, paso)                                # nada se crea ni libera en el bucle
-        self.assertNotIn("rig.remove(", gl); self.assertNotIn("Math.random()", paso); self.assertIn("Math.exp(-dt", paso); self.assertIn("fps=1", gl); self.assertIn("p95 > 18", gl); self.assertNotIn("setTimeout", gl); self.assertNotIn("getElementById(\"estado\")", paso)
+        self.assertNotIn("rig.remove(", gl); self.assertNotIn("Math.random()", paso); self.assertIn("Math.exp(-dt", paso); self.assertIn("fps=1", gl); self.assertIn("uPh", gl); self.assertNotIn("*sp", gl); self.assertIn("p95 > 18", gl); self.assertNotIn("setTimeout", gl); self.assertNotIn("getElementById(\"estado\")", paso)
 
 
 class Musica(unittest.TestCase):
