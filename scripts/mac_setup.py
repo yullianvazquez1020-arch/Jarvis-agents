@@ -20,20 +20,18 @@ def launch_command(python):
 
 
 def voice_choice(listing):
-    import re
-    voices = []
-    for line in listing.splitlines():
-        match = re.match(r"^(.+?)\s+(es_[A-Z]{2})\s+#", line)
-        if match:
-            voices.append((match.group(1).strip(), match.group(2)))
-    # Known female voices get preference within each locale; unknown voices
-    # have no gender metadata in say's listing and are not labelled female.
-    feminine = ("Paulina", "Angelica", "Francisca", "Luciana", "Monica", "Mónica")
-    for locale in ("es_PR", "es_MX", "es_CO", "es_AR", "es_CL", "es_ES"):
-        candidates = [name for name, loc in voices if loc == locale]
-        if candidates:
-            return next((name for name in feminine if name in candidates), candidates[0]), locale
-    return "", ""
+    """Voz masculina en español (Juan es_MX → Jorge es_ES → Diego es_AR); nunca femenina."""
+    sys.path.insert(0, str(ROOT / "desktop"))
+    from audio.engines import choose_voices, parse_say_listing
+    es, _en = choose_voices(listing)
+    loc = next((l for n, l in parse_say_listing(listing) if n == es), "")
+    return (es, loc) if es else ("", "")
+
+
+def english_choice(listing):
+    sys.path.insert(0, str(ROOT / "desktop"))
+    from audio.engines import choose_voices
+    return choose_voices(listing)[1]
 
 
 def run(args, **kwargs):
@@ -65,13 +63,15 @@ def main(argv=None):
         if shutil.which("say"):
             listing = run(["say", "-v", "?"], capture_output=True, text=True, timeout=10)
             voice, locale = voice_choice(listing.stdout)
+            english = english_choice(listing.stdout)
         else:
-            voice, locale = "", ""
-        print("Voz elegida: %s · %s" % (voice or "ninguna instalada", locale or "sin idioma"))
-        if locale != "es_PR":
-            print("No se encontró voz es_PR: el acento puertorriqueño aún requiere una voz compatible.")
+            voice, locale, english = "", "", ""
+        print("Voz elegida: %s · %s (español) · %s (inglés) · %s ppm" % (
+            voice or "ninguna masculina instalada", locale or "sin idioma", english or "falta Daniel", os.getenv("JARVIS_VOZ_RATE", "170")))
+        if not voice or not english:
+            print("Instala Juan / Daniel: Ajustes del Sistema → Accesibilidad → Contenido leído → Voz del sistema → Gestionar voces.")
         if args.launch:
-            env = dict(os.environ, VOICE_DEMO="false", VOICE_TTS_BACKEND="macos_say", VOICE_TTS_VOICE=voice or "auto-latino", VOICE_AUTO_CAMERA="true", VOICE_STARTUP_AUDIO="true")
+            env = dict(os.environ, VOICE_DEMO="false", VOICE_TTS_BACKEND="macos_say", VOICE_TTS_VOICE="auto-latino", VOICE_AUTO_CAMERA="true", VOICE_STARTUP_AUDIO="true")
             if Path("/Applications/Firefox.app").exists():
                 env["BROWSER"] = "open -a Firefox %s"
             return subprocess.call(launch_command(python), env=env)

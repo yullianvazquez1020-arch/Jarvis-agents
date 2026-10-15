@@ -414,37 +414,32 @@ class AudioOutput(unittest.TestCase):
                        "cp \"$f\" \"" + str(tmp) + "/text\"\nprintf 'RIFFwav' > \"$out\"\n")
         say.chmod(0o755)
         with patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}), patch.object(sys, "platform", "darwin"):
-            audio, ctype = engines.MacSay("Paulina").synthesize(
+            audio, ctype = engines.MacSay("Juan").synthesize(
                 "Listo 🎉 **tienes** https://x.com sk-ant-api03-" + "Z" * 30 + " jd1.4." + "Y" * 40, rate=0.85)
         self.assertEqual((audio, ctype), (b"RIFFwav", "audio/wav"))
         spoken = (tmp / "text").read_text()
         for bad in ("🎉", "**", "https", "ZZZZ", "YYYY"):
             self.assertNotIn(bad, spoken)
         args = (tmp / "args").read_text()
-        self.assertIn("-v Paulina", args); self.assertIn("-r 148", args); self.assertNotIn("tienes", args)
+        self.assertIn("-v Juan", args); self.assertIn("-r 144", args); self.assertNotIn("tienes", args)
 
-    def test_local_voice_prefers_puerto_rico_then_latin_and_caches(self):
-        listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nLocal PR es_PR # Hola\n"})()
+    def test_local_voice_prefers_male_juan_and_caches(self):
+        listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nJuan es_MX # Hola\n"})()
         with patch.object(engines.subprocess, "run", return_value=listing) as run:
             voice = engines.MacSay("auto-latino")
-            self.assertEqual(voice.resolve_voice(), "Local PR")
-            self.assertEqual(voice.resolve_voice(), "Local PR")
+            self.assertEqual(voice.resolve_voice(), "Juan")
+            self.assertEqual(voice.resolve_voice(), "Juan")
             run.assert_called_once()
-        listing.stdout = "Monica es_ES # Hola\nPaulina es_MX # Hola\n"
-        with patch.object(engines.subprocess, "run", return_value=listing):
-            self.assertEqual(engines.MacSay("auto-latino").resolve_voice(), "Paulina")
         with patch.object(engines.subprocess, "run") as run:
             self.assertEqual(engines.MacSay("Explicit Voice").resolve_voice(), "Explicit Voice")
             run.assert_not_called()
 
-    def test_local_voice_defaults_to_latin_instead_of_system_voice(self):
-        listing = type("Listing", (), {"stdout": "Alex en_US # Hello\nPaulina es_MX # Hola\n"})()
+    def test_local_voice_never_female(self):
+        listing = type("Listing", (), {"stdout": "Alex en_US # Hello\nPaulina es_MX # Hola\nMonica es_ES # Hola\n"})()
         with patch.object(engines.subprocess, "run", return_value=listing):
-            self.assertEqual(engines.MacSay().resolve_voice(), "Paulina")
-            _, voice = engines.build({"VOICE_TTS_BACKEND": "macos_say"})
-            self.assertEqual(voice.resolve_voice(), "Paulina")
-            _, voice = engines.build({"VOICE_TTS_BACKEND": "macos_say", "VOICE_TTS_VOICE": ""})
-            self.assertEqual(voice.resolve_voice(), "Paulina")
+            with self.assertRaises(engines.EngineError):
+                engines.MacSay().resolve_voice()
+            self.assertEqual(engines.MacSay("Paulina").voice, "auto-latino")
 
     def test_local_voice_missing_spanish_reports_error(self):
         listing = type("Listing", (), {"stdout": "Alex en_US # Hello\n"})()
