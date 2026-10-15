@@ -110,7 +110,7 @@ class PanelsAndNavigation(DesktopBase):
         c = j.add_client("Ana"); j.add_job(c["id"], "Gabinete", price=500, advance=100)
         before = json.dumps({k: j.kv_get(k, None) for k in (j.C_KEY, j.B_KEY, j.M_KEY)}, sort_keys=True, default=str)
         for i, (text, panel) in enumerate((("Muéstrame los cobros", "cobros"), ("Léeme la agenda", "agenda"),
-                                           ("Abre práctica", "practica"), ("Jarvis, ¿cómo estás?", "estado"))):
+                                           ("Abre práctica", "practica"), ("estado del sistema", "estado"))):
             r = self.turn(token, text, rid=f"panel-{i:04d}x").json()
             self.assertIn({"type": "panel.open", "panel": panel}, r["events"], text)
             self.assertFalse(r["llm_used"])
