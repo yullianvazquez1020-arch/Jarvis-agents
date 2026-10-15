@@ -42,9 +42,9 @@ class Latencia(unittest.TestCase):
     def test_first_clause_short(self):
         import app
         self.assertEqual(app.speech_chunks("Very well, sir, the agenda is clear today."),
-                         ["Very well,", "sir, the agenda is clear today."])
+                         ["Very well, sir, the agenda is clear today."])
         first = app.speech_chunks("The quarterly numbers look healthy and collections are up across every client")[0]
-        self.assertLessEqual(len(first.split()), 6)
+        self.assertEqual(first, "The quarterly numbers look healthy and collections are up across every client")
         self.assertEqual(app.speech_chunks("Yes, sir."), ["Yes, sir."])
         self.assertEqual(app.speech_chunks("I left it on screen, sir."), ["I left it on screen, sir."])
 

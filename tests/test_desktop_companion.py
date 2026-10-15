@@ -456,7 +456,7 @@ class AudioOutput(unittest.TestCase):
 
 class IntentTable(unittest.TestCase):
     def test_table_from_the_plan(self):
-        cases = {"Jarvis, ¿cómo estás?": ("health", None), "Léeme la agenda": ("panel", "agenda"),
+        cases = {"Jarvis, ¿cómo estás?": ("server", None), "Estado del sistema": ("health", None), "Léeme la agenda": ("panel", "agenda"),
                  "Muéstrame los cobros": ("panel", "cobros"), "Abre práctica": ("panel", "practica"),
                  "Repite": ("repeat", None), "Habla más despacio": ("slower", None), "Silencio": ("stop_audio", None),
                  "Apaga el micrófono": ("mic_off", None), "Confirma 123456": "refuse",
@@ -580,7 +580,7 @@ class Displays(CompanionBase):
 
     def test_local_health_answer_has_no_balances(self):
         self.pair(); self.app.pulse_once()
-        ev = self.turn("Jarvis, ¿cómo estás?", "health-0001")
+        ev = self.turn("Jarvis, estado del sistema", "health-0001")
         reply = [e for e in ev if e["type"] == "reply.text"][0]["text"]
         for word in ("Server", "Voice", "Microphone", "windows"):
             self.assertIn(word, reply)

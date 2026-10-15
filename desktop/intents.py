@@ -38,7 +38,7 @@ _LOCAL_EN = (
     ("slower", re.compile(r"\b(?:speak slower|talk slower|slow down|speak more slowly)\b")),
     ("faster", re.compile(r"\b(?:speak faster|talk faster|speed up)\b")),
     ("repeat", re.compile(r"^(?:please )?(?:repeat|repeat that|say that again|what did you say)(?: please)?$")),
-    ("health", re.compile(r"^(?:how are you|system status|jarvis status|diagnostics)$")),
+    ("health", re.compile(r"^(?:system status|jarvis status|diagnostics)$")),
 )
 
 _LOCAL = (
@@ -48,7 +48,7 @@ _LOCAL = (
     ("mic_on", re.compile(r"\b(enciende|prende|activa|abre) (el )?microfono\b")),            # 4.0.5 (3.4)
     ("discreet_off", re.compile(r"\b(desactiva|apaga|quita|sal del?) (el )?modo discreto\b")),
     ("discreet_on", re.compile(r"\b(modo discreto)\b")),
-    ("health", re.compile(r"^(como estas|como andas|estado del sistema|estado de jarvis|diagnostico)$")),
+    ("health", re.compile(r"^(estado del sistema|estado de jarvis|diagnostico)$")),
     ("business", re.compile(r"\b(negocios? externos?|proveedores externos?|enfoque de negocio)\b")),
     ("repeat", re.compile(r"^(repite|repitelo|repitemelo|otra vez|que dijiste|puedes repetir)( eso| por favor)?$")),
     ("slower", re.compile(r"\b(mas despacio|mas lento|habla (mas )?despacio|baja la velocidad)\b")),
@@ -84,6 +84,15 @@ def parse(text):
             return "refuse", reply
     for kind, rx in _LOCAL_EN + _LOCAL:
         if rx.search(n):
+            # A request for faster replies is not a request to speed up speech.
+            # Keep the existing short commands, but let conversation reach the model.
+            if kind in ("slower", "faster") and not re.fullmatch(
+                    r"(?:please )?(?:mas despacio|mas lento|mas rapido|habla (?:mas )?(?:despacio|rapido)|"
+                    r"baja la velocidad|sube la velocidad|speak slower|talk slower|slow down|"
+                    r"speak more slowly|speak faster|talk faster|speed up)(?: por favor| please)?", n):
+                continue
+            if kind == "business" and n not in ("negocios externos", "negocio externo", "proveedores externos", "enfoque de negocio"):
+                continue
             return kind, None
     for kind, rx, arg in _MOUSE:                     # voz -> orden al mouse (el ejecutor revalida y pide /confirmar)
         if rx.search(n):

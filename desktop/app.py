@@ -985,10 +985,8 @@ class Companion:
                                     else "Discreet mode off.")
             if kind == "health":
                 return self._finish(tid, "done", self.local_health_text())
-            if kind == "business":
-                return self._finish(tid, "done",
-                    "Focus: your external businesses. I can read cash, collections, the agenda and the sales summary. "
-                    "I don't buy, call, post or move money.")
+            # Business conversation uses the paired server and current records,
+            # not a fixed speech listing unrelated limitations.
             if kind == "repeat":
                 with self.lock:
                     aid, last = self.last["audio"], self.last["text"]
@@ -1391,19 +1389,15 @@ def _wav_secs(audio):
 
 
 def speech_chunks(text, first_max=140, first_words=6):
-    """Primera cláusula corta sola (frase corta, coma o ~6 palabras): suena en <1 s; el resto en un segundo bloque."""
+    """Speak whole sentences; only split unusually long sentences at word boundaries.
+
+    Keep legacy arguments for callers, but never force a six-word prosody break.
+    """
+    import textwrap
     t = str(text or "").strip()
-    words = t.split()
-    if len(words) <= 4:                                  # «Yes, sir.»: una sola pieza
-        return [t]
-    for pat in (r"[.!?…](\s+)", r"[,;:](\s+)"):
-        m = re.search(pat, t)
-        if m and m.end() < len(t) and m.start() <= first_max and len(t[:m.start()].split()) <= first_words + 2 \
-                and len(t[m.end():].split()) >= 3:
-            return [t[:m.start() + 1], t[m.end():]]
-    if len(words) <= first_words + 3:
-        return [t]
-    return [" ".join(words[:first_words]), " ".join(words[first_words:])]
+    sentences = re.split(r"(?<=[.!?…])\s+", t, maxsplit=1)
+    return [part for sentence in sentences for part in
+            textwrap.wrap(sentence, width=450, break_long_words=False, break_on_hyphens=False)] or [""]
 
 
 def main(argv=None):
