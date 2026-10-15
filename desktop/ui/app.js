@@ -282,12 +282,13 @@
         micPending = false;
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
-        var chunks = [], det = new W.Detector({ silenceMs: 350, maxMs: 30000 });
+        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: 350, maxMs: 30000 });
         rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
         node.onaudioprocess = function (ev) {
           if (!rec) return;
-          var data = new Float32Array(ev.inputBuffer.getChannelData(0)); chunks.push(data);
+          var data = new Float32Array(ev.inputBuffer.getChannelData(0));
           var r = det.push(data, data.length / rec.rate * 1000);
+          phrase.push(data, det.heard);
           if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
           else if (r === "no-speech") { stopMic(true); setState("ready", "waiting for speech"); resumeConversation(); }
         };

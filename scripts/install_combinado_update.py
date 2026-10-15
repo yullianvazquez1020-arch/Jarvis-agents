@@ -45,8 +45,8 @@ def merge_local(local, base, incoming, name=''):
 def prepare(source, target, destination):
     source, destination = Path(source).resolve(), Path(destination).resolve()
     source_base = git(source, 'rev-parse', 'HEAD').decode().strip()
-    if source_base not in (BASE, '0d7408695c2851b59c367fe7395d2cd707a56860'):
-        raise RuntimeError('Source version changed. This installer expects efb5832 or 0d740869; nothing was installed.')
+    if source_base not in (BASE, '0d7408695c2851b59c367fe7395d2cd707a56860', 'eaa1ab102664fc4b01812d8c1fa773b3aede1854'):
+        raise RuntimeError('Source version changed. This installer expects efb5832, 0d740869 or eaa1ab10; nothing was installed.')
     if destination.exists():
         raise RuntimeError('Destination already exists; it will not be overwritten.')
     target = git(source, 'rev-parse', '--verify', target + '^{commit}').decode().strip()

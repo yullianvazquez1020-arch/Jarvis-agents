@@ -60,8 +60,9 @@ def _run(cmd, timeout, stdin=None, cwd=None):
 class WhisperCpp:
     name = "whisper_cpp"
 
-    def __init__(self, binary, model, threads=4, language="es"):
+    def __init__(self, binary, model, threads=4, language="es", fast=False):
         self.binary = binary or ""; self.model = model or ""; self.threads = int(threads); self.language = language
+        self.fast = fast
 
     def problem(self):
         if not self.binary or not (shutil.which(self.binary) or os.access(self.binary, os.X_OK)):
@@ -80,8 +81,9 @@ class WhisperCpp:
         with tempfile.TemporaryDirectory(prefix="jarvis-stt-") as tmp:   # per request, always deleted
             src = Path(tmp) / "in.wav"; src.write_bytes(wav_bytes)
             out = Path(tmp) / "out"
+            decoding = ["-bs", "1", "-bo", "1"] if self.fast else []
             _run([self.binary, "-m", self.model, "-f", str(src), "-l", self.language, "-t", str(self.threads),
-                  "-nt", "-np", "-otxt", "-of", str(out)], timeout=max(30, int(seconds * 6)))
+                  "-nt", "-np", "-otxt", "-of", str(out)] + decoding, timeout=max(30, int(seconds * 6)))
             txt = out.with_suffix(".txt")
             text = txt.read_text(encoding="utf-8", errors="replace") if txt.is_file() else ""
             if retain_dir:
@@ -347,7 +349,8 @@ def build(cfg):
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
-                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto")) if stt == "whisper_cpp" else NoSTT())
+                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+                    fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes")) if stt == "whisper_cpp" else NoSTT())
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":

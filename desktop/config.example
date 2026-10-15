@@ -25,3 +25,7 @@ VOICE_TTS_BACKEND=auto
 VOICE_WAKE_WORD_ENABLED=false
 # Keep recordings? false = every temporary audio file is deleted right after transcription.
 VOICE_RETAIN_AUDIO=false
+
+# Faster greedy decoding using the same local model; compare accuracy on your voice.
+# Enabled by default. Set false to restore the previous decoder settings.
+# VOICE_STT_FAST=true

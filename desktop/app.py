@@ -244,7 +244,7 @@ def load_config(path=None):
                     k, v = line.split("=", 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
-                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
+                               "VOICE_STT_THREADS", "VOICE_STT_FAST", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
                                "VOICE_CICLO", "VOICE_CICLO_DIR", "VOICE_PIPER_LENGTH_SCALE"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
@@ -1225,7 +1225,8 @@ def make_handler(app, host, port):
                     app.emit({"type": "state", "state": "transcribiendo"})
                     t0 = latencia.now_ms()
                     out = app.transcribe(wav); out["id"] = uuid.uuid4().hex
-                    app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0}
+                    app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0,
+                                        "audio_duration_ms": out.get("duration_s", 0) * 1000}
                     app.emit({"type": "state", "state": "listo"})
                     return self._send(200, out)
                 data = self._json()
