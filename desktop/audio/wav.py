@@ -45,3 +45,26 @@ def make_wav(samples):
     header = (b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVE" + b"fmt " +
               struct.pack("<IHHIIHH", 16, 1, 1, RATE, RATE * 2, 2, 16) + b"data" + struct.pack("<I", len(pcm)))
     return header + pcm
+
+
+def has_voice_energy(data):
+    """Conservative silence gate, not a speech recognizer or confidence score.
+
+    Requires 100 ms above -54 dBFS; rejects silence and isolated clicks.
+    Call after check_wav. Quiet speech may require a closer microphone.
+    """
+    import io
+    import wave
+    with wave.open(io.BytesIO(data), "rb") as source:
+        pcm = source.readframes(source.getnframes())
+    active = 0
+    for offset in range(0, len(pcm), 640):
+        block = pcm[offset:offset + 640]
+        if len(block) < 640:
+            continue
+        energy = sum(v[0] ** 2 for v in struct.iter_unpack("<h", block)) / 320
+        if energy >= (32768 * .002) ** 2:
+            active += 1
+            if active >= 5:
+                return True
+    return False

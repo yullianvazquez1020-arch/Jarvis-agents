@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .wav import check_wav
+from .wav import check_wav, has_voice_energy
 
 
 class EngineError(RuntimeError):
@@ -78,6 +78,9 @@ class WhisperCpp:
         why = self.problem()
         if why:
             raise EngineError(why)
+        if not has_voice_energy(wav_bytes):
+            return {"text": "", "language": self.language, "duration_s": seconds,
+                    "engine": self.name, "reason": "no_voice_energy"}
         with tempfile.TemporaryDirectory(prefix="jarvis-stt-") as tmp:   # per request, always deleted
             src = Path(tmp) / "in.wav"; src.write_bytes(wav_bytes)
             out = Path(tmp) / "out"
