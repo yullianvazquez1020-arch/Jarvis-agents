@@ -24,8 +24,8 @@ class NucleoHUD(unittest.TestCase):
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")
         self.assertNotIn("requestAnimationFrame(", gl)              # el bucle es el de nucleo.js
-        self.assertIn("Math.min(1.5", n); self.assertIn("DPR_MAX = 1.5", gl)
-        self.assertIn("w >> 1", gl); self.assertIn("function adapt", gl)
+        self.assertIn("Math.min(1.5", n); self.assertIn("DPR_MAX = 2", gl); self.assertIn("p95 > 18", gl)
+        self.assertIn("bloomRes", gl); self.assertIn("ACESFilmicToneMapping", gl); self.assertIn("coc", gl); self.assertIn("function adapt", gl)
         self.assertIn('classList.contains("nucleo-home")', (UI / "cielo.js").read_text("utf-8"))
 
     def test_hud_procedural_sin_asignar_por_fotograma(self):
@@ -34,7 +34,7 @@ class NucleoHUD(unittest.TestCase):
         paso = gl[gl.index("N.paso = function"):]
         for bad in ("new THREE.", "dispose(", ".clone()", "TubeGeometry"):
             self.assertNotIn(bad, paso)                                # nada se crea ni libera en el bucle
-        self.assertNotIn("rig.remove(", gl); self.assertNotIn("getElementById(\"estado\")", paso)
+        self.assertNotIn("rig.remove(", gl); self.assertNotIn("Math.random()", paso); self.assertIn("Math.exp(-dt", paso); self.assertIn("fps=1", gl); self.assertIn("p95 > 18", gl); self.assertNotIn("setTimeout", gl); self.assertNotIn("getElementById(\"estado\")", paso)
 
 
 class Musica(unittest.TestCase):

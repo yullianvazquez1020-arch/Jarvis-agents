@@ -20,10 +20,10 @@ if (N && old && webglOk() && !/[?&]gl=0\b/.test(location.search)) {
 }
 
 function arrancar() {
-  const DPR_MAX = 1.5;
+  const DPR_MAX = 2;   // resolución nativa (3840×1080 a DPR 1, Retina hasta 2); solo baja si el frame > 18 ms
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", alpha: false });
   renderer.setClearColor(0x010509, 1);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
   const cv = renderer.domElement; cv.id = "nucleo-gl"; cv.className = old.className;
   cv.setAttribute("aria-label", old.getAttribute("aria-label") || "Núcleo de JARVIS");
   cv.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0";
@@ -32,7 +32,7 @@ function arrancar() {
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100); cam.position.set(0, 0, 9.5);
   const rig = new THREE.Group(); scene.add(rig);               // inclinación 3D sutil + paralaje
-  const CYAN = new THREE.Color(0.15, 0.6, 1.25), ICE = new THREE.Color(0.75, 1.15, 1.5), AMBER = new THREE.Color(1.5, 0.65, 0.12);
+  const CYAN = new THREE.Color(0.02, 0.75, 1.6), ICE = new THREE.Color(0.75, 1.15, 1.5), AMBER = new THREE.Color(1.5, 0.65, 0.12);
   const add = (m) => new THREE.MeshBasicMaterial({ color: m.c, transparent: true, opacity: m.o, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
 
@@ -71,16 +71,16 @@ function arrancar() {
   const rim = new THREE.DirectionalLight(0x9fd0ff, 0.8); rim.position.set(-3, 4, 5); scene.add(rim);
 
   // anillos HUD (mismo orden/proporciones que el 2D: radio, grosor, segmentos, hueco, velocidad)
-  const RINGS = [[3.3, 0.012, 64, 0.35, 0.05, 0.4, ICE, -0.9], [2.98, 0.07, 24, 0.25, -0.12, 0.55, CYAN, -0.6],
-    [2.64, 0.02, 120, 0.5, 0.2, 0.5, ICE, -0.4], [2.36, 0.10, 10, 0.12, 0.08, 0.7, CYAN, -0.25],
-    [2.0, 0.04, 36, 0.4, -0.3, 0.6, AMBER, 0.0], [1.72, 0.08, 6, 0.2, 0.45, 0.8, CYAN, 0.2]];
+  const RINGS = [[3.3, 0.012, 64, 0.35, 0.03, 0.4, ICE, -0.9], [2.98, 0.07, 24, 0.25, -0.35, 0.55, CYAN, -0.6],
+    [2.64, 0.02, 120, 0.5, 0.6, 0.5, ICE, -0.4], [2.36, 0.10, 10, 0.12, -0.12, 0.7, CYAN, -0.25],
+    [2.0, 0.04, 36, 0.4, -0.55, 0.7, CYAN, 0.0], [1.72, 0.08, 6, 0.2, 1.1, 0.8, CYAN, 0.2]];
   const ringMats = RINGS.map((r) => {
     const m = add({ c: r[6], o: r[5] }); layer(r[7], r[4], new THREE.Mesh(band(r[0], r[0] + r[1], r[2], r[3], r[2] > 60 ? 2 : 6), m)); return m; });
   const tickMat = new THREE.LineBasicMaterial({ color: ICE, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   [[3.45, 360, 0.04, 0.12, 10, -0.03, -1.0], [2.78, 180, 0.05, 0.13, 5, 0.07, -0.5], [2.15, 120, 0.04, 0.1, 6, -0.15, -0.1], [3.9, 72, 0.03, 0.18, 9, 0.02, -1.4]]
     .forEach((t) => layer(t[6], t[5], new THREE.LineSegments(ticks(t[0], t[1], t[2], t[3], t[4]), tickMat)));
   const arcs = [];                                 // arcos de datos largos que barren
-  [[3.65, 0.025, 0.7, ICE, -1.1], [3.8, 0.04, 1.2, AMBER, -1.2], [2.5, 0.03, 0.9, ICE, -0.3], [4.15, 0.015, 2.2, CYAN, -1.6]].forEach((a, i) => {
+  [[3.65, 0.025, 0.7, ICE, -1.1], [3.8, 0.04, 1.2, CYAN, -1.2], [2.5, 0.03, 0.9, ICE, -0.3], [4.15, 0.015, 2.2, CYAN, -1.6]].forEach((a, i) => {
     const g = new THREE.RingGeometry(a[0], a[0] + a[1], 64, 1, 0, a[2]);
     const m = layer(a[4], 0, new THREE.Mesh(g, add({ c: a[3], o: 0.85 }))); m.userData.arc = i; arcs.push(m); });
 
@@ -95,12 +95,12 @@ function arrancar() {
       float line(float d,float w){ float f=fwidth(d); return 1.-smoothstep(w,w+f*1.2,abs(d)); }
       float seg(float a,float n,float gap,float rot){ float u=fract((a+rot)/TAU*n); return step(gap,u); }
       void main(){
-        float r=length(vP), a=atan(vP.y,vP.x)+3.14159265; vec3 cy=vec3(.18,.7,1.35), ic=vec3(.7,1.1,1.5); vec3 c=vec3(0.);
-        float t=uT, sp=1.+uLv*1.2;
+        float r=length(vP), a=atan(vP.y,vP.x)+3.14159265; vec3 cy=vec3(.02,.8,1.7), ic=vec3(.7,1.1,1.5); vec3 c=vec3(0.);
+        float t=uT, sp=1.+uLv*2.5;
         // anillos finos de fondo (cada uno con su propio giro y segmentación)
         for(int i=0;i<14;i++){ float fi=float(i), rr=1.55+fi*.205, dir=mod(fi,2.)<1.?1.:-1.;
           float n=floor(8.+mod(fi*37.,90.)), g=.08+.5*fract(fi*.618);
-          float k=line(r-rr,.004+.006*fract(fi*.37))*seg(a,n,g,dir*t*(.04+.03*fract(fi*.91))*sp);
+          float k=line(r-rr,.004+.006*fract(fi*.37))*seg(a,n,g,dir*t*(.03+.22*fract(fi*.91)*fract(fi*.91))*sp);
           c+=mix(cy,ic,fract(fi*.43))*k*(.35+.35*fract(fi*.71)); }
         // marcas densas (360 y 72) con rotación lenta
         float tk1=step(.86,fract((a+t*.02)/TAU*360.))*step(abs(r-4.32),.035);
@@ -111,10 +111,10 @@ function arrancar() {
           float da=mod(a-ph*TAU*.4,TAU); c+=cy*line(r-rr,.018)*step(da,len)*(1.-.6*da/len)*1.2; }
         // radios finos y barrido de radar
         c+=ic*.12*line(fract(a/TAU*24.)-.5,.0015*24./max(r,.5))*step(1.6,r)*step(r,4.4);
-        float sw=mod(a-t*.9,TAU); c+=cy*.22*exp(-sw*3.)*step(1.55,r)*step(r,4.4);
+        float sw=mod(a-t*(1.4+2.*uLv),TAU); c+=cy*.22*exp(-sw*3.)*step(1.55,r)*step(r,4.4);
         // onda de voz alrededor del núcleo
-        float wv=.95+(.06+.22*uLv+.05*uLi)*sin(a*12.+t*6.)*sin(a*5.-t*3.7);
-        c+=ic*line(r-wv,.012)*(.6+1.2*uLv) + cy*line(r-1.18,.006)*.7;
+        float wv=.95+(.06+.45*uLv+.06*uLi)*sin(a*12.+t*6.)*sin(a*5.-t*3.7);
+        c+=ic*line(r-wv,.012)*(.7+2.6*uLv) + cy*line(r-1.18,.006)*.7;
         c*=smoothstep(4.9,4.4,r);
         gl_FragColor=vec4(c,1.); }` });
   layer(-0.45, 0, new THREE.Mesh(new THREE.PlaneGeometry(10, 10), hudMat));
@@ -156,7 +156,7 @@ function arrancar() {
   function readouts(t, lv) {
     reads.forEach((r, i) => {
       const g = r.c.getContext("2d"); g.clearRect(0, 0, 256, 64);
-      g.font = "600 18px 'Helvetica Neue',Arial,sans-serif"; g.fillStyle = i % 2 ? "#ffb347" : "#9fe6ff"; g.fillText(r.label, 6, 22);
+      g.font = "600 18px 'Helvetica Neue',Arial,sans-serif"; g.fillStyle = i % 2 ? "#5fe0ff" : "#9fe6ff"; g.fillText(r.label, 6, 22);
       const v = i === 4 ? "JARVIS" : (i === 3 ? (3000 + 400 * lv + 20 * Math.sin(t)).toFixed(0) : (60 + 35 * lv + 4 * Math.sin(t * (i + 1))).toFixed(1) + "%");
       g.font = "300 30px 'Helvetica Neue',Arial,sans-serif"; g.fillStyle = "#e6f8ff"; g.fillText(v, 6, 56);
       g.fillStyle = "rgba(120,220,255,.6)"; g.fillRect(150, 44, 100 * (0.3 + 0.7 * Math.abs(Math.sin(t * 0.7 + i))), 4);
@@ -177,44 +177,49 @@ function arrancar() {
       b = new THREE.Vector3(Math.cos(bb) * r1, Math.sin(bb) * r1, -0.3), pts = [a];
     jag(a, b, 5, pts);
     const path = new THREE.CurvePath(); for (let j = 0; j < pts.length - 1; j++) path.add(new THREE.LineCurve3(pts[j], pts[j + 1]));
-    const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, pts.length * 2, 0.012, 4, false), boltMat);
+    const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, pts.length * 2, 0.018, 4, false), boltMat);
     mesh.visible = false; rig.add(mesh); bolts.push({ mesh, born: 0, life: 0 });
   }
   function spawnBolts(now, lv) {
-    const nb = 1 + Math.floor(Math.random() * (2 + lv * 4));
+    const nb = 2 + Math.floor(Math.random() * (3 + lv * 8));
     for (let i = 0; i < bolts.length; i++) { const b = bolts[i];
       if (i < nb) { const k = (Math.random() * bolts.length) | 0, o = bolts[k]; bolts[k] = b; bolts[i] = o; }
     }
     for (let i = 0; i < nb; i++) { const b = bolts[i]; b.mesh.rotation.z = Math.random() * Math.PI * 2; b.born = now; b.life = 120 + Math.random() * 260; }
-    nextBolt = now + (300 + Math.random() * 1200) * (1 - lv * 0.6);
+    nextBolt = now + (140 + Math.random() * 520) * (1 - lv * 0.7);
   }
 
   // --- postproceso: bloom HDR a media resolución + lente (aberración, grano, barrido, hex, caída de luz) ---
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, cam));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.8, 0.3, 0.82);
-  const bloomSize = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bloomSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 1.15, 0.4, 0.72);
+  let bloomRes = 1; const bloomSize = bloom.setSize.bind(bloom);   // bloom a resolución completa (calidad cine) bloom.setSize = (w, h) => bloomSize(Math.max(1, Math.round(w * bloomRes)), Math.max(1, Math.round(h * bloomRes)));
   composer.addPass(bloom);
   const lens = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uCA: { value: 1 } },
+    uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uCA: { value: 1 }, uDof: { value: /[?&]dof=1\b/.test(location.search) ? 1 : 0 } },
     vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }",
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float uT; uniform vec2 uRes; uniform float uCA; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uT; uniform vec2 uRes; uniform float uCA; uniform float uDof; varying vec2 vUv;
       float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
       float hex(vec2 p){ p.x*=1.1547; p.y+=mod(floor(p.x),2.)*.5; p=abs(fract(p)-.5); return abs(max(p.x*1.5+p.y,p.y*2.)-1.); }
       void main(){
         vec2 c=vUv-.5; float d=length(c*vec2(uRes.x/uRes.y,1.));
-        vec2 off=c*.0035*uCA*(.4+d);
+        vec2 off=c*.0022*uCA*(.3+d);
         vec3 col=vec3(texture2D(tDiffuse,vUv+off).r, texture2D(tDiffuse,vUv).g, texture2D(tDiffuse,vUv-off).b);
+        // profundidad de campo suave: lo lejano al foco (capas de fondo/bordes) se desenfoca con 8 muestras en disco
+        float coc=smoothstep(.32,.95,d)*3.5*uDof; vec3 bl=col*8.;
+        if(uDof>.5){ bl=vec3(0.); for(int k=0;k<8;k++){ float an=float(k)*.785398+.39; bl+=texture2D(tDiffuse,vUv+vec2(cos(an),sin(an))*coc/uRes*1.6).rgb; } }
+        col=mix(col,bl*.125,smoothstep(0.,1.,coc/3.5)*.85);
         vec2 px=vUv*uRes; float scan=.93+.07*sin(px.y*1.6+uT*30.);
         float hx=smoothstep(.06,0.,hex(px/38.))*.05*smoothstep(.15,.6,d);
         col+=vec3(.2,.6,1.)*hx;
         col*=scan*mix(1.,.25,smoothstep(.35,1.05,d));
-        col+=(h(px+uT)-.5)*.018;
+        col+=(h(px+fract(uT)*91.)-.5)*.022;   // grano de película fino
         gl_FragColor=vec4(col,1.); }` });
   composer.addPass(lens); composer.addPass(new OutputPass());
 
   // --- tamaño adaptativo y calidad según FPS ---
-  let scale = 1, W = 0, H = 0, acc = 0, cnt = 0, quality = 2;
+  let scale = 1, W = 0, H = 0, cnt = 0, quality = 2, good = 0, coolUntil = 0;
+  const FT = new Float32Array(120), FS = new Float32Array(120);   // ventana de frame-times (prealocada)
   function fit() {
     W = innerWidth; H = innerHeight; const pr = Math.min(DPR_MAX, devicePixelRatio || 1) * scale;
     renderer.setPixelRatio(pr); composer.setPixelRatio(pr); renderer.setSize(W, H, false); composer.setSize(W, H);
@@ -222,42 +227,57 @@ function arrancar() {
     lens.uniforms.uRes.value.set(W * pr, H * pr);   // el HUD cabe en alto (ultrawide 3840×1080) y en ancho
   }
   addEventListener("resize", fit); fit();
-  function adapt(dt) {                              // baja/sube resolución para 60 fps estables
-    acc += dt; cnt++; if (cnt < 45) return;
-    const avg = acc / cnt; acc = 0; cnt = 0; window.JarvisNucleoFrameMs = avg;
-    if (avg > 19 && scale > 0.5) { scale = Math.max(0.5, scale - 0.15); if (scale <= 0.65 && quality > 1) { quality = 1; bloom.strength = 1.0; } fit(); }
-    else if (avg < 13 && scale < 1) { scale = Math.min(1, scale + 0.1); fit(); }
+  let p95 = 16.7, avgMs = 16.7;
+  function adapt(dt, now) {                         // escala dinámica por p95 (no por promedio), con histéresis y enfriamiento
+    FT[cnt++] = dt; if (cnt < FT.length) return;
+    cnt = 0; FS.set(FT); FS.sort(); p95 = FS[Math.floor(FS.length * 0.95)];
+    let sum = 0; for (let i = 0; i < FT.length; i++) sum += FT[i]; avgMs = sum / FT.length;
+    window.JarvisNucleoFrameMs = avgMs; window.JarvisNucleoP95 = p95;
+    if (now < coolUntil || document.hidden) return;
+    if (p95 > 18) { good = 0;                       // primero baja el bloom, luego la resolución
+      if (quality > 1) { quality = 1; bloomRes = 0.5; } else if (scale > 0.5) scale = Math.max(0.5, scale - 0.15); else return;
+      fit(); coolUntil = now + 2500; }
+    else if (p95 < 13 && (scale < 1 || quality < 2) && ++good >= 3) { good = 0;   // sube solo con margen sostenido (~6 s)
+      if (scale < 1) scale = Math.min(1, scale + 0.1); else { quality = 2; bloomRes = 1; }
+      fit(); coolUntil = now + 4000; }
   }
+  // overlay ?fps=1: texto actualizado a 4 Hz, fuera del render
+  const fpsBox = /[?&]fps=1\b/.test(location.search) ? document.body.appendChild(document.createElement("div")) : null;
+  if (fpsBox) { fpsBox.style.cssText = "position:fixed;top:8px;left:8px;z-index:9;font:12px ui-monospace,monospace;color:#7fe6ff;background:rgba(0,10,20,.6);padding:4px 8px;pointer-events:none;white-space:pre";
+    setInterval(() => { fpsBox.textContent = (1000 / avgMs).toFixed(0) + " fps  p95 " + p95.toFixed(1) + " ms\nres " + (renderer.getPixelRatio()).toFixed(2) + "x  bloom " + (bloomRes === 1 ? "full" : "1/2") + "  dof " + lens.uniforms.uDof.value; }, 250); }
 
-  let mx = 0, my = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+  let mx = 0, my = 0, env = 0, nextLab = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   const lab = document.getElementById("estado");   // cacheado: sin consultas al DOM en el bucle
   N.paso = function (now, dt, st) {
-    const t = now / 1000, lv = st.level || 0, li = st.listen || 0, breath = 0.5 + 0.5 * Math.sin(t * 1.3), boost = 1 + lv * 0.6 + li * 0.35;
-    adapt(Math.min(dt, 100));
-    rig.rotation.x += ((-my * 0.25 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * 0.05;   // inclinación + paralaje
-    rig.rotation.y += ((mx * 0.35 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * 0.05;
-    layers.forEach((o) => { if (o.userData.speed) o.rotation.z = t * o.userData.speed * (1 + lv); });
+    dt = Math.min(Math.max(dt, 0), 50);              // dt acotado: sin saltos tras pestaña oculta o tirón
+    const t = now / 1000, raw = st.level || 0, li = st.listen || 0;
+    env += (raw - env) * (1 - Math.exp(-dt / (raw > env ? 18 : 90)));   // ataque ~18 ms, caída ~90 ms (independiente de fps)                 // ataque rápido, caída corta
+    const lv = Math.min(1, env * 1.6), breath = Math.pow(0.5 + 0.5 * Math.sin(t * 2.6), 4), boost = 1 + lv * 1.1 + li * 0.4;
+    adapt(dt, now); const kr = 1 - Math.exp(-dt / 300);
+    rig.rotation.x += ((-my * 0.32 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * kr;   // inclinación + paralaje
+    rig.rotation.y += ((mx * 0.45 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * kr;
+    layers.forEach((o) => { if (o.userData.speed) o.rotation.z += o.userData.speed * dt * 0.001 * (1 + 2.2 * lv); });
     arcs.forEach((o, i) => { const ph = (t * (0.15 + i * 0.07)) % 1, e = ph < 0.5 ? 4 * ph ** 3 : 1 - Math.pow(-2 * ph + 2, 3) / 2; o.rotation.z = e * Math.PI * 2 * (i % 2 ? -1 : 1) + i * 2; });
     ringMats.forEach((m, k) => { m.opacity = Math.min(1, RINGS[k][5] * (0.8 + 0.2 * breath) * boost); });
     tris[0].rotation.z = t * 0.25; tris[1].rotation.z = -t * 0.25;
     triMats.forEach((m) => { m.opacity = Math.min(1, 0.85 * boost); });
-    const s = 1 + 0.04 * breath + 0.12 * lv + 0.05 * li, flick = 0.94 + 0.06 * Math.random();
-    core.scale.setScalar(s); vol.scale.setScalar(1 + 0.06 * breath + 0.15 * lv);
-    volMat.uniforms.uI.value = (0.7 + 0.2 * breath + 0.35 * lv) * flick; volMat.uniforms.uT.value = t;
-    coreLight.intensity = (14 + 8 * breath + 16 * lv) * flick;
+    const s = 1 + 0.06 * breath + 0.28 * lv + 0.05 * li, flick = 0.95 + 0.05 * Math.sin(t * 23.0) * Math.sin(t * 7.3);   // parpadeo suave, sin ruido por frame
+    core.scale.setScalar(s); vol.scale.setScalar(1 + 0.08 * breath + 0.35 * lv);
+    volMat.uniforms.uI.value = (0.75 + 0.3 * breath + 0.9 * lv) * flick; volMat.uniforms.uT.value = t;
+    coreLight.intensity = (16 + 12 * breath + 34 * lv) * flick;
     flare.material.opacity = (0.12 + 0.3 * lv) * boost;
-    bloom.strength = (quality > 1 ? 0.8 : 0.65) + lv * 0.25 + li * 0.1;
+    bloom.strength = (quality > 1 ? 1.15 : 0.9) + lv * 0.7 + li * 0.15;
     for (let i = 0; i < PN; i++) { const p = pdat[i]; p.a += p.s * dt / 1000 * (1 + lv * 3);
       ppos[i * 3] = Math.cos(p.a) * p.r; ppos[i * 3 + 1] = Math.sin(p.a) * p.r; ppos[i * 3 + 2] = p.z; }
     pgeo.attributes.position.needsUpdate = true;
     if (now > nextBolt) spawnBolts(now, lv);
     for (let i = 0; i < bolts.length; i++) { const b = bolts[i]; b.mesh.visible = now - b.born < b.life; }
-    boltMat.opacity = Math.min(1, (0.6 + 0.4 * Math.random()) * (0.7 + lv));
+    boltMat.opacity = Math.min(1, (0.8 + 0.2 * Math.sin(t * 40.0)) * (0.9 + 1.6 * lv));
     if (now > nextRead) { readouts(t, lv); nextRead = now + 500; }
     hudMat.uniforms.uT.value = t; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
     composer.render();
-    if (lab) { const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
+    if (lab && now > nextLab) { nextLab = now + 100; const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
   };
   N.gl = true;
 }
