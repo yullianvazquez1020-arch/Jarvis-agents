@@ -7,6 +7,7 @@
   var windowId = rid();
   var isOwner = false, seq = 0, current = null, rec = null, audioEl = null, state = { prefs: {} };
   var micPending = false, micGeneration = 0, resumeTimer = 0, transcribing = false, conversationPaused = false;
+  var warmStream = null;
   var revealed = false, lastReply = "", lastPanel = null;
   var PANEL_NAMES = { agenda: 1, cobros: 1, practica: 1, estado: 1, brief: 1, caja: 1 };
   var HUD_NAMES = { cobros: 1, vencidos: 1, agenda: 1, balances: 1, stock: 1, mensajes: 1, practica: 1 };
@@ -48,17 +49,21 @@
             i.real_trading_active ? "bad" : "ok");
   }
   function tick() { $("st-clock").textContent = clockFmt.format(new Date()); }
-  function setState(s, detail) { s = ({listo:"ready", hablando:"speaking", escuchando:"listening", consultando:"thinking", transcribiendo:"transcribing"})[s] || s; $("state").textContent = s + (detail ? " — " + detail : ""); }
+  function setState(s, detail) { s = ({listo:"ready", hablando:"speaking", escuchando:"listening", consultando:"thinking", transcribiendo:"transcribing"})[s] || s; var labels={ready:"LISTO",speaking:"HABLANDO",listening:"ESCUCHANDO",thinking:"CONSULTANDO",transcribing:"TRANSCRIBIENDO",opening:"ABRIENDO MICRÓFONO"}; $("state").textContent = (labels[s] || s) + (detail ? " — " + detail : ""); }
   function resumeConversation() {
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function () {
       if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
-    }, 200);
+    }, 50);
   }
+  function releaseWarmMic() {
+    if (warmStream) { warmStream.getTracks().forEach(function(t){t.stop();}); warmStream=null; }
+  }
+  addEventListener("pagehide", function(){conversationPaused=true;stopMic(true);releaseWarmMic();});
   function pauseConversation() { conversationPaused = true; clearTimeout(resumeTimer); stopMic(true); }
   function setOwner(own) {
     var regained = own && !isOwner;
-    if (!own) { clearTimeout(resumeTimer); stopMic(true); stopAudio(); }
+    if (!own) { clearTimeout(resumeTimer); stopMic(true); releaseWarmMic(); stopAudio(); }
     isOwner = own;
     window.JarvisAudioOwner=own;
     window.dispatchEvent(new CustomEvent("jarvis-audio-owner",{detail:own}));
@@ -179,7 +184,7 @@
     audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
     audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
     setState("speaking");
-    voice.attach(audioEl, id);
+    if (!document.getElementById("crystal-art")) voice.attach(audioEl, id);
     audioEl.addEventListener("playing",function(){if(audio === audioEl && window.JarvisAmbience)window.JarvisAmbience.duck(true);});
     attemptPlayback(audio);
   }
@@ -277,7 +282,7 @@
   function resumeCapture(capture) {
     capture.ctx.resume().then(function () { captureState(capture); }).catch(function () {
       if (rec !== capture) return;
-      stopMic(true); conversationPaused = true;
+      conversationPaused = true; stopMic(true); releaseWarmMic();
       setState("error", "Microphone audio could not start. Press Talk to retry.");
     });
   }
@@ -300,19 +305,23 @@
     stopAudio();                                   // never listen while Jarvis is speaking (no echo loop)
     if (!state.prefs.mic) api("POST", "/api/prefs", { mic: true });
     micPending = true; var ticket = ++micGeneration, openingStream = null, openingContext = null;
-    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+    setState("opening", "Abriendo micrófono; espera a ESCUCHANDO");
+    var reusable = warmStream && warmStream.getAudioTracks().every(function(t){return t.readyState === "live";});
+    if (!reusable) releaseWarmMic();
+    (reusable ? Promise.resolve(warmStream) : navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }))
       .then(function (stream) {
         if (ticket !== micGeneration || !isOwner) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
-        micPending = false; openingStream = stream;
+        micPending = false; openingStream = stream; warmStream = stream;
+        stream.getAudioTracks().forEach(function(t){t.enabled=true;});
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = openingContext = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
-        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: 350, maxMs: 30000 });
+        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: 550, maxMs: 30000 });
         var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
         ctx.onstatechange = function () { captureState(capture); };
         stream.getAudioTracks().forEach(function (track) {
           track.onended = function () {
             if (rec !== capture) return;
-            stopMic(true); setState("ready", "Microphone disconnected; reconnecting"); resumeConversation();
+            releaseWarmMic(); stopMic(true); setState("ready", "Microphone disconnected; reconnecting"); resumeConversation();
           };
         });
         node.onaudioprocess = function (ev) {
@@ -321,7 +330,7 @@
           var r = det.push(data, data.length / rec.rate * 1000);
           phrase.push(data, det.heard);
           if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
-          else if (r === "no-speech") { stopMic(true); setState("ready", "waiting for speech"); resumeConversation(); }
+          else if (r === "no-speech") { det = new W.Detector({ silenceMs: 550, maxMs: 30000 }); phrase.frames.length=0; phrase.samples=0; setState("listening"); }
         };
         src.connect(node); node.connect(ctx.destination);
         $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
@@ -330,20 +339,24 @@
       })
       .catch(function () {
         if (ticket !== micGeneration) return;
+        conversationPaused = true;
         if (rec && rec.stream === openingStream) stopMic(true);
         else {
           if (openingStream) openingStream.getTracks().forEach(function (t) { t.stop(); });
           if (openingContext) openingContext.close();
         }
-        micPending = false; conversationPaused = true;
+        releaseWarmMic(); micPending = false; conversationPaused = true;
         setState("error", "Microphone unavailable. Check permission, then press Talk.");
       });
   }
   function stopMic(discard) {
     micGeneration++; micPending = false;
-    var r = rec; if (!r) return; rec = null;
+    var r = rec; if (!r) { if (conversationPaused || !isOwner || !state.prefs.mic || !$("convo").checked) releaseWarmMic(); return; } rec = null;
     try { r.node.disconnect(); r.src.disconnect(); } catch (err) { /* already closed */ }
-    r.stream.getTracks().forEach(function (t) { t.stop(); });   // the indicator goes off immediately
+    if (!conversationPaused && isOwner && state.prefs.mic && $("convo").checked) {
+      // Keep the granted device in conversation mode, but mute it between turns. No samples retained.
+      r.stream.getTracks().forEach(function(t){t.enabled=false;});
+    } else { releaseWarmMic(); r.stream.getTracks().forEach(function(t){t.stop();}); }
     r.ctx.onstatechange = null; r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
     if (discard) { setState("listo"); return; }
     var n = 0; r.chunks.forEach(function (c) { n += c.length; });
@@ -360,7 +373,7 @@
   // ---------- turns ----------
   function send(text, source) {
     text = String(text || "").trim(); if (!text || current) return;
-    stopMic(true); clearTimeout(resumeTimer);
+    stopMic(true); clearTimeout(resumeTimer); setState("thinking");
     current = rid() + rid().slice(0, 4);
     $("cancel").disabled = false; lastReply = ""; renderReply();
     api("POST", "/conversation/turns", { request_id: current, text: text, source: source || "text" })

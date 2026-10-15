@@ -11,6 +11,6 @@
   if (talk && "MutationObserver" in window) new MutationObserver(function () {
     var on = talk.classList.contains("recording");
     if (window.JarvisNucleo) window.JarvisNucleo.escuchar(on);
-    if (est) est.textContent = on ? "LISTENING" : "ONLINE";
+    // State text is mirrored from actual conversation lifecycle by crystal.js.
   }).observe(talk, { attributes: true, attributeFilter: ["class"] });
 })();

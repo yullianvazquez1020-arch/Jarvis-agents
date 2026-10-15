@@ -37,7 +37,7 @@ function harness(options = {}) {
   return {win,els,state,pending,requests,audios,contexts,gesture(){(listeners.pointerdown||[]).forEach(fn=>fn());},
     captures:()=>captures,flush(){const jobs=[...timers.values()];timers.clear();jobs.forEach(fn=>fn())}};
 }
-function stream(){const track={stop(){this.stopped=true;}};return {track,getTracks:()=>[track],getAudioTracks:()=>[track]};}
+function stream(){const track={readyState:"live",enabled:true,stop(){this.stopped=true;this.readyState="ended";}};return {track,getTracks:()=>[track],getAudioTracks:()=>[track]};}
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
 (async()=>{
   const h=harness();await settle();
@@ -95,7 +95,7 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   const suspended=harness({contextState:'suspended'});await settle();suspended.flush();
   const mic=stream();suspended.pending.shift()(mic);await settle();
   assert.equal(suspended.contexts[0].state,'running','suspended capture is resumed');
-  assert.match(suspended.els.state.textContent,/listening/);
+  assert.match(suspended.els.state.textContent,/ESCUCHANDO/);
   mic.track.onended();suspended.flush();
   assert.equal(suspended.captures(),2,'device disconnect retries capture');
   suspended.win.test.setPaused(true);suspended.win.test.stopMic(true);mic.track.onended();suspended.flush();
@@ -110,5 +110,11 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   const setupMic=stream();setup.pending.shift()(setupMic);await settle();
   assert.equal(setupMic.track.stopped,true,'partial setup releases microphone tracks');
   assert.equal(setup.contexts[0].state,'closed','partial setup closes audio context');
+  const warm=harness();await settle();warm.flush();const warmDevice=stream();warm.pending.shift()(warmDevice);await settle();
+  warm.win.test.stopMic(true);assert.equal(warmDevice.track.enabled,false,'device muted between turns');
+  assert.notEqual(warmDevice.track.stopped,true,'conversation keeps device permission warm');
+  warm.win.test.startMic();await settle();assert.equal(warm.captures(),1,'no repeated device acquisition between turns');
+  assert.equal(warmDevice.track.enabled,true,'device enabled only for capture');
+  warm.els['mic-off'].onclick();assert.equal(warmDevice.track.stopped,true,'explicit mic off releases hardware');
   console.log('Conversation lifecycle: recovery, permissions, capture and stale-event checks passed');
 })().catch(err=>{console.error(err);process.exitCode=1});

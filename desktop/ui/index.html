@@ -1,17 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jarvis</title>
   <link rel="stylesheet" href="/ui/app.css">
   <link rel="stylesheet" href="/ui/nucleo-home.css">
-  <link rel="stylesheet" href="/ui/paneles.css">
+  <link rel="stylesheet" href="/ui/crystal.css?v=1">
 </head>
 <body class="nucleo-home">
-  <canvas id="nucleo" aria-label="JARVIS core: blue reactor responding to speech"></canvas>
-  <div id="estado" class="nucleo-estado">ONLINE</div>
-  <button id="paneles" class="paneles" type="button" aria-pressed="false">Panels</button>
+  <div id="crystal-art" aria-hidden="true"></div>
+  <div class="crystal-brand">JARVIS<span>NÚCLEO CRISTALINO</span></div>
+  <div class="crystal-cards left">
+    <section><h2>NEGOCIOS</h2><button id="crystal-business">ISLAFIX PRO · Ver resumen</button></section>
+    <section><h2>CONTENIDO</h2><button data-launch="Abre YouTube Studio">YouTube Studio ↗</button><button data-launch="Abre CapCut">CapCut ↗</button><button data-launch="Abre ChatGPT">ChatGPT ↗</button><small>Accesos de apertura · sesión sin verificar</small></section>
+  </div>
+  <div class="crystal-cards right">
+    <section><h2>ASISTENTE</h2><p id="crystal-state" role="status">Preparando panel</p><p id="crystal-reply">Pulsa Hablar o escribe tu instrucción.</p></section>
+    <section><h2>CONTROL LOCAL</h2><p>Mouse: <span id="crystal-mouse">Sin comprobar</span></p><p>Accesibilidad: <span id="crystal-ax">Sin comprobar</span></p><small>Los estados se actualizan desde el ejecutor.</small></section>
+  </div>
+  <div id="estado" class="nucleo-estado">PREPARANDO</div>
+  <button id="paneles" class="paneles" type="button" aria-pressed="false">Paneles</button>
   <header class="top" aria-label="Status">
     <div class="brand"><span id="dot" class="dot" title="Servidor"></span>JARVIS</div>
     <dl class="status">
@@ -103,12 +112,13 @@
   <script src="/ui/wav.js"></script>
   <script src="/ui/lipsync.js"></script>
   <script src="/ui/app.js"></script>
-<script src="/ui/startup.js"></script>
-<script src="/ui/cielo.js"></script>
-<script src="/ui/mecanismo.js"></script>
-<script src="/ui/nucleo.js?v=arc3"></script>
-<script type="module" src="/ui/nucleo-gl.js?v=arc3"></script>
+
+
+
+
+
 <script src="/ui/nucleo-home.js"></script>
-<script src="/ui/arranque.js"></script>  <script src="/ui/paneles.js"></script>
+
+<script src="/ui/crystal.js?v=1"></script>
 </body>
 </html>
