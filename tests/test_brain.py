@@ -55,6 +55,20 @@ class Brain(h.Base):
             r = [asyncio.run(b.run_cycle(j)) for _ in range(3)]
         self.assertEqual(r, ['ok', 'ok', 'cap']); self.assertEqual(ai.await_count, 2)
 
+    def test_cycle_social_flags_and_stop_remain_authoritative(self):
+        for auto, publish in [('false', 'true'), ('true', 'false'), ('true', 'true')]:
+            with self.subTest(auto=auto, publish=publish), \
+                 patch.dict(os.environ, {'AUTO_PUBLISH_OWN_SOCIAL': auto, 'SOCIAL_PUBLISH_ENABLED': publish,
+                                         'BRAIN_MAX_CYCLES_DAY': '10'}), \
+                 patch.object(j, '_handle_tg', new=AsyncMock()) as handler:
+                self.assertEqual(asyncio.run(b.run_cycle(j)), 'ok')
+                self.assertEqual('usa auto_publish_own_post' in handler.await_args.args[1],
+                                 auto == publish == 'true')
+        b.command_text(j, 'off')
+        with patch.object(j, '_handle_tg', new=AsyncMock()) as handler:
+            self.assertEqual(asyncio.run(b.run_cycle(j)), 'off')
+            handler.assert_not_called()
+
     def test_kill_switches(self):
         with patch.object(j, '_handle_tg', new=AsyncMock()) as ai:
             b.command_text(j, 'off'); self.assertEqual(asyncio.run(b.run_cycle(j)), 'off')

@@ -292,6 +292,19 @@ def _panel_estado():
              f"IA: {'configurada' if core.AI_READY else 'sin ANTHROPIC_API_KEY válida'}",
              f"Modo cripto: {core.MODE_SHORT[ms['effective']]}",
              f"Programador: último ciclo {str(st.get('last_tick') or '—')[11:16] or '—'}"]
+    try:
+        autonomy = core._connections.autonomy_status()
+        lines += [f"Ciclo autónomo: {'activo' if autonomy['brain_enabled'] else 'apagado'}",
+                  f"Autopublicación: {'habilitada' if autonomy['auto_publish_enabled'] else 'apagada'} · tope {autonomy['daily_post_limit']}/día",
+                  f"Publicación Meta: {'habilitada' if autonomy['meta_publish_enabled'] else 'apagada'}"]
+        for name, account in autonomy['accounts'].items():
+            lines.append(f"{name}: {'configurado' if account['configured'] else 'sin configuración completa'} · verificación {account['check']}")
+        lines.append('Compras: aprobación del dueño. Fichas Amazon: validación y publicación por el dueño.')
+    except Exception:
+        lines.append('Autonomía: estado no disponible; no equivale a cuentas desconectadas.')
+    timing = getattr(core, '_model_timing', {})
+    if timing:
+        lines.append(f"Última llamada IA (no turno de voz completo): {timing['reply_ms']} ms · tokens reutilizados {timing['cache_read_tokens']}")
     speak = (f"Estoy en línea, versión {core.VERSION}. Modo cripto "
              f"{'práctica' if ms['effective'] == 'practice' else 'real'}.")
     return {"title": "Estado", "lines": lines, "speak": speak, "sensitive": False}
