@@ -182,8 +182,21 @@ def autonomo() -> bool:
     return os.environ.get("JARVIS_AUTONOMO", "").strip() == "1"
 
 
+def ax_trusted() -> bool | None:
+    """Accesibilidad de ESTE proceso (el del LaunchAgent), no la de Terminal. None fuera de la Mac."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import ctypes
+        lib = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        lib.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(lib.AXIsProcessTrusted())
+    except Exception:
+        return None
+
+
 def heartbeat() -> None:
-    _write_json("autonomo.json", {"latido": stamp(now()), "pid": os.getpid()})
+    _write_json("autonomo.json", {"latido": stamp(now()), "pid": os.getpid(), "accesibilidad": ax_trusted()})
 
 
 def auto_ok(action: dict) -> bool:
@@ -771,9 +784,82 @@ class MacPointer:
         pyautogui.PAUSE = 0
         self.pg = pyautogui
 
+    # Coordenadas: x,y de una orden son puntos RELATIVOS a la pantalla donde está la ventana al frente
+    # (Notes/Safari); se pasan a globales de Quartz (origen = pantalla principal; una pantalla a la izquierda
+    # tiene x negativas). Mover = CGWarpMouseCursorPosition (probado en la Mac de Yullian) + evento
+    # kCGEventMouseMoved para que la app lo vea; pyautogui/CGEventPost solo NO movía el cursor.
+    def _front_window(self):
+        import Quartz
+        opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+        for w in Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or []:
+            b = w.get("kCGWindowBounds") or {}
+            if int(w.get("kCGWindowLayer", 1)) == 0 and float(b.get("Width", 0)) >= 50 and float(b.get("Height", 0)) >= 50:
+                return str(w.get("kCGWindowOwnerName") or ""), b
+        return "", None
+
+    def displays(self) -> list:
+        import Quartz
+        _err, ids, n = Quartz.CGGetActiveDisplayList(16, None, None)
+        out = []
+        for d in list(ids or [])[:n]:
+            r = Quartz.CGDisplayBounds(d)
+            out.append((float(r.origin.x), float(r.origin.y), float(r.size.width), float(r.size.height)))
+        return out
+
+    def target_display(self):
+        ds = self.displays() or [(0.0, 0.0) + tuple(float(v) for v in self.pg.size())]
+        try:
+            _app, b = self._front_window()
+        except Exception:
+            b = None
+        if b:
+            cx = float(b["X"]) + float(b["Width"]) / 2; cy = float(b["Y"]) + float(b["Height"]) / 2
+            for d in ds:
+                if d[0] <= cx < d[0] + d[2] and d[1] <= cy < d[1] + d[3]:
+                    return d
+        return next((d for d in ds if d[0] == 0 and d[1] == 0), ds[0])
+
+    def to_global(self, x: int, y: int) -> tuple[float, float]:
+        ox, oy, w, h = self.target_display()
+        return ox + min(max(float(x), 0.0), w - 1), oy + min(max(float(y), 0.0), h - 1)
+
+    def position(self) -> tuple[int, int]:
+        import Quartz
+        p = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        return int(round(p.x)), int(round(p.y))
+
+    def _warp(self, x: int, y: int) -> tuple[float, float]:
+        import Quartz
+        gx, gy = self.to_global(x, y)
+        Quartz.CGWarpMouseCursorPosition((gx, gy))
+        Quartz.CGAssociateMouseAndMouseCursorPosition(True)
+        ev = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (gx, gy), Quartz.kCGMouseButtonLeft)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+        time.sleep(0.03)
+        px, py = self.position()
+        ok = abs(px - gx) <= 2 and abs(py - gy) <= 2
+        _write_json("ultimo_move.json", {"at": stamp(now()), "pedido": [x, y], "global": [gx, gy], "real": [px, py],
+                                         "ok": ok, "pantalla": list(self.target_display()), "accesibilidad": ax_trusted()})
+        return gx, gy, ok
+
+    def _clicks(self, gx: float, gy: float, veces: int) -> None:
+        import Quartz
+        for i in range(1, veces + 1):
+            for kind in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+                ev = Quartz.CGEventCreateMouseEvent(None, kind, (gx, gy), Quartz.kCGMouseButtonLeft)
+                Quartz.CGEventSetIntegerValueField(ev, Quartz.kCGMouseEventClickState, i)
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+                time.sleep(0.02)
+
     def frontmost(self) -> str:
         if sys.platform != "darwin":
             return ""
+        try:
+            app, _b = self._front_window()     # Quartz: no necesita permiso de Automatización
+            if app:
+                return app
+        except Exception:
+            pass
         import subprocess
         out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
                               'application process whose frontmost is true'], capture_output=True, text=True, timeout=5)
@@ -789,13 +875,19 @@ class MacPointer:
         return out.stdout.strip() if out.returncode == 0 else ""
 
     def move(self, x: int, y: int) -> None:
-        self.pg.moveTo(x, y, duration=0.16, tween=self.pg.easeOutQuad)
+        self._warp(x, y)                         # el resultado verificado queda en ultimo_move.json
+
+    def _click_en(self, x: int, y: int, veces: int) -> None:
+        gx, gy, ok = self._warp(x, y)
+        if not ok:                               # nunca clicar donde no está el cursor
+            raise RuntimeError("el cursor no llegó")
+        self._clicks(gx, gy, veces)
 
     def click(self, x: int, y: int) -> None:
-        self.pg.click(x, y)
+        self._click_en(x, y, 1)
 
     def double_click(self, x: int, y: int) -> None:
-        self.pg.doubleClick(x, y)
+        self._click_en(x, y, 2)
 
     def scroll(self, dy: int) -> None:
         self.pg.scroll(dy)

@@ -198,10 +198,6 @@ class AutoPointer(ae.MacPointer):
         w, h = self.pg.size()
         return int(w), int(h)
 
-    def position(self) -> tuple[int, int]:
-        p = self.pg.position()
-        return int(p[0]), int(p[1])
-
     def frontmost(self) -> str:
         if sys.platform != "darwin":
             return ""
