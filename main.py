@@ -6099,7 +6099,7 @@ READ_ONLY_TOOLS = frozenset({
     "bank_accounts", "bank_transactions", "bank_summary", "bank_weekly_report", "list_clients", "find_client",
     "list_jobs", "jobs_summary", "list_inventory", "crypto_log_summary", "list_client_messages", "paper_status",
     "paper_trades", "list_notes", "get_note", "list_documents", "list_recurring_invoices", "list_external_actions",
-    "list_product_candidates", "growth_status"})
+    "list_product_candidates", "growth_status", "business_context"})
 
 async def run_tool(name, args, read_only=None):
     if read_only and name not in READ_ONLY_TOOLS:
@@ -6171,7 +6171,7 @@ def system_prompt():
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT + PERSONALITY_PROMPT +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT + _specialists.PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -7532,6 +7532,9 @@ _connections.install(_sys.modules[__name__])
 
 import jarvis_business_workflows as _business_workflows
 _business_workflows.install(_sys.modules[__name__])
+
+import jarvis_specialists as _specialists
+_specialists.install(_sys.modules[__name__])
 
 # Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
 # 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its
