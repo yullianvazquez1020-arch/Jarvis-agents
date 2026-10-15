@@ -20,6 +20,7 @@ def norm(text):
 ACTION_MSG = ("Eso no se hace por voz ni desde el panel. Confirmar, aprobar, rechazar, enviar, anotar, ejecutar, "
               "restaurar, borrar o mover dinero se hace solo en tu chat privado de Telegram.")
 _REFUSE = (
+    (re.compile(r"\b(?:approve|authorize|transfer money|delete|restore|execute|send payment)\b|^(?:buy|sell|pay|send)\b"), ACTION_MSG),
     (re.compile(r"^\s*/"), "Por voz no ejecuto comandos. Escríbelo en tu chat privado de Telegram."),
     (re.compile(r"\d{6}|\d{3}\s\d{3}"),
      "Una transcripción no te identifica ni confirma nada. Los códigos solo valen en tu chat privado de Telegram."),
@@ -27,6 +28,17 @@ _REFUSE = (
                 r"ejecut\w*|restaur\w*|borr\w*|elimin\w*|autoriz\w*|transfier\w*|transferenc\w*|retir\w*)\b"),
      ACTION_MSG),
     (re.compile(r"^(compra|comprame|compre|vende|vendeme|venda|paga|pagale|manda|mandale)\b"), ACTION_MSG),
+)
+
+_LOCAL_EN = (
+    ("stop_mouse", re.compile(r"^(?:please )?(?:stop|pause) (?:the )?(?:mouse|pointer)(?: please)?$")),
+    ("stop_audio", re.compile(r"^(?:please )?(?:stop talking|stop speaking|be quiet|silence)(?: please)?$")),
+    ("mic_off", re.compile(r"^(?:please )?(?:turn off|disable|mute) (?:the )?(?:microphone|mic)$")),
+    ("mic_on", re.compile(r"^(?:please )?(?:turn on|enable|unmute) (?:the )?(?:microphone|mic)$")),
+    ("slower", re.compile(r"\b(?:speak slower|talk slower|slow down|speak more slowly)\b")),
+    ("faster", re.compile(r"\b(?:speak faster|talk faster|speed up)\b")),
+    ("repeat", re.compile(r"^(?:please )?(?:repeat|repeat that|say that again|what did you say)(?: please)?$")),
+    ("health", re.compile(r"^(?:how are you|system status|jarvis status|diagnostics)$")),
 )
 
 _LOCAL = (
@@ -70,7 +82,7 @@ def parse(text):
     for rx, reply in _REFUSE:
         if rx.search(n):
             return "refuse", reply
-    for kind, rx in _LOCAL:
+    for kind, rx in _LOCAL_EN + _LOCAL:
         if rx.search(n):
             return kind, None
     for kind, rx, arg in _MOUSE:                     # voz -> orden al mouse (el ejecutor revalida y pide /confirmar)

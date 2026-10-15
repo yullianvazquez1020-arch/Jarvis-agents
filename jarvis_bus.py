@@ -2,9 +2,9 @@
 
 Cada negocio emite eventos de estado; Grok Bot los lee con X-Jarvis-Secret.
 Solo lectura/registro: ningún evento ejecuta pagos, envíos ni publicaciones.
-Memoria acotada (se pierde al reiniciar; persistencia en Redis = paso siguiente).
+Estado y eventos acotados persistidos por main en el almacenamiento existente.
 """
-import re, secrets, threading, time
+import copy, re, secrets, threading, time
 from collections import deque
 
 ESTADOS = ("idea", "plan", "codigo", "pr", "live", "pausado")
@@ -59,11 +59,60 @@ def secreto_usable(value):
 
 class Bus:
     def __init__(self, now=time.time):
-        self._now, self._lock, self._seq = now, threading.Lock(), 0
+        self._now, self._lock, self._seq = now, threading.RLock(), 0
+        self._persistence_failed = False
+        self._recovery_required = False
         self._epoch = secrets.token_hex(8)          # cambia en cada arranque; el cursor viejo no sirve
         self._ev = deque(maxlen=MAX_EVENTOS)
         self._estado = {k: {"id": k, "nombre": v, "estado": "idea", "nota": "", "ts": None}
                         for k, v in NEGOCIOS.items()}
+
+    def snapshot(self):
+        with self._lock:
+            return copy.deepcopy({"version": 1, "seq": self._seq,
+                "negocios": self._estado, "eventos": list(self._ev),
+                "recovery_required": self._recovery_required})
+
+    def restore(self, data):
+        # Validate before changing anything; corrupt storage must never become defaults.
+        if not isinstance(data, dict) or data.get("version") != 1:
+            raise ValueError("invalid business snapshot")
+        seq, states, events = data.get("seq"), data.get("negocios"), data.get("eventos")
+        if type(seq) is not int or seq < 0 or not isinstance(states, dict) or set(states) != set(NEGOCIOS):
+            raise ValueError("invalid business state")
+        if not isinstance(events, list) or len(events) > MAX_EVENTOS:
+            raise ValueError("invalid business events")
+        for key, item in states.items():
+            if not isinstance(item, dict) or item.get("id") != key or item.get("estado") not in ESTADOS or not isinstance(item.get("nota"), str):
+                raise ValueError("invalid business entry")
+        previous = 0
+        for event in events:
+            if (not isinstance(event, dict) or type(event.get("seq")) is not int
+                or not previous < event["seq"] <= seq or event.get("negocio") not in NEGOCIOS
+                or event.get("fuente") not in FUENTES or not isinstance(event.get("texto"), str)):
+                raise ValueError("invalid business event")
+            previous = event["seq"]
+        with self._lock:
+            self._seq = seq
+            self._estado = copy.deepcopy(states)
+            self._ev = deque(copy.deepcopy(events), maxlen=MAX_EVENTOS)
+            self._recovery_required = bool(data.get("recovery_required", False))
+            self._persistence_failed = False
+
+    def emitir_guardado(self, save, *args, **kwargs):
+        # Keep mutation and durable commit in one critical section, including rollback.
+        with self._lock:
+            if self._persistence_failed:
+                raise RuntimeError("business storage needs reload after uncertain write")
+            before = self.snapshot()
+            event = self.emitir(*args, **kwargs)
+            try:
+                save(self.snapshot())
+            except Exception:
+                self.restore(before)
+                self._persistence_failed = True
+                raise
+            return event
 
     def emitir(self, negocio, tipo, texto="", estado=None, fuente="jarvis"):
         if negocio not in self._estado: raise KeyError(f"negocio desconocido: {negocio}")
@@ -113,6 +162,7 @@ class Bus:
         with self._lock:
             if n > self._seq:
                 self._seq = n
+                self._recovery_required = True
 
     def consultar(self, desde=0, negocio=None, limite=100, epoch=None):
         """Lectura con época. Un cursor de otro arranque no esconde los eventos nuevos."""
@@ -140,7 +190,9 @@ class Bus:
     def tablero(self):
         with self._lock:
             return {"negocios": [dict(v) for v in self._estado.values()], "ultimo_seq": self._seq,
-                    "epoch": self._epoch, "solo_lectura": True}
+                    "epoch": self._epoch, "solo_lectura": True,
+                    "recovery_required": self._recovery_required,
+                    "storage_reload_required": self._persistence_failed}
 
 
 BUS = Bus()

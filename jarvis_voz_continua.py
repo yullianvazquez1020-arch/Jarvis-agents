@@ -66,8 +66,8 @@ def idioma(text: str, previo: str = "es") -> str:
 
 
 def override() -> Optional[str]:
-    """Solo para el admin: JARVIS_REPLY_LANGUAGE=es|en fuerza el idioma. Por defecto (vacío/auto) se detecta solo."""
-    v = os.getenv("JARVIS_REPLY_LANGUAGE", "auto").strip().lower()
+    """Solo para el admin: JARVIS_REPLY_LANGUAGE=es|en fuerza el idioma. Por defecto inglés; vacío/auto conserva detección bilingüe."""
+    v = os.getenv("JARVIS_REPLY_LANGUAGE", "en-GB").strip().lower()
     return "en" if v in ("en", "en-gb", "en_gb") else "es" if v in ("es", "es-mx", "es_mx") else None
 
 

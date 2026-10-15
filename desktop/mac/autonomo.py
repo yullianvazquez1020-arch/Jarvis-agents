@@ -6,7 +6,8 @@ mira la pantalla (pantalla.png + estado.json) y deja su próxima orden en siguie
 la valida y la ejecuta sin pedir confirmación, SOLO dentro de la lista permitida:
   move, click, double_click, scroll, screenshot, wait, type (texto corto, sin Enter ni secretos),
   open_url (hosts permitidos), open_app (apps permitidas).
-Nunca: atajos de teclado, bancos/pagos, apps de mensajes/correo, Terminal, Finder, Ajustes, borrar,
+En Outlook y Slack: mover, clicar, desplazar y leer; nunca escribir, enviar, responder, borrar ni ajustes.
+Nunca: atajos de teclado, bancos/pagos, Mail/Mensajes/WhatsApp/Telegram, Terminal, Finder, Ajustes, borrar,
 comandos ni contraseñas; tampoco clics/teclas si la app al frente está bloqueada.
 Parada: mouse a la esquina superior izquierda, Ctrl+C, o crear ~/.jarvis-control/STOP.
 Tope: 30 min por sesión, 20 acciones/min, 300 pasos. Bitácora sin texto (solo largo y hash).
@@ -155,8 +156,10 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
             return "app_frente_desconocida"
         if ae.norm(front) in ae.DENY_APPS or ae.denied_text(front):
             return "app_frente"
-        if ae.norm(front) not in ae.ALLOW_APPS:    # falla cerrado: solo apps verificadas (Outlook, Slack, etc. nunca)
+        if ae.norm(front) not in ae.ALLOW_APPS:    # falla cerrado: solo apps verificadas (Mail, Mensajes, etc. nunca)
             return "app_frente"
+        if ae.norm(front) in ae.MESSAGING_APPS and kind == "type":
+            return "mensajeria_sin_escribir"    # en Outlook/Slack no se redacta nada: ni texto ni Enter
         if ae.norm(front) in BROWSERS:             # el clic solo vale si la página actual es el mismo sitio permitido que abrió esta sesión
             if kind == "type":
                 return "texto_en_navegador"
@@ -170,7 +173,7 @@ def validate(action: dict, session: dict, size: tuple[int, int], front: str, ctx
     return None
 
 
-def confirmar_clic(pointer, front: str, ctx: dict | None) -> str | None:
+def confirmar_clic(pointer, front: str, ctx: dict | None, action: dict | None = None) -> str | None:
     """Justo antes de mover o clicar: la app y la página tienen que ser las que se acaban de validar."""
     try:
         ahora = pointer.frontmost() or ""
@@ -178,6 +181,10 @@ def confirmar_clic(pointer, front: str, ctx: dict | None) -> str | None:
         return "app_frente_desconocida"
     if ae.norm(ahora) != ae.norm(front) or ae.norm(ahora) not in ae.ALLOW_APPS:
         return "app_frente"
+    if ae.norm(ahora) in ae.MESSAGING_APPS:
+        if not action:
+            return "ventana_no_verificada"
+        return ae.mensajeria_segura(action, pointer, ahora)
     if ae.norm(ahora) not in BROWSERS:
         return None
     try:
@@ -195,12 +202,8 @@ def confirmar_clic(pointer, front: str, ctx: dict | None) -> str | None:
 
 class AutoPointer(ae.MacPointer):
     def size(self) -> tuple[int, int]:
-        w, h = self.pg.size()
+        _x, _y, w, h = self.target_display()
         return int(w), int(h)
-
-    def position(self) -> tuple[int, int]:
-        p = self.pg.position()
-        return int(p[0]), int(p[1])
 
     def frontmost(self) -> str:
         if sys.platform != "darwin":
@@ -285,7 +288,7 @@ def run(pointer, *, sleep=time.sleep, max_steps: int = MAX_STEPS) -> int:
             why = "ritmo" if len(recent) >= ae.MAX_PER_MINUTE else validate(action, session, size, front, ctx)
             safe = action if isinstance(action, dict) else {}
             if not why and str(safe.get("action") or "") in {"click", "double_click", "move"}:
-                why = confirmar_clic(pointer, front, ctx)
+                why = confirmar_clic(pointer, front, ctx, safe)
             if why:
                 ae.audit(safe, "BLOQUEADO", f"autonomo:{why}", dry=False)
                 last = {"resultado": "BLOQUEADO", "motivo": why, "accion": safe.get("action")}

@@ -42,6 +42,14 @@ def run(coro): return asyncio.run(coro)
 
 
 class VozContinua(unittest.TestCase):
+    def setUp(self):
+        mode = patch.dict(os.environ, {"JARVIS_REPLY_LANGUAGE": "auto"})
+        mode.start(); self.addCleanup(mode.stop)
+
+    def test_default_english_even_for_spanish_input(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(v.idioma_turno("Hola, buenos días", "es"), "en")
+
     def test_vad_separates_voice_and_silence(self):
         d = v.VAD()
         self.assertFalse(d.is_speech(SILENCE)); self.assertTrue(d.is_speech(VOICE))
@@ -212,6 +220,10 @@ class Client(unittest.TestCase):
 
 
 class Endpoint(unittest.TestCase):
+    def setUp(self):
+        mode = patch.dict(os.environ, {"JARVIS_REPLY_LANGUAGE": "auto"})
+        mode.start(); self.addCleanup(mode.stop)
+
     @classmethod
     def setUpClass(cls):
         import test_hardening as h

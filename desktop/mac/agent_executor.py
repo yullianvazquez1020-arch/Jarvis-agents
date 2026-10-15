@@ -60,7 +60,17 @@ DANGEROUS = {
 }
 FREE_ACTIONS = {"scroll", "screenshot", "wait", "move"}
 ALLOW_HOSTS = {"github.com", "jarvis-agents.onrender.com", "127.0.0.1", "localhost"}
-ALLOW_APPS = {"notes", "safari"}
+ALLOW_APPS = {"notes", "safari", "microsoft outlook", "outlook", "slack"}
+# Outlook y Slack: el puntero puede moverse, clicar, desplazarse y leer, pero NUNCA enviar, publicar,
+# responder, borrar, mover a la papelera ni cambiar ajustes. Sin escribir texto (no se redacta nada) y
+# cada clic exige leer antes el elemento bajo el puntero (accesibilidad). Si no se puede leer, no hay clic.
+MESSAGING_APPS = {"microsoft outlook", "outlook", "slack"}
+SEND_RE = re.compile(
+    r"(send|enviar|envia|post|publicar|reply|respond|forward|reenvia|submit|delete|eliminar|borrar|suprimir|"
+    r"trash|papelera|basura|junk|spam|archive|archivar|move to|mover a|mover|settings|preferences|preferencias|"
+    r"configuraci|ajustes|options|opciones|unsubscribe|leave|salir del canal|block|bloquear|remove|quitar|"
+    r"sign out|cerrar sesion|logout)")
+MSG_DENY_ACTIONS = {"type", "hotkey"}
 # Modo autónomo (opcional, apagado por defecto): JARVIS_AUTONOMO=1 o --autonomo.
 AUTO_ACTIONS = {"move", "click", "double_click", "scroll", "screenshot", "wait", "type", "open_url", "open_app"}
 AUTO_AGENT = "jarvis"
@@ -78,6 +88,16 @@ def control_dir() -> Path:
     path = Path(raw) if raw else Path.home() / ".jarvis-control"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+@contextlib.contextmanager
+def queue_lock():
+    with (control_dir() / "queue.lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def owner_dir() -> Path:
@@ -182,8 +202,21 @@ def autonomo() -> bool:
     return os.environ.get("JARVIS_AUTONOMO", "").strip() == "1"
 
 
+def ax_trusted() -> bool | None:
+    """Accesibilidad de ESTE proceso (el del LaunchAgent), no la de Terminal. None fuera de la Mac."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import ctypes
+        lib = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        lib.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(lib.AXIsProcessTrusted())
+    except Exception:
+        return None
+
+
 def heartbeat() -> None:
-    _write_json("autonomo.json", {"latido": stamp(now()), "pid": os.getpid()})
+    _write_json("autonomo.json", {"latido": stamp(now()), "pid": os.getpid(), "accesibilidad": ax_trusted()})
 
 
 def auto_ok(action: dict) -> bool:
@@ -703,6 +736,15 @@ def _observador(pointer, name: str):
 def frente_seguro(action: dict, pointer) -> str | None:
     """Justo antes de mover o clicar en modo autónomo. None = se puede. En la Mac, app y página se leen otra vez."""
     kind = str(action.get("action") or "")
+    if kind in MSG_DENY_ACTIONS:
+        fm = _observador(pointer, "frontmost")
+        try:
+            al_frente = fm() if fm else ""
+        except Exception:
+            return "app_frente_desconocida"
+        if norm(al_frente or "") in MESSAGING_APPS:
+            return "mensajeria_sin_escribir"
+        return None
     if kind not in {"move", "click", "double_click"}:
         return None
     frontmost = _observador(pointer, "frontmost")
@@ -714,6 +756,8 @@ def frente_seguro(action: dict, pointer) -> str | None:
         return "app_frente_desconocida"
     if norm(front) not in ALLOW_APPS:
         return "app_frente"
+    if norm(front) in MESSAGING_APPS:
+        return mensajeria_segura(action, pointer, front)
     if norm(front) != "safari":
         return None
     page_url = _observador(pointer, "page_url")
@@ -734,6 +778,54 @@ def frente_seguro(action: dict, pointer) -> str | None:
         return "sitio_no_verificado"
     if otra != url or norm(frente) != norm(front):
         return "sitio_no_verificado"
+    return None
+
+
+def send_text(text: str) -> bool:
+    return bool(SEND_RE.search(norm(text or "")))
+
+
+def mensajeria_segura(action: dict, pointer, front: str) -> str | None:
+    """Outlook/Slack justo antes de mover o clicar. None = se puede. Falla cerrado.
+    - move: solo la ventana tiene que seguir siendo de la misma app y no ser de ajustes.
+    - click/double_click: además se lee el elemento bajo el puntero; si es Enviar/Responder/Borrar/Ajustes
+      (o no se puede leer) el clic no se hace. Luego se vuelve a leer app y ventana."""
+    kind = str(action.get("action") or "")
+    if kind in MSG_DENY_ACTIONS:
+        return "mensajeria_sin_escribir"
+    if kind not in {"move", "click", "double_click"}:
+        return None
+    frontmost = _observador(pointer, "frontmost")
+    window = _observador(pointer, "window_title")
+    if frontmost is None or window is None:
+        return "ventana_no_verificada"
+    try:
+        titulo = window() or ""
+    except Exception:
+        return "ventana_no_verificada"
+    if not titulo:
+        return "ventana_no_verificada"
+    if send_text(titulo):
+        return "ventana_de_ajustes"
+    if kind == "move":
+        return None
+    element = _observador(pointer, "element_label")
+    if element is None:
+        return "elemento_no_verificado"
+    try:
+        etiqueta = element(int(action["x"]), int(action["y"]))
+    except Exception:
+        return "elemento_no_verificado"
+    if not etiqueta or not str(etiqueta).strip():
+        return "elemento_no_verificado"
+    if send_text(str(etiqueta)):
+        return "accion_de_envio"
+    try:
+        frente, titulo2 = frontmost() or "", window() or ""
+    except Exception:
+        return "ventana_no_verificada"
+    if norm(frente) != norm(front) or titulo2 != titulo:
+        return "ventana_no_verificada"
     return None
 
 
@@ -761,6 +853,46 @@ def finish(action: dict, how: str | None, pointer) -> str:
     return "HECHO"
 
 
+def window_title_mac() -> str | None:
+    if sys.platform != "darwin":
+        return None
+    import subprocess
+    try:
+        out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of front window of '
+                              '(first application process whose frontmost is true)'], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def element_label_mac(x: int, y: int) -> str | None:
+    """Necesita pyobjc (pip install pyobjc-framework-ApplicationServices) y permiso de Accesibilidad."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from ApplicationServices import (AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
+                                         AXUIElementCreateSystemWide)
+    except Exception:
+        return None
+    try:
+        err, el = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), float(x), float(y), None)
+        if err or el is None:
+            return None
+        parts = []
+        for _ in range(4):                       # el elemento y tres padres: un botón con icono también cuenta
+            for attr in ("AXTitle", "AXDescription", "AXHelp", "AXRoleDescription", "AXIdentifier"):
+                e2, val = AXUIElementCopyAttributeValue(el, attr, None)
+                if not e2 and isinstance(val, str) and val:
+                    parts.append(val[:120])
+            e3, parent = AXUIElementCopyAttributeValue(el, "AXParent", None)
+            if e3 or parent is None:
+                break
+            el = parent
+        return " | ".join(parts)
+    except Exception:
+        return None
+
+
 class MacPointer:
     """pyautogui solo después de confirmación. FAILSAFE: esquina superior izquierda (apagado solo en modo
     autónomo; STOP sigue valiendo)."""
@@ -771,9 +903,101 @@ class MacPointer:
         pyautogui.PAUSE = 0
         self.pg = pyautogui
 
+    # Coordenadas: x,y de una orden son puntos RELATIVOS a la pantalla donde está la ventana al frente
+    # (Notes/Safari); se pasan a globales de Quartz (origen = pantalla principal; una pantalla a la izquierda
+    # tiene x negativas). Mover = CGWarpMouseCursorPosition (probado en la Mac de Yullian) + evento
+    # kCGEventMouseMoved para que la app lo vea; pyautogui/CGEventPost solo NO movía el cursor.
+    def _front_window(self):
+        import Quartz
+        opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+        for w in Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or []:
+            b = w.get("kCGWindowBounds") or {}
+            if int(w.get("kCGWindowLayer", 1)) == 0 and float(b.get("Width", 0)) >= 50 and float(b.get("Height", 0)) >= 50:
+                return str(w.get("kCGWindowOwnerName") or ""), b
+        return "", None
+
+    def displays(self) -> list:
+        import Quartz
+        _err, ids, n = Quartz.CGGetActiveDisplayList(16, None, None)
+        out = []
+        for d in list(ids or [])[:n]:
+            r = Quartz.CGDisplayBounds(d)
+            out.append((float(r.origin.x), float(r.origin.y), float(r.size.width), float(r.size.height)))
+        return out
+
+    def target_display(self):
+        ds = self.displays() or [(0.0, 0.0) + tuple(float(v) for v in self.pg.size())]
+        try:
+            _app, b = self._front_window()
+        except Exception:
+            b = None
+        if b:
+            cx = float(b["X"]) + float(b["Width"]) / 2; cy = float(b["Y"]) + float(b["Height"]) / 2
+            for d in ds:
+                if d[0] <= cx < d[0] + d[2] and d[1] <= cy < d[1] + d[3]:
+                    return d
+        return next((d for d in ds if d[0] == 0 and d[1] == 0), ds[0])
+
+    def to_global(self, x: int, y: int) -> tuple[float, float]:
+        ox, oy, w, h = self.target_display()
+        return ox + min(max(float(x), 0.0), w - 1), oy + min(max(float(y), 0.0), h - 1)
+
+    def position(self) -> tuple[int, int]:
+        import Quartz
+        p = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        return int(round(p.x)), int(round(p.y))
+
+    def _motion_guard(self):
+        if stopped():
+            raise RuntimeError("STOP activo")
+        px, py = self.position()
+        # Preserve the upper-left emergency corner on every connected screen.
+        if any(ox <= px <= ox + 3 and oy <= py <= oy + 3 for ox, oy, _w, _h in self.displays()):
+            raise RuntimeError("esquina de parada")
+
+    def _warp(self, x: int, y: int) -> tuple[float, float, bool]:
+        import Quartz
+        gx, gy = self.to_global(x, y)
+        self._motion_guard()
+        sx, sy = self.position()
+        front = self.frontmost()
+        Quartz.CGAssociateMouseAndMouseCursorPosition(True)
+        for step in range(1, 13):
+            self._motion_guard()
+            if self.frontmost() != front:
+                raise RuntimeError("la ventana cambió durante el movimiento")
+            t = step / 12
+            eased = t * t * (3 - 2 * t)
+            point = (sx + (gx - sx) * eased, sy + (gy - sy) * eased)
+            Quartz.CGWarpMouseCursorPosition(point)
+            ev = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, point, Quartz.kCGMouseButtonLeft)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+            time.sleep(1 / 60)
+        time.sleep(0.03)
+        px, py = self.position()
+        ok = abs(px - gx) <= 2 and abs(py - gy) <= 2
+        _write_json("ultimo_move.json", {"at": stamp(now()), "pedido": [x, y], "global": [gx, gy], "real": [px, py],
+                                         "ok": ok, "pantalla": list(self.target_display()), "accesibilidad": ax_trusted()})
+        return gx, gy, ok
+
+    def _clicks(self, gx: float, gy: float, veces: int) -> None:
+        import Quartz
+        for i in range(1, veces + 1):
+            for kind in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+                ev = Quartz.CGEventCreateMouseEvent(None, kind, (gx, gy), Quartz.kCGMouseButtonLeft)
+                Quartz.CGEventSetIntegerValueField(ev, Quartz.kCGMouseEventClickState, i)
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+                time.sleep(0.02)
+
     def frontmost(self) -> str:
         if sys.platform != "darwin":
             return ""
+        try:
+            app, _b = self._front_window()     # Quartz: no necesita permiso de Automatización
+            if app:
+                return app
+        except Exception:
+            pass
         import subprocess
         out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
                               'application process whose frontmost is true'], capture_output=True, text=True, timeout=5)
@@ -788,14 +1012,34 @@ class MacPointer:
             capture_output=True, text=True, timeout=5)
         return out.stdout.strip() if out.returncode == 0 else ""
 
+    def window_title(self) -> str | None:
+        """Título de la ventana al frente. None si no se puede leer (entonces no hay clic en Outlook/Slack)."""
+        return window_title_mac()
+
+    def element_label(self, x: int, y: int) -> str | None:
+        """Texto de accesibilidad del elemento en (x, y) y de sus padres. None si no se puede leer."""
+        return element_label_mac(x, y)
+
     def move(self, x: int, y: int) -> None:
-        self.pg.moveTo(x, y, duration=0.16, tween=self.pg.easeOutQuad)
+        self._warp(x, y)                         # el resultado verificado queda en ultimo_move.json
+
+    def _click_en(self, x: int, y: int, veces: int) -> None:
+        front, display = self.frontmost(), self.target_display()
+        gx, gy, ok = self._warp(x, y)
+        self._motion_guard()
+        if self.frontmost() != front or self.target_display() != display:
+            raise RuntimeError("la ventana cambió antes del clic")
+        if autonomo() and frente_seguro({"action": "click"}, self):
+            raise RuntimeError("frente no verificado")
+        if not ok:                               # nunca clicar donde no está el cursor
+            raise RuntimeError("el cursor no llegó")
+        self._clicks(gx, gy, veces)
 
     def click(self, x: int, y: int) -> None:
-        self.pg.click(x, y)
+        self._click_en(x, y, 1)
 
     def double_click(self, x: int, y: int) -> None:
-        self.pg.doubleClick(x, y)
+        self._click_en(x, y, 2)
 
     def scroll(self, dy: int) -> None:
         self.pg.scroll(dy)
@@ -1000,8 +1244,12 @@ def run_autonomo(pointer, *, ciclos: int | None = None, pausa: float = 1.0) -> i
             write_ax_status()
         if not stopped():
             # Lotes pendientes primero (de un reinicio o reencolados por ritmo), del más viejo al más nuevo.
-            if entrada.exists() and entrada.stat().st_size:
-                os.replace(entrada, folder / f"lote-{int(time.time() * 1000)}.jsonl")
+            with queue_lock():
+                if entrada.exists() and entrada.stat().st_size:
+                    batch = folder / f"lote-{int(time.time() * 1000)}.jsonl"
+                    while batch.exists():
+                        batch = folder / f"lote-{_lote_ms(batch) + 1}.jsonl"
+                    os.replace(entrada, batch)
             ahora_ms = int(time.time() * 1000)
             for lote in sorted(folder.glob("lote-*.jsonl"), key=_lote_ms):
                 if stopped():

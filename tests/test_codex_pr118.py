@@ -84,7 +84,7 @@ class OrdenAtomica(unittest.TestCase):
 class VozAlan(unittest.TestCase):
     def test_length_scale_y_sin_voz_femenina(self):
         from audio import engines
-        self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.1)
+        self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.18)
         self.assertEqual(engines.DANIEL_WPM, 160)
         cfg = {"JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_TTS_VOICE": "Samantha", "VOICE_TTS_BACKEND": "none"}
         self.assertTrue(engines.is_female_en("Samantha")); self.assertFalse(engines.is_female_en("Daniel"))
@@ -231,8 +231,11 @@ class Revision5(unittest.TestCase):
         au = self.au(); ses = {"agent": "jarvis"}; sz = (1440, 900)
         with patch.object(au.ae, "denial", return_value=None):
             click = {"agent": "jarvis", "action": "click", "x": 500, "y": 400}
-            for app in ("Microsoft Outlook", "Slack", "Mail", "Messages"):
+            for app in ("Mail", "Messages"):
                 self.assertEqual(au.validate(dict(click), ses, sz, app), "app_frente", app)
+            for app in ("Microsoft Outlook", "Slack"):
+                self.assertIsNone(au.validate(dict(click), ses, sz, app), app)
+                self.assertEqual(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, app), "mensajeria_sin_escribir", app)
             self.assertEqual(au.validate(dict(click), ses, sz, "Safari"), "sitio_no_verificado")
             self.assertEqual(au.validate(dict(click), ses, sz, "Safari", {"web_ok": True}), "sitio_no_verificado")
             ok = {"opened_host": "github.com", "page_url": "https://github.com/ejemplo/repo"}
