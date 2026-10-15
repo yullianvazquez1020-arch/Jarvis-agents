@@ -192,7 +192,7 @@ function arrancar() {
   // --- postproceso: bloom HDR a media resolución + lente (aberración, grano, barrido, hex, caída de luz) ---
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, cam));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 1.15, 0.4, 0.72);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.95, 0.35, 0.8);
   let bloomRes = 1; const bloomSize = bloom.setSize.bind(bloom);   // bloom a resolución completa (calidad cine) bloom.setSize = (w, h) => bloomSize(Math.max(1, Math.round(w * bloomRes)), Math.max(1, Math.round(h * bloomRes)));
   composer.addPass(bloom);
   const lens = new ShaderPass({
@@ -252,7 +252,7 @@ function arrancar() {
     dt = Math.min(Math.max(dt, 0), 50);              // dt acotado: sin saltos tras pestaña oculta o tirón
     const t = now / 1000, raw = st.level || 0, li = st.listen || 0;
     env += (raw - env) * (1 - Math.exp(-dt / (raw > env ? 18 : 90)));   // ataque ~18 ms, caída ~90 ms (independiente de fps)                 // ataque rápido, caída corta
-    const lv = Math.min(1, env * 1.6), breath = Math.pow(0.5 + 0.5 * Math.sin(t * 2.6), 4), boost = 1 + lv * 1.1 + li * 0.4;
+    const lv = Math.min(1, env * 1.6), breath = Math.pow(0.5 + 0.5 * Math.sin(t * 2.6), 4), boost = 1 + lv * 0.55 + li * 0.25;
     adapt(dt, now); const kr = 1 - Math.exp(-dt / 300);
     rig.rotation.x += ((-my * 0.32 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * kr;   // inclinación + paralaje
     rig.rotation.y += ((mx * 0.45 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * kr;
@@ -261,18 +261,18 @@ function arrancar() {
     ringMats.forEach((m, k) => { m.opacity = Math.min(1, RINGS[k][5] * (0.8 + 0.2 * breath) * boost); });
     tris[0].rotation.z = t * 0.25; tris[1].rotation.z = -t * 0.25;
     triMats.forEach((m) => { m.opacity = Math.min(1, 0.85 * boost); });
-    const s = 1 + 0.06 * breath + 0.28 * lv + 0.05 * li, flick = 0.95 + 0.05 * Math.sin(t * 23.0) * Math.sin(t * 7.3);   // parpadeo suave, sin ruido por frame
+    const s = 1 + 0.06 * breath + 0.2 * lv + 0.05 * li, flick = 0.95 + 0.05 * Math.sin(t * 23.0) * Math.sin(t * 7.3);   // parpadeo suave, sin ruido por frame
     core.scale.setScalar(s); vol.scale.setScalar(1 + 0.08 * breath + 0.35 * lv);
-    volMat.uniforms.uI.value = (0.75 + 0.3 * breath + 0.9 * lv) * flick; volMat.uniforms.uT.value = t;
-    coreLight.intensity = (16 + 12 * breath + 34 * lv) * flick;
-    flare.material.opacity = (0.12 + 0.3 * lv) * boost;
-    bloom.strength = (quality > 1 ? 1.15 : 0.9) + lv * 0.7 + li * 0.15;
+    volMat.uniforms.uI.value = (0.7 + 0.25 * breath + 0.5 * lv) * flick; volMat.uniforms.uT.value = t;
+    coreLight.intensity = (14 + 8 * breath + 18 * lv) * flick;
+    flare.material.opacity = (0.1 + 0.2 * lv) * boost;
+    bloom.strength = (quality > 1 ? 0.95 : 0.8) + lv * 0.3 + li * 0.08;
     for (let i = 0; i < PN; i++) { const p = pdat[i]; p.a += p.s * dt / 1000 * (1 + lv * 3);
       ppos[i * 3] = Math.cos(p.a) * p.r; ppos[i * 3 + 1] = Math.sin(p.a) * p.r; ppos[i * 3 + 2] = p.z; }
     pgeo.attributes.position.needsUpdate = true;
     if (now > nextBolt) spawnBolts(now, lv);
     for (let i = 0; i < bolts.length; i++) { const b = bolts[i]; b.mesh.visible = now - b.born < b.life; }
-    boltMat.opacity = Math.min(1, (0.8 + 0.2 * Math.sin(t * 40.0)) * (0.9 + 1.6 * lv));
+    boltMat.opacity = Math.min(1, (0.8 + 0.2 * Math.sin(t * 40.0)) * (0.7 + 0.8 * lv));
     if (now > nextRead) { readouts(t, lv); nextRead = now + 500; }
     hudMat.uniforms.uT.value = t; hudMat.uniforms.uLv.value = lv; hudMat.uniforms.uLi.value = li;
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
