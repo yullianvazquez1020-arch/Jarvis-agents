@@ -53,16 +53,18 @@
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function () {
       if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
-    }, 450);
+    }, 200);
   }
   function pauseConversation() { conversationPaused = true; clearTimeout(resumeTimer); stopMic(true); }
   function setOwner(own) {
+    var regained = own && !isOwner;
     if (!own) { clearTimeout(resumeTimer); stopMic(true); stopAudio(); }
     isOwner = own;
     window.JarvisAudioOwner=own;
     window.dispatchEvent(new CustomEvent("jarvis-audio-owner",{detail:own}));
     $("chip-role").textContent = own ? "This window: voice and audio" : "This window: display only";
     $("owner-note").hidden = own; $("talk").disabled = !own;
+    if (regained) resumeConversation();
   }
   function micUi(on) {
     $("mic-dot").textContent = on ? "● microphone listening" : "● microphone off";
@@ -109,7 +111,7 @@
     else if (e.type === "mic.on") { conversationPaused = false; resumeConversation(); setState("Microphone ready"); }
     else if (e.type === "turn.done" || e.type === "turn.error" || e.type === "turn.cancelled") {
       if (e.turn === current) { current = null; $("cancel").disabled = true; }
-      if (e.type === "turn.done" && $("convo").checked && isOwner && state.prefs.mic) {
+      if ($("convo").checked && isOwner && state.prefs.mic) {
         resumeConversation();
       }
     }
@@ -310,7 +312,7 @@
       transcribing = false; if (transcriptTicket !== micGeneration) return; $("transcript").value = t.text;
       if (!t.text) { setState("ready", "No speech detected"); resumeConversation(); return; }
       if (!$("review").checked) send(t.text, "voice"); else setState("listo", "Review the transcript and press Send");
-    }).catch(function (e) { transcribing = false; setState("error", e.message); });
+    }).catch(function (e) { transcribing = false; if (transcriptTicket !== micGeneration) return; setState("error", e.message); resumeConversation(); });
   }
 
   // ---------- turns ----------
@@ -320,7 +322,7 @@
     current = rid() + rid().slice(0, 4);
     $("cancel").disabled = false; lastReply = ""; renderReply();
     api("POST", "/conversation/turns", { request_id: current, text: text, source: source || "text" })
-      .catch(function (e) { setState("error", e.message); current = null; $("cancel").disabled = true; });
+      .catch(function (e) { setState("error", e.message); current = null; $("cancel").disabled = true; resumeConversation(); });
   }
 
   // ---------- wiring ----------

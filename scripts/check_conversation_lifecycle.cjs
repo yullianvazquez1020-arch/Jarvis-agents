@@ -53,5 +53,15 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   h.state.prefs.mic=true;h.win.test.setPaused(false);h.win.test.startMic();
   h.win.test.setOwner(false);h.pending.shift()({getTracks:()=>[{stop(){stopped++}}]});await settle();
   assert.equal(stopped,3,'ownership loss releases pending stream');
-  console.log('Conversation lifecycle: 9 checks passed');
+  h.win.test.setOwner(true);h.flush();
+  assert.equal(h.captures(),4,'regaining ownership resumes hands-free capture');
+  for (const type of ['turn.error','turn.cancelled','turn.done']) {
+    h.win.test.stopMic(true);h.win.test.setCurrent(type);
+    h.win.test.handle({type,turn:type});h.flush();
+  }
+  assert.equal(h.captures(),7,'every completed or failed turn re-arms listening');
+  h.win.test.setPaused(true);h.win.test.stopMic(true);
+  h.win.test.handle({type:'turn.error',turn:'late'});h.flush();
+  assert.equal(h.captures(),7,'late errors cannot override an explicit pause');
+  console.log('Conversation lifecycle: 12 checks passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
