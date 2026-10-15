@@ -37,7 +37,7 @@ class Torre(unittest.TestCase):
         app = (ROOT / "desktop" / "app.py").read_text("utf-8")
         for k in ('"/api/negocios"', '"/api/cripto"', '"negocios.js"', '"torre-pisos.js"', '"negocios.css"'):
             self.assertIn(k, app)
-        self.assertIn("negocios.js", (ROOT / "desktop/ui/index.html").read_text("utf-8"))
+        self.assertNotIn("negocios.js", (ROOT / "desktop/ui/index.html").read_text("utf-8"))   # inicio = núcleo, sin torre
         self.assertNotIn("torre-pisos.js", (ROOT / "desktop/ui/torre.html").read_text("utf-8"))   # torre = decorado; datos en el panel principal
 
 

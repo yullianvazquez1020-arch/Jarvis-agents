@@ -651,8 +651,8 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
-        self.assertIn('Probar pulso (sin audio)'.encode(), body)       # la frase de prueba se rotula como aproximada
-        self.assertIn(b'id="voice-status"', body)
+        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # /avatar = núcleo; sin ciudad orbital ni 100 pisos
+        self.assertNotIn("ÓRBITA".encode(), body); self.assertNotIn(b"PISOS", body)
         self.assertNotIn(b'<script>', body)
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
         self.assertEqual(self.req("GET", "/ui/avatar.js")[0], 200)
@@ -807,6 +807,15 @@ class MercadoDisplay(CompanionBase):
 
 class GalaxyTheme(CompanionBase):
     demo = True
+
+    def test_home_is_the_nucleo_full_screen(self):
+        body = self.req("GET", "/")[3]
+        self.assertIn(b'<canvas id="nucleo"', body); self.assertIn(b'<script src="/ui/nucleo.js"></script>', body)
+        self.assertIn(b'<script src="/ui/nucleo-home.js"></script>', body); self.assertIn(b'<script src="/ui/app.js"></script>', body)
+        for banned in (b"negocios.js", b"atlas.js", b"torre", "ÓRBITA".encode(), b"PISOS", b"CIUDADELA", b"/avatar\""):
+            self.assertNotIn(banned, body, banned)
+        for f in ("/ui/nucleo-home.js", "/ui/nucleo-home.css"):
+            self.assertEqual(self.req("GET", f, cookie=False)[0], 401); self.assertEqual(self.req("GET", f)[0], 200)
 
     def test_sky_script_is_local_and_reads_no_data(self):
         self.assertEqual(self.req("GET", "/ui/cielo.js", cookie=False)[0], 401)
