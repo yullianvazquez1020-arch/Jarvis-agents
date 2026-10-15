@@ -18,6 +18,8 @@
   }
   addEventListener("resize", fitFoot); fitFoot();
 
+  // Inicio = núcleo a pantalla completa: el cielo quedaría tapado y sería un segundo bucle de dibujo (tirones).
+  if (document.body.classList.contains("nucleo-home")) return;
   var sky = document.createElement("canvas");
   sky.className = "sky"; sky.setAttribute("aria-hidden", "true");
   document.body.insertBefore(sky, document.body.firstChild);

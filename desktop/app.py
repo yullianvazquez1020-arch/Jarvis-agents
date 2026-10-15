@@ -61,7 +61,7 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 "three/three.core.js": "text/javascript; charset=utf-8",
                 "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
@@ -1086,6 +1086,11 @@ def make_handler(app, host, port):
                 return self._send(200, app.state())
             if u.path == "/api/mouse-autonomo":              # solo lectura: sesión, agente, STOP
                 return self._send(200, mouse_autonomo.estado())
+            if u.path == "/api/ambient-music":                # música de fondo original (gen_encendido.py), en bucle
+                amb = HERE / "ui" / "audio" / "ambiente.wav"
+                if not amb.is_file():
+                    return self._send(404, {"error": "sin música"})
+                return self._send(200, amb.read_bytes(), "audio/wav")
             if u.path == "/api/startup-sound":                # sonido de arranque (original o archivo propio local)
                 found = startup_sound(app.cfg)
                 if not found:

@@ -1,0 +1,224 @@
+/* Núcleo JARVIS en WebGL (three.js local, sin CDN). Código y diseño originales, inspirados en el estilo de HUD
+   holográfico del laboratorio Stark: anillos concéntricos cian/blanco-azul con acentos ámbar, marcas finas
+   densas, arcos de datos que giran, lecturas numéricas, capas con profundidad y paralaje, reactor central con
+   brillo volumétrico, triángulos, rayos como tubos luminosos, bloom HDR a media resolución, aberración
+   cromática, grano, líneas de barrido y rejilla hexagonal. No usa fotogramas ni recursos de las películas.
+   Un solo bucle: nucleo.js llama a JarvisNucleo.paso() en su requestAnimationFrame. Sin WebGL queda el 2D. */
+import * as THREE from "./vendor/three/three.module.js";
+import { EffectComposer } from "./vendor/three/postprocessing/EffectComposer.js";
+import { RenderPass } from "./vendor/three/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "./vendor/three/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "./vendor/three/postprocessing/ShaderPass.js";
+import { OutputPass } from "./vendor/three/postprocessing/OutputPass.js";
+
+const N = window.JarvisNucleo, old = document.getElementById("nucleo");
+function webglOk() {
+  try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
+}
+if (N && old && webglOk() && !/[?&]gl=0\b/.test(location.search)) {
+  try { arrancar(); } catch (e) { N.gl = false; console.warn("núcleo WebGL no disponible, uso 2D", e); }
+}
+
+function arrancar() {
+  const DPR_MAX = 1.5;
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", alpha: false });
+  renderer.setClearColor(0x010509, 1);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  const cv = renderer.domElement; cv.id = "nucleo-gl"; cv.className = old.className;
+  cv.setAttribute("aria-label", old.getAttribute("aria-label") || "Núcleo de JARVIS");
+  cv.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0";
+  old.parentNode.insertBefore(cv, old); old.style.display = "none";
+
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100); cam.position.set(0, 0, 9.5);
+  const rig = new THREE.Group(); scene.add(rig);               // inclinación 3D sutil + paralaje
+  const CYAN = new THREE.Color(0.15, 0.6, 1.25), ICE = new THREE.Color(0.75, 1.15, 1.5), AMBER = new THREE.Color(1.5, 0.65, 0.12);
+  const add = (m) => new THREE.MeshBasicMaterial({ color: m.c, transparent: true, opacity: m.o, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+
+  // --- geometría reutilizable ---
+  function band(r0, r1, segs, gap, sub) {          // anillo segmentado en UNA geometría
+    const pos = [], step = Math.PI * 2 / segs;
+    for (let i = 0; i < segs; i++) {
+      const a0 = i * step, a1 = (i + 1 - gap) * step, k = sub || 6;
+      for (let j = 0; j < k; j++) {
+        const u0 = a0 + (a1 - a0) * j / k, u1 = a0 + (a1 - a0) * (j + 1) / k;
+        const p = (r, a) => [Math.cos(a) * r, Math.sin(a) * r, 0];
+        pos.push(...p(r0, u0), ...p(r1, u0), ...p(r1, u1), ...p(r0, u0), ...p(r1, u1), ...p(r0, u1));
+      }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); return g;
+  }
+  function ticks(r, n, lMinor, lMajor, every) {
+    const pos = [];
+    for (let i = 0; i < n; i++) { const a = i * Math.PI * 2 / n, l = i % every ? lMinor : lMajor;
+      pos.push(Math.cos(a) * r, Math.sin(a) * r, 0, Math.cos(a) * (r + l), Math.sin(a) * (r + l), 0); }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); return g;
+  }
+  const layers = [];
+  function layer(z, speed, obj) { obj.position.z = z; obj.userData.speed = speed; rig.add(obj); layers.push(obj); return obj; }
+
+  // carcasa metálica real (iluminada por el núcleo): da volumen y profundidad
+  const metal = new THREE.MeshStandardMaterial({ color: 0x1a2630, metalness: 0.92, roughness: 0.32, emissive: 0x03101a });
+  const housing = new THREE.Mesh(new THREE.TorusGeometry(1.32, 0.16, 24, 96), metal); housing.position.z = -0.2; rig.add(housing);
+  const housing2 = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.07, 16, 72), metal); housing2.position.z = 0.05; rig.add(housing2);
+  for (let i = 0; i < 10; i++) {                   // bobinas del reactor, metálicas
+    const coil = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.14), metal), a = i * Math.PI / 5;
+    coil.position.set(Math.cos(a) * 1.05, Math.sin(a) * 1.05, -0.05); coil.rotation.z = a; rig.add(coil);
+  }
+  const coreLight = new THREE.PointLight(0x7fd8ff, 40, 8, 2); coreLight.position.z = 0.6; rig.add(coreLight);
+  scene.add(new THREE.AmbientLight(0x0b1c2a, 1.2));
+  const rim = new THREE.DirectionalLight(0x9fd0ff, 0.8); rim.position.set(-3, 4, 5); scene.add(rim);
+
+  // anillos HUD (mismo orden/proporciones que el 2D: radio, grosor, segmentos, hueco, velocidad)
+  const RINGS = [[3.3, 0.012, 64, 0.35, 0.05, 0.4, ICE, -0.9], [2.98, 0.07, 24, 0.25, -0.12, 0.55, CYAN, -0.6],
+    [2.64, 0.02, 120, 0.5, 0.2, 0.5, ICE, -0.4], [2.36, 0.10, 10, 0.12, 0.08, 0.7, CYAN, -0.25],
+    [2.0, 0.04, 36, 0.4, -0.3, 0.6, AMBER, 0.0], [1.72, 0.08, 6, 0.2, 0.45, 0.8, CYAN, 0.2]];
+  const ringMats = RINGS.map((r) => {
+    const m = add({ c: r[6], o: r[5] }); layer(r[7], r[4], new THREE.Mesh(band(r[0], r[0] + r[1], r[2], r[3], r[2] > 60 ? 2 : 6), m)); return m; });
+  const tickMat = new THREE.LineBasicMaterial({ color: ICE, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  [[3.45, 360, 0.04, 0.12, 10, -0.03, -1.0], [2.78, 180, 0.05, 0.13, 5, 0.07, -0.5], [2.15, 120, 0.04, 0.1, 6, -0.15, -0.1], [3.9, 72, 0.03, 0.18, 9, 0.02, -1.4]]
+    .forEach((t) => layer(t[6], t[5], new THREE.LineSegments(ticks(t[0], t[1], t[2], t[3], t[4]), tickMat)));
+  const arcs = [];                                 // arcos de datos largos que barren
+  [[3.65, 0.025, 0.7, ICE, -1.1], [3.8, 0.04, 1.2, AMBER, -1.2], [2.5, 0.03, 0.9, ICE, -0.3], [4.15, 0.015, 2.2, CYAN, -1.6]].forEach((a, i) => {
+    const g = new THREE.RingGeometry(a[0], a[0] + a[1], 64, 1, 0, a[2]);
+    const m = layer(a[4], 0, new THREE.Mesh(g, add({ c: a[3], o: 0.85 }))); m.userData.arc = i; arcs.push(m); });
+
+  // triángulos (dos, girando en contra) como tubos luminosos
+  const triMats = [], tris = [];
+  [[1.42, 0.035], [1.28, 0.014]].forEach((t, q) => {
+    const pts = []; for (let j = 0; j <= 3; j++) { const a = j * Math.PI * 2 / 3 - Math.PI / 2; pts.push(new THREE.Vector3(Math.cos(a) * t[0], Math.sin(a) * t[0], 0)); }
+    const path = new THREE.CurvePath(); for (let j = 0; j < 3; j++) path.add(new THREE.LineCurve3(pts[j], pts[j + 1]));
+    const m = add({ c: ICE, o: 1 }); triMats.push(m);
+    const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, 48, t[1], 6, true), m); mesh.position.z = 0.25 + q * 0.05; rig.add(mesh); tris.push(mesh);
+  });
+
+  // reactor: núcleo blanco, halo volumétrico (shader fresnel) y destello
+  const coreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.8, 3.4), toneMapped: false });
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.3, 48, 32), coreMat); core.position.z = 0.3; rig.add(core);
+  const volMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uI: { value: 1 }, uT: { value: 0 } },
+    vertexShader: "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); vN=normalize(normalMatrix*normal); vV=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }",
+    fragmentShader: "uniform float uI; uniform float uT; varying vec3 vN; varying vec3 vV; void main(){ float f=pow(max(dot(vN,vV),0.),2.2); float n=.85+.15*sin(uT*7.+vN.x*9.+vN.y*7.); gl_FragColor=vec4(vec3(.06,.32,.9)*f*f*uI*n,1.); }" });
+  const vol = new THREE.Mesh(new THREE.SphereGeometry(0.75, 48, 32), volMat); vol.position.z = 0.2; rig.add(vol);
+  const flare = new THREE.Mesh(new THREE.PlaneGeometry(9, 0.03), add({ c: ICE, o: 0.35 })); flare.position.z = 0.4; rig.add(flare);
+
+  // partículas reutilizadas (un solo Points)
+  const PN = 260, ppos = new Float32Array(PN * 3), pdat = [];
+  for (let i = 0; i < PN; i++) pdat.push({ a: Math.random() * 7, r: 0.6 + Math.random() * 3.6, s: (Math.random() - 0.5) * 0.3, z: (Math.random() - 0.5) * 1.6 });
+  const pgeo = new THREE.BufferGeometry(); pgeo.setAttribute("position", new THREE.BufferAttribute(ppos, 3));
+  rig.add(new THREE.Points(pgeo, new THREE.PointsMaterial({ color: ICE, size: 0.025, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })));
+
+  // lecturas numéricas alrededor de los anillos (canvas 2D -> textura, se actualizan 2 veces por segundo)
+  const reads = [];
+  [[-5.4, 2.2, "PWR"], [5.4, 2.2, "SYNC"], [-5.4, -2.2, "FLUX"], [5.4, -2.2, "CORE °K"]].forEach((r) => {
+    const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    sp.position.set(r[0], r[1], -0.8); rig.add(sp); reads.push({ c, tex, label: r[2] });
+  });
+  let nextRead = 0;
+  function readouts(t, lv) {
+    reads.forEach((r, i) => {
+      const g = r.c.getContext("2d"); g.clearRect(0, 0, 256, 64);
+      g.font = "600 18px 'Helvetica Neue',Arial,sans-serif"; g.fillStyle = i % 2 ? "#ffb347" : "#9fe6ff"; g.fillText(r.label, 6, 22);
+      const v = i === 4 ? "JARVIS" : (i === 3 ? (3000 + 400 * lv + 20 * Math.sin(t)).toFixed(0) : (60 + 35 * lv + 4 * Math.sin(t * (i + 1))).toFixed(1) + "%");
+      g.font = "300 30px 'Helvetica Neue',Arial,sans-serif"; g.fillStyle = "#e6f8ff"; g.fillText(v, 6, 56);
+      g.fillStyle = "rgba(120,220,255,.6)"; g.fillRect(150, 44, 100 * (0.3 + 0.7 * Math.abs(Math.sin(t * 0.7 + i))), 4);
+      r.tex.needsUpdate = true;
+    });
+  }
+
+  // rayos como tubos luminosos (se crean pocas veces por segundo y se liberan)
+  const boltMat = add({ c: new THREE.Color(1.2, 1.9, 2.8), o: 1 }); let bolts = [], nextBolt = 0;
+  function jag(a, b, d, out) {
+    if (d <= 0) { out.push(b); return; }
+    const m = a.clone().lerp(b, 0.5), len = a.distanceTo(b), o = (Math.random() - 0.5) * len * 0.35;
+    m.x += -(b.y - a.y) / len * o; m.y += (b.x - a.x) / len * o; m.z += (Math.random() - 0.5) * 0.15;
+    jag(a, m, d - 1, out); jag(m, b, d - 1, out);
+  }
+  function spawnBolts(now, lv) {
+    bolts.forEach((b) => { rig.remove(b.mesh); b.mesh.geometry.dispose(); }); bolts = [];
+    const nb = 1 + Math.floor(Math.random() * (2 + lv * 4));
+    for (let i = 0; i < nb; i++) {
+      const ba = Math.random() * 7, r1 = 1.6 + Math.random() * 1.5, a = new THREE.Vector3(Math.cos(ba) * 0.45, Math.sin(ba) * 0.45, 0.3),
+        bb = ba + (Math.random() - 0.5), b = new THREE.Vector3(Math.cos(bb) * r1, Math.sin(bb) * r1, -0.3), pts = [a];
+      jag(a, b, 5, pts);
+      const path = new THREE.CurvePath(); for (let j = 0; j < pts.length - 1; j++) path.add(new THREE.LineCurve3(pts[j], pts[j + 1]));
+      const mesh = new THREE.Mesh(new THREE.TubeGeometry(path, pts.length * 2, 0.012, 4, false), boltMat);
+      rig.add(mesh); bolts.push({ mesh, born: now, life: 120 + Math.random() * 260 });
+    }
+    nextBolt = now + (300 + Math.random() * 1200) * (1 - lv * 0.6);
+  }
+
+  // --- postproceso: bloom HDR a media resolución + lente (aberración, grano, barrido, hex, caída de luz) ---
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, cam));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.8, 0.3, 0.82);
+  const bloomSize = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bloomSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+  composer.addPass(bloom);
+  const lens = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) }, uCA: { value: 1 } },
+    vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }",
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uT; uniform vec2 uRes; uniform float uCA; varying vec2 vUv;
+      float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
+      float hex(vec2 p){ p.x*=1.1547; p.y+=mod(floor(p.x),2.)*.5; p=abs(fract(p)-.5); return abs(max(p.x*1.5+p.y,p.y*2.)-1.); }
+      void main(){
+        vec2 c=vUv-.5; float d=length(c*vec2(uRes.x/uRes.y,1.));
+        vec2 off=c*.0035*uCA*(.4+d);
+        vec3 col=vec3(texture2D(tDiffuse,vUv+off).r, texture2D(tDiffuse,vUv).g, texture2D(tDiffuse,vUv-off).b);
+        vec2 px=vUv*uRes; float scan=.93+.07*sin(px.y*1.6+uT*30.);
+        float hx=smoothstep(.06,0.,hex(px/38.))*.05*smoothstep(.15,.6,d);
+        col+=vec3(.2,.6,1.)*hx;
+        col*=scan*mix(1.,.25,smoothstep(.35,1.05,d));
+        col+=(h(px+uT)-.5)*.018;
+        gl_FragColor=vec4(col,1.); }` });
+  composer.addPass(lens); composer.addPass(new OutputPass());
+
+  // --- tamaño adaptativo y calidad según FPS ---
+  let scale = 1, W = 0, H = 0, acc = 0, cnt = 0, quality = 2;
+  function fit() {
+    W = innerWidth; H = innerHeight; const pr = Math.min(DPR_MAX, devicePixelRatio || 1) * scale;
+    renderer.setPixelRatio(pr); composer.setPixelRatio(pr); renderer.setSize(W, H, false); composer.setSize(W, H);
+    cam.aspect = W / H; cam.fov = 38; cam.position.z = 4.5 / Math.tan(THREE.MathUtils.degToRad(19)) / Math.min(1, cam.aspect / 1.15); cam.updateProjectionMatrix();
+    lens.uniforms.uRes.value.set(W * pr, H * pr);   // el HUD cabe en alto (ultrawide 3840×1080) y en ancho
+  }
+  addEventListener("resize", fit); fit();
+  function adapt(dt) {                              // baja/sube resolución para 60 fps estables
+    acc += dt; cnt++; if (cnt < 45) return;
+    const avg = acc / cnt; acc = 0; cnt = 0; window.JarvisNucleoFrameMs = avg;
+    if (avg > 19 && scale > 0.5) { scale = Math.max(0.5, scale - 0.15); if (scale <= 0.65 && quality > 1) { quality = 1; bloom.strength = 1.0; } fit(); }
+    else if (avg < 13 && scale < 1) { scale = Math.min(1, scale + 0.1); fit(); }
+  }
+
+  let mx = 0, my = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
+  N.paso = function (now, dt, st) {
+    const t = now / 1000, lv = st.level || 0, li = st.listen || 0, breath = 0.5 + 0.5 * Math.sin(t * 1.3), boost = 1 + lv * 0.6 + li * 0.35;
+    adapt(Math.min(dt, 100));
+    rig.rotation.x += ((-my * 0.25 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * 0.05;   // inclinación + paralaje
+    rig.rotation.y += ((mx * 0.35 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * 0.05;
+    layers.forEach((o) => { if (o.userData.speed) o.rotation.z = t * o.userData.speed * (1 + lv); });
+    arcs.forEach((o, i) => { const ph = (t * (0.15 + i * 0.07)) % 1, e = ph < 0.5 ? 4 * ph ** 3 : 1 - Math.pow(-2 * ph + 2, 3) / 2; o.rotation.z = e * Math.PI * 2 * (i % 2 ? -1 : 1) + i * 2; });
+    ringMats.forEach((m, k) => { m.opacity = Math.min(1, RINGS[k][5] * (0.8 + 0.2 * breath) * boost); });
+    tris[0].rotation.z = t * 0.25; tris[1].rotation.z = -t * 0.25;
+    triMats.forEach((m) => { m.opacity = Math.min(1, 0.85 * boost); });
+    const s = 1 + 0.04 * breath + 0.12 * lv + 0.05 * li, flick = 0.94 + 0.06 * Math.random();
+    core.scale.setScalar(s); vol.scale.setScalar(1 + 0.06 * breath + 0.15 * lv);
+    volMat.uniforms.uI.value = (0.7 + 0.2 * breath + 0.35 * lv) * flick; volMat.uniforms.uT.value = t;
+    coreLight.intensity = (14 + 8 * breath + 16 * lv) * flick;
+    flare.material.opacity = (0.12 + 0.3 * lv) * boost;
+    bloom.strength = (quality > 1 ? 0.8 : 0.65) + lv * 0.25 + li * 0.1;
+    for (let i = 0; i < PN; i++) { const p = pdat[i]; p.a += p.s * dt / 1000 * (1 + lv * 3);
+      ppos[i * 3] = Math.cos(p.a) * p.r; ppos[i * 3 + 1] = Math.sin(p.a) * p.r; ppos[i * 3 + 2] = p.z; }
+    pgeo.attributes.position.needsUpdate = true;
+    if (now > nextBolt) spawnBolts(now, lv);
+    bolts.forEach((b) => { const k = 1 - (now - b.born) / b.life; b.mesh.visible = k > 0; });
+    boltMat.opacity = Math.min(1, (0.6 + 0.4 * Math.random()) * (0.7 + lv));
+    if (now > nextRead) { readouts(t, lv); nextRead = now + 500; }
+    lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
+    composer.render();
+    const lab = document.getElementById("estado");
+    if (lab) { const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
+  };
+  N.gl = true;
+}

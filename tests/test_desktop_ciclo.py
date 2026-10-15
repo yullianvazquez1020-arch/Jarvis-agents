@@ -49,7 +49,7 @@ class Arranque(unittest.TestCase):
         self.assertEqual(app.startup_sound({"JARVIS_STARTUP_SOUND": str(bad)})[0].name, "encendido.wav")
         import wave
         with wave.open(str(ROOT / "desktop/ui/audio/encendido.wav")) as w:
-            self.assertAlmostEqual(w.getnframes() / w.getframerate(), 5.0, places=1)
+            self.assertAlmostEqual(w.getnframes() / w.getframerate(), 6.0, places=1)
         js = (ROOT / "desktop/ui/arranque.js").read_text("utf-8")
         self.assertIn("st.sound", js); self.assertIn("/api/greet", js)
 
