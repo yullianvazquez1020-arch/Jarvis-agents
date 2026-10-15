@@ -41,7 +41,7 @@ sys.path.insert(0, str(HERE))
 
 import intents                                    # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
-from audio import engines                         # noqa: E402
+from audio import engines, una_voz                # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
 import negocios                                  # noqa: E402
 import mouse_autonomo                            # noqa: E402
@@ -819,8 +819,10 @@ class Companion:
                 with self._voz_lock:                     # comprobar y lanzar de forma atómica frente a stop_local_audio
                     if gen != self._voz_gen:
                         continue
+                    una_voz.claim()                      # una sola voz en la Mac: corta otra voz de Jarvis (voz_loop, etc.)
                     proc = subprocess.Popen(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     self._voz_proc = proc
+                    una_voz.register(getattr(proc, "pid", 0))
                 try:
                     proc.wait(timeout=120)
                 except subprocess.TimeoutExpired:
@@ -1323,22 +1325,6 @@ def speech_chunks(text, first_max=140):
     if not m or m.end() >= len(t) or m.start() > first_max:
         return [t]
     return [t[:m.start() + 1], t[m.end():]]
-
-
-def _announce_focus(cfg):
-    """One calm Latin-American greeting when the panel starts. Never on --check or --bench."""
-    if cfg.get("VOICE_TTS_BACKEND") != "macos_say" or not shutil.which("say"):
-        return
-    voice = (cfg.get("VOICE_TTS_VOICE") or "Juan").strip()
-    if voice in ("", "auto-latino", "Monica", "Jorge"):
-        voice = "Juan"
-    line = ("Para servirle. Sistemas en línea. El enfoque son sus negocios externos. "
-            "No compro, no llamo y no publico.")
-    try:
-        subprocess.Popen(["say", "-v", voice, "-r", "142", line],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        return
 
 
 def main(argv=None):
