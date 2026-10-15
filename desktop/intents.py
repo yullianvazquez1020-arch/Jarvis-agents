@@ -4,6 +4,7 @@ Interface orders ("silencio", "repite", "más despacio", "abre práctica") are r
 an approval, a code or a command is refused here too, so it never reaches Jarvis or any parser."""
 import re
 import unicodedata
+from account_navigation import parse_account, parse_application
 
 PANELS = ("estado", "agenda", "cobros", "practica", "brief", "caja")
 
@@ -82,6 +83,12 @@ def parse(text):
     for rx, reply in _REFUSE:
         if rx.search(n):
             return "refuse", reply
+    account = parse_account(n)
+    if account:
+        return "account", account
+    application = parse_application(n)
+    if application:
+        return "application", application
     for kind, rx in _LOCAL_EN + _LOCAL:
         if rx.search(n):
             # A request for faster replies is not a request to speed up speech.
