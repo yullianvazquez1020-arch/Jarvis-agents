@@ -24,7 +24,7 @@ class NucleoHUD(unittest.TestCase):
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")
         self.assertNotIn("requestAnimationFrame(", gl)              # el bucle es el de nucleo.js
-        self.assertIn("Math.min(1.5", n); self.assertIn("DPR_MAX = 1.5", gl)
+        self.assertIn("Math.min(2", n); self.assertIn("DPR_MAX = 2", gl)
         self.assertIn("w >> 1", gl); self.assertIn("function adapt", gl)
         self.assertIn('classList.contains("nucleo-home")', (UI / "cielo.js").read_text("utf-8"))
 

@@ -21,9 +21,22 @@ ae = auto.ae
 INVESTIGACION = {"scroll", "screenshot", "wait", "open_url", "open_app", "move", "click", "double_click", "type"}
 
 
+LATIDO_MAX_S = 20    # el agente launchd (agent_executor --autonomo) escribe su latido cada ~1 s
+
+
+def agente_vivo() -> bool:
+    """True si el LaunchAgent com.jarvis.mouse-autonomo está corriendo (latido reciente en autonomo.json)."""
+    try:
+        data = json.loads((ae.control_dir() / "autonomo.json").read_text(encoding="utf-8"))
+        edad = (ae.now() - ae.parse_stamp(data["latido"])).total_seconds()
+        return 0 <= edad <= LATIDO_MAX_S
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def estado():
     s = auto.read_session()
-    return {"disponible": True, "stop": bool(ae.stopped()), "sesion": bool(s),
+    return {"disponible": True, "stop": bool(ae.stopped()), "sesion": bool(s), "launchd": agente_vivo(),
             "agente": s["agent"] if s else None, "vence": s["expires"] if s else None,
             "apps": sorted(ae.ALLOW_APPS),
             "parada": "esquina superior izquierda · Ctrl+C · ~/.jarvis-control/STOP",
@@ -63,11 +76,25 @@ _ORDEN_LOCK = threading.Lock()
 
 
 def encargar(action):
+    if not isinstance(action, dict):
+        return {"ok": False, "motivo": "accion"}
     if ae.stopped():
         return {"ok": False, "motivo": "STOP activo"}
     s = auto.read_session()
     if not s:
-        return {"ok": False, "motivo": "sin sesión autónoma abierta por el dueño"}
+        # Antes: sin la sesión de autonomo.py el pedido moría aquí, aunque el dueño hubiera instalado el
+        # LaunchAgent (que lee entrada.jsonl, no siguiente.json). Ahora va a ese agente si está vivo; el
+        # agente vuelve a validar STOP, denylist, ritmo, turno y app al frente (solo Notes y Safari).
+        if not agente_vivo():
+            return {"ok": False, "motivo": "agente del mouse apagado: bash desktop/mac/instalar_mouse_autonomo.sh instalar"}
+        action = dict(action or {}); action["agent"] = ae.AUTO_AGENT
+        why = precheck(action, {"agent": ae.AUTO_AGENT})
+        if why:
+            return {"ok": False, "motivo": why}
+        folder = ae.control_dir() / "autonomo"; folder.mkdir(parents=True, exist_ok=True)
+        with _ORDEN_LOCK, ae.queue_lock(), (folder / "entrada.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(action) + "\n")
+        return {"ok": True, "orden": action["action"], "via": "launchd"}
     action = dict(action or {}); action.setdefault("agent", s["agent"])
     why = precheck(action, s)
     if why:

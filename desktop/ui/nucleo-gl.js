@@ -16,11 +16,11 @@ function webglOk() {
   try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
 }
 if (N && old && webglOk() && !/[?&]gl=0\b/.test(location.search)) {
-  try { arrancar(); } catch (e) { N.gl = false; console.warn("núcleo WebGL no disponible, uso 2D", e); }
+  try { arrancar(); } catch (e) { N.gl = false; old.style.display = ""; const failed = document.getElementById("nucleo-gl"); if (failed) failed.remove(); console.warn("núcleo WebGL no disponible, uso 2D", e); }
 }
 
 function arrancar() {
-  const DPR_MAX = 1.5;
+  const DPR_MAX = 2;
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", alpha: false });
   renderer.setClearColor(0x010509, 1);
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
@@ -28,6 +28,8 @@ function arrancar() {
   cv.setAttribute("aria-label", old.getAttribute("aria-label") || "Núcleo de JARVIS");
   cv.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;display:block;z-index:0";
   old.parentNode.insertBefore(cv, old); old.style.display = "none";
+  cv.addEventListener("webglcontextlost", function (e) { e.preventDefault(); N.gl = false; cv.style.display = "none"; old.style.display = ""; });
+  cv.addEventListener("webglcontextrestored", function () { old.style.display = "none"; cv.style.display = "block"; N.gl = true; });
 
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100); cam.position.set(0, 0, 9.5);
@@ -111,7 +113,7 @@ function arrancar() {
 
   // lecturas numéricas alrededor de los anillos (canvas 2D -> textura, se actualizan 2 veces por segundo)
   const reads = [];
-  [[-5.4, 2.2, "PWR"], [5.4, 2.2, "SYNC"], [-5.4, -2.2, "FLUX"], [5.4, -2.2, "CORE °K"]].forEach((r) => {
+  [[-5.4, 2.2, "VISUAL PWR"], [5.4, 2.2, "VISUAL SYNC"], [-5.4, -2.2, "VISUAL FLUX"], [5.4, -2.2, "VISUAL CORE"]].forEach((r) => {
     const c = document.createElement("canvas"); c.width = 256; c.height = 64;
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
     const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -188,16 +190,18 @@ function arrancar() {
     acc += dt; cnt++; if (cnt < 45) return;
     const avg = acc / cnt; acc = 0; cnt = 0; window.JarvisNucleoFrameMs = avg;
     if (avg > 19 && scale > 0.5) { scale = Math.max(0.5, scale - 0.15); if (scale <= 0.65 && quality > 1) { quality = 1; bloom.strength = 1.0; } fit(); }
-    else if (avg < 13 && scale < 1) { scale = Math.min(1, scale + 0.1); fit(); }
+    else if (avg < 17.5 && scale < 1) { scale = Math.min(1, scale + 0.05); if (scale > 0.65) quality = 2; fit(); }
   }
 
   let mx = 0, my = 0; addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   N.paso = function (now, dt, st) {
+    dt = Math.max(0, Math.min(dt, 50));
     const t = now / 1000, lv = st.level || 0, li = st.listen || 0, breath = 0.5 + 0.5 * Math.sin(t * 1.3), boost = 1 + lv * 0.6 + li * 0.35;
     adapt(Math.min(dt, 100));
-    rig.rotation.x += ((-my * 0.25 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * 0.05;   // inclinación + paralaje
-    rig.rotation.y += ((mx * 0.35 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * 0.05;
-    layers.forEach((o) => { if (o.userData.speed) o.rotation.z = t * o.userData.speed * (1 + lv); });
+    const follow = 1 - Math.exp(-dt / 325);
+    rig.rotation.x += ((-my * 0.25 + Math.sin(t * 0.21) * 0.06 + 0.12) - rig.rotation.x) * follow;   // inclinación + paralaje
+    rig.rotation.y += ((mx * 0.35 + Math.sin(t * 0.17) * 0.08) - rig.rotation.y) * follow;
+    layers.forEach((o) => { if (o.userData.speed) o.rotation.z += dt / 1000 * o.userData.speed * (1 + lv); });
     arcs.forEach((o, i) => { const ph = (t * (0.15 + i * 0.07)) % 1, e = ph < 0.5 ? 4 * ph ** 3 : 1 - Math.pow(-2 * ph + 2, 3) / 2; o.rotation.z = e * Math.PI * 2 * (i % 2 ? -1 : 1) + i * 2; });
     ringMats.forEach((m, k) => { m.opacity = Math.min(1, RINGS[k][5] * (0.8 + 0.2 * breath) * boost); });
     tris[0].rotation.z = t * 0.25; tris[1].rotation.z = -t * 0.25;
@@ -218,7 +222,7 @@ function arrancar() {
     lens.uniforms.uT.value = t; lens.uniforms.uCA.value = 1 + lv * 1.5;
     composer.render();
     const lab = document.getElementById("estado");
-    if (lab) { const txt = lv > 0.05 ? "HABLANDO" : li > 0.5 ? "ESCUCHANDO" : "EN LÍNEA"; if (lab.textContent !== txt) lab.textContent = txt; }
+    if (lab) { const txt = lv > 0.05 ? "SPEAKING" : li > 0.5 ? "LISTENING" : "ONLINE"; if (lab.textContent !== txt) lab.textContent = txt; }
   };
   N.gl = true;
 }

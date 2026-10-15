@@ -26,7 +26,7 @@
     var pos = c.t + (Date.now() - c.at) / 1000, i = Math.floor(pos * e.fps);
     return i >= 0 && i < e.values.length ? e.values[i] : 0;
   }
-  function fit() { var d = Math.min(1.5, window.devicePixelRatio || 1);   // tope 1.5: la ultrawide 3840×1080 no se ahoga
+  function fit() { var d = Math.min(2, window.devicePixelRatio || 1);   // Retina detail; WebGL adapts resolution independently when needed
     cv.width = innerWidth * d; cv.height = innerHeight * d; g.setTransform(d, 0, 0, d, 0, 0); }
   addEventListener("resize", fit); fit();
   var RINGS = [ // radio, grosor, segmentos, hueco, velocidad (rad/s, signo = sentido), alfa
@@ -46,7 +46,8 @@
   }
   var last = performance.now();
   function frame(now) {
-    var dt = now - last; last = now;
+    var dt = Math.max(0, Math.min(now - last, 50)); last = now;
+    if (document.hidden) return void requestAnimationFrame(frame);
     var lv = follower.step(Math.min(1, voiceTarget(now)), dt); st.level = lv;
     st.listen += ((st.listening ? 1 : 0) - st.listen) * Math.min(1, dt / 250);
     if (window.JarvisNucleo.gl) { if (window.JarvisNucleo.paso) window.JarvisNucleo.paso(now, dt, st); return void requestAnimationFrame(frame); }   // un solo bucle
@@ -61,7 +62,8 @@
     g.fillStyle = halo; g.fillRect(0, 0, w, h);
     g.shadowColor = "rgba(90,200,255,0.9)"; g.shadowBlur = 18 * boost; g.lineCap = "butt";
     RINGS.forEach(function (r, k) {
-      var rad = R * r[0] * (1 + lv * 0.03 * (k % 2 ? 1 : -1)), n = r[2], step = Math.PI * 2 / n, rot = t * r[4] * (1 + lv);
+      r.angle = (r.angle || 0) + dt / 1000 * r[4] * (1 + lv);
+      var rad = R * r[0] * (1 + lv * 0.03 * (k % 2 ? 1 : -1)), n = r[2], step = Math.PI * 2 / n, rot = r.angle;
       g.lineWidth = r[1]; g.strokeStyle = "rgba(140,215,255," + Math.min(1, r[5] * (0.8 + 0.2 * breath) * boost) + ")";
       for (var i = 0; i < n; i++) { if (k === 2 && i % 7 === 0) continue;
         g.beginPath(); g.arc(cx, cy, rad, rot + i * step, rot + (i + 1 - r[3]) * step); g.stroke(); }
@@ -115,7 +117,7 @@
     var vig = g.createRadialGradient(cx, cy, R * 0.8, cx, cy, Math.max(w, h) * 0.75);
     vig.addColorStop(0, "rgba(0,0,0,0)"); vig.addColorStop(1, "rgba(0,0,0,0.7)"); g.fillStyle = vig; g.fillRect(0, 0, w, h);
     var lab = document.getElementById("estado");
-    if (lab) lab.textContent = lv > 0.05 ? "HABLANDO" : st.listen > 0.5 ? "ESCUCHANDO" : "EN LÍNEA";
+    if (lab) lab.textContent = lv > 0.05 ? "SPEAKING" : st.listen > 0.5 ? "LISTENING" : "ONLINE";
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
