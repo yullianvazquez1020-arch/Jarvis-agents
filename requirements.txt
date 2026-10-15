@@ -1,6 +1,8 @@
 # Direct dependencies verified on Python 3.12.14
 fastapi==0.142.2
 uvicorn==0.54.0
+# Necesario para que uvicorn acepte WebSocket en /ws/voz
+websockets==17.2
 anthropic==1.11.0
 python-dotenv==1.2.4
 httpx==0.28.1
