@@ -395,16 +395,24 @@
   }
 
   // Device labels are populated only after the browser grants microphone permission.
+  var microphoneListTicket = 0;
   function refreshMicrophones() {
     var select = $("mic-source");
     if (!select || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    var ticket = ++microphoneListTicket;
     navigator.mediaDevices.enumerateDevices().then(function(devices) {
+      if (ticket !== microphoneListTicket) return;
       select.textContent = "";
       var base = document.createElement("option"); base.value = ""; base.textContent = "Predeterminado del sistema"; select.appendChild(base);
       devices.filter(function(d){return d.kind === "audioinput" && d.deviceId;}).forEach(function(d,i){
         var option = document.createElement("option"); option.value = d.deviceId;
         option.textContent = d.label || ("Micrófono " + (i+1)); select.appendChild(option);
       });
+      if (micDevice && !devices.some(function(d){return d.kind === "audioinput" && d.deviceId === micDevice;})) {
+        var missing = document.createElement("option"); missing.value = micDevice;
+        missing.textContent = "Micrófono guardado no disponible — cambia la selección";
+        select.appendChild(missing);
+      }
       select.value = micDevice;
     }).catch(function(){});
   }
@@ -412,6 +420,10 @@
     micDevice = this.value; try { localStorage.setItem("jarvis-mic-device",micDevice); } catch (_) {}
     stopMic(true); releaseWarmMic(); conversationPaused = false; startMic();
   };
+
+  refreshMicrophones();
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
+    navigator.mediaDevices.addEventListener("devicechange", refreshMicrophones);
 
   // ---------- wiring ----------
   function showCode(code) { $("pair-code").hidden = false; $("pair-code").textContent = code;

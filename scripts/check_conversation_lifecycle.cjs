@@ -8,18 +8,18 @@ function harness(options = {}) {
   let serial = 0, captures = 0;
   function element(id) {
     return els[id] ||= { checked: false, value: '', classList: {add(){},remove(){}}, firstChild: {nodeValue:''},
-      setAttribute(){}, focus(){}, addEventListener(){}, children:[] };
+      setAttribute(){}, focus(){}, addEventListener(){}, children:[], appendChild(el){this.children.push(el)} };
   }
   const win = { crypto: require('node:crypto').webcrypto, JarvisWav:require('../desktop/ui/wav.js'),
     JarvisMask:{mask:x=>x,hasSensitive:()=>false}, dispatchEvent(){}, isSecureContext:true };
-  const doc = { hidden:false, getElementById:element, querySelectorAll:()=>[], addEventListener(){}, activeElement:null };
+  const doc = { createElement:()=>({}), hidden:false, getElementById:element, querySelectorAll:()=>[], addEventListener(){}, activeElement:null };
   const state = {prefs:{mic:true,review:false,rate:1},stt:{problem:''},tts:{problem:''},startup:{},server:{state:'ok'}};
   const context = {window:win,document:doc,location:{search:''},console,Intl,Date,Uint8Array,Float32Array,Promise,Math,
     CustomEvent: function(){}, performance:{now:()=>0},
-    sessionStorage:{getItem:()=>null,setItem(){}},localStorage:{getItem:()=>null,setItem(){}},
+    sessionStorage:{getItem:()=>null,setItem(){}},localStorage:{getItem:key=>key==='jarvis-mic-device'?(options.savedDevice||null):null,setItem(){}},
     setTimeout(fn){timers.set(++serial,fn);return serial},clearTimeout(id){timers.delete(id)},setInterval(){},clearInterval(){},
     addEventListener(name,fn){(listeners[name] ||= []).push(fn);},requestAnimationFrame(){},cancelAnimationFrame(){},
-    navigator:{mediaDevices:{getUserMedia(){captures++;return new Promise(resolve=>pending.push(resolve));}}},
+    navigator:{mediaDevices:{enumerateDevices: options.devices ? ()=>Promise.resolve(options.devices) : undefined, getUserMedia(){captures++;return new Promise(resolve=>pending.push(resolve));}}},
     fetch(url,opt){requests.push([url,opt]);if(url.startsWith('/api/events'))return new Promise(()=>{});
       const data = url==='/api/state'?state:url==='/api/window/hello'?{owner:true}:{};
       return Promise.resolve({ok:true,json:()=>Promise.resolve(data)});},
@@ -127,5 +127,11 @@ async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
   device.els['mic-source'].value='second-microphone';device.els['mic-source'].onchange();await settle();
   assert.equal(firstDevice.track.stopped,true,'changing devices releases the previous microphone');
   assert.equal(device.captures(),2,'changing devices requests a fresh stream');
+  const missing=harness({savedDevice:'unplugged',devices:[{kind:'audioinput',deviceId:'default',label:'Built-in'}]});await settle();
+  assert.equal(missing.els['mic-source'].value,'unplugged','missing saved microphone stays explicitly selected');
+  assert(missing.els['mic-source'].children.some(x=>x.value==='unplugged' && /no disponible/.test(x.textContent)),'missing device is explained before requesting permission');
+  assert(missing.els['mic-source'].children.some(x=>x.value===''),'default remains available for recovery');
+  missing.els['mic-source'].value='';missing.els['mic-source'].onchange();await settle();
+  assert.equal(missing.captures(),1,'default selection retries acquisition');
   console.log('Conversation lifecycle: recovery, permissions, capture and stale-event checks passed');
 })().catch(err=>{console.error(err);process.exitCode=1});
