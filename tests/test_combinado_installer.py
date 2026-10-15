@@ -20,6 +20,14 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             i.merge_local(b'custom\n', b'base\n', b'fixed\n')
 
+    def test_known_intro_hotfix_already_present_in_update(self):
+        base = b'  function startMic() {\n    if (!isOwner || rec) return;\n    capture();\n  }\n'
+        local = base.replace(b'  function startMic() {\n', b'  function startMic() {\n    if (window.JarvisStopIntro) window.JarvisStopIntro();\n', 1)
+        incoming = b'  function startMic() {\n    if (!isOwner || rec || micPending) return;\n    if(window.JarvisStopIntro)window.JarvisStopIntro();\n    capture();\n  }\n'
+        self.assertEqual(i.merge_local(local, base, incoming, name='desktop/ui/app.js'), incoming)
+        with self.assertRaises(RuntimeError):
+            i.merge_local(local.replace(b'function startMic()', b'function customMic()'), base, incoming, name='desktop/ui/app.js')
+
     def test_preparation_preserves_source_and_configuration(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / 'source'; source.mkdir()
