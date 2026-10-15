@@ -186,8 +186,9 @@ def prepare_growth_message(kind,id):
     return draft
 
 def growth_status():
+    import jarvis_bus
     fields=lambda names:all(os.getenv(n,'').strip() for n in names)
-    return {'version':core.VERSION,'alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
+    return {'business_registry':jarvis_bus.BUS.tablero(),'version':core.VERSION,'alibaba':'https://www.alibaba.com/','sourcing':'Research and cost scenarios; no automatic purchases',
       'amazon_credentials_configured':fields(['AMAZON_CLIENT_ID','AMAZON_CLIENT_SECRET','AMAZON_REFRESH_TOKEN','AMAZON_SELLER_ID','AMAZON_MARKETPLACE_ID']),
       'youtube_search_key_configured':bool(os.getenv('YOUTUBE_API_KEY','').strip()),
       'youtube_upload_credentials_configured':fields(['YOUTUBE_CLIENT_ID','YOUTUBE_CLIENT_SECRET','YOUTUBE_REFRESH_TOKEN']),
