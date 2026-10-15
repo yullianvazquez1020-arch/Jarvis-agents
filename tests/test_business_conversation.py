@@ -60,3 +60,32 @@ class BusinessConversation(DesktopBase):
         with patch.dict(j.HANDLERS, {'add_expense': lambda **kw: self.fail('action ran')}):
             result = asyncio.run(j.run_tool('add_expense', {'amount': 10}, read_only='escritorio'))
         self.assertIn('error', result)
+
+    def test_independent_reads_overlap_and_preserve_read_only_context(self):
+        import threading
+        barrier = threading.Barrier(2, timeout=3)
+        observed = []
+        original_get = j.kv_get
+        original_plan = j._store.status
+
+        def facts(key, default=None):
+            if key == 'jarvis:facts':
+                observed.append(j._WRITE_BLOCK.get())
+                barrier.wait()
+            return original_get(key, default)
+
+        def plan():
+            observed.append(j._WRITE_BLOCK.get())
+            barrier.wait()
+            return original_plan()
+
+        token = j._WRITE_BLOCK.set('escritorio')
+        try:
+            with patch.object(j, 'kv_get', side_effect=facts), patch.object(j._store, 'status', side_effect=plan):
+                result = asyncio.run(j.run_tool('business_context', {'specialty': 'research'}, read_only='escritorio'))
+        finally:
+            j._WRITE_BLOCK.reset(token)
+        self.assertNotIn('error', result)
+        self.assertEqual(result['unavailable'], [])
+        self.assertEqual(observed, ['escritorio', 'escritorio'])
+        self.assertEqual(list(result['sources']), ['shared_facts', 'business_plan', 'saved_notes', 'saved_research'])
