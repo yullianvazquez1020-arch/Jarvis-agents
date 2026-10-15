@@ -265,12 +265,16 @@ class PyautoguiMockTests(Base):
         fake.easeOutQuad = None
         fake.size = lambda: (1440, 900)
         fake.position = lambda: (1, 2)
-        with patch.dict(sys.modules, {"pyautogui": fake}):
+        from test_mouse_warp import quartz
+        q, st = quartz(front_x=200)
+        with patch.dict(sys.modules, {"pyautogui": fake, "Quartz": q}):
             p = au.AutoPointer()
             self.assertTrue(fake.FAILSAFE)
-            p.move(1, 2); p.click(3, 4); p.double_click(5, 6); p.scroll(-1)
+            p.move(10, 20); p.click(30, 40); p.double_click(50, 60); p.scroll(-1)
             self.assertEqual(p.size(), (1440, 900))
-        self.assertEqual(fake.calls, ["moveTo", "click", "doubleClick", "scroll"])
+            self.assertEqual(p.position(), (50, 60))
+        self.assertEqual(fake.calls, ["scroll"])                  # mover/clicar ya no usa pyautogui (no movía)
+        self.assertEqual([e[0] for e in st["posts"]].count("kCGEventLeftMouseDown"), 3)
 
 
 if __name__ == "__main__":

@@ -277,14 +277,15 @@ class FinalIntegration(Base):
         self.assertTrue(ae.stopped()); self.assertIsNone(ae.read_lock())
         self.assertEqual(pointer.calls, [])
 
-    def test_native_mouse_smooth_move_without_global_pause(self):
+    def test_native_mouse_moves_with_warp(self):
         from types import SimpleNamespace
-        calls = []
-        fake = SimpleNamespace(easeOutQuad=object(), moveTo=lambda *args, **kw: calls.append((args, kw)))
-        with patch.dict("sys.modules", {"pyautogui": fake}):
+        from test_mouse_warp import quartz
+        q, st = quartz(front_x=200)
+        fake = SimpleNamespace(size=lambda: (1920, 1080))
+        with patch.dict("sys.modules", {"pyautogui": fake, "Quartz": q}):
             pointer = ae.MacPointer(); pointer.move(720, 450)
         self.assertEqual(fake.PAUSE, 0); self.assertTrue(fake.FAILSAFE)
-        self.assertEqual(calls[0][1]["duration"], .16)
+        self.assertEqual(st["pos"], (720.0, 450.0))
 
 
 class SessionRecovery(Base):

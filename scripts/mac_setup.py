@@ -78,9 +78,14 @@ def mouse_report(python, probar=False):
         with (ctl / "autonomo" / "entrada.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"agent": "jarvis", "action": "move", "x": 600, "y": 400}) + "\n")
         time.sleep(4)
-        pos = _cursor(python)
-        ok = bool(pos) and abs(pos[0] - 600) < 3 and abs(pos[1] - 400) < 3
-        lineas.append("  Prueba de movimiento a (600,400) en Notes: %s (puntero en %s)" % ("FUNCIONA" if ok else "NO se movió", pos))
+        try:
+            ult = json.loads((ctl / "ultimo_move.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            ult = {}
+        lineas.append("  Prueba de movimiento a (600,400) en la pantalla de Notes: %s (global %s, real %s)" % (
+            "FUNCIONA" if ult.get("ok") else "NO se movió", ult.get("global"), ult.get("real") or _cursor(python)))
+        if not ult:
+            lineas.append("  El agente no registró el movimiento; mira tail ~/.jarvis-control/audit.jsonl")
     return "\n".join(lineas)
 
 
