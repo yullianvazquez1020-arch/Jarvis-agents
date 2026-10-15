@@ -45,7 +45,7 @@ def merge_local(local, base, incoming, name=''):
 def prepare(source, target, destination):
     source, destination = Path(source).resolve(), Path(destination).resolve()
     source_base = git(source, 'rev-parse', 'HEAD').decode().strip()
-    if source_base not in (BASE, '0d7408695c2851b59c367fe7395d2cd707a56860', 'eaa1ab102664fc4b01812d8c1fa773b3aede1854', 'ce2eefeec34b9c7bf81619b48ae7f1f0c1cb0504', '155d060d7171dbf51e593d2e5f2135ef4eaedd7e'):
+    if source_base not in ('525f338b3075f4553c20c7908a920c8a7f677f00', BASE, '0d7408695c2851b59c367fe7395d2cd707a56860', 'eaa1ab102664fc4b01812d8c1fa773b3aede1854', 'ce2eefeec34b9c7bf81619b48ae7f1f0c1cb0504', '155d060d7171dbf51e593d2e5f2135ef4eaedd7e'):
         raise RuntimeError('Source version changed. This installer expects a supported combined desktop version; nothing was installed.')
     if destination.exists():
         raise RuntimeError('Destination already exists; it will not be overwritten.')

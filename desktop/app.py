@@ -39,6 +39,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import account_navigation
 import intents                                    # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
 from audio import engines, latencia, una_voz      # noqa: E402
@@ -966,6 +967,12 @@ class Companion:
             if kind == "stop_mouse":                                # parada remota del mouse: crea STOP
                 _crear_stop_mouse(); self.emit({"type": "audio.stop"})
                 return self._finish(tid, "done", "Mouse stopped, sir. To turn it back on, delete ~/.jarvis-control/STOP on the Mac.")
+            if kind == "application":
+                result = account_navigation.open_application(arg)
+                return self._finish(tid, "done" if result["ok"] else "error", result["message"])
+            if kind == "account":
+                result = account_navigation.open_account(arg)
+                return self._finish(tid, "done" if result["ok"] else "error", result["message"])
             if kind == "mouse":                                     # voz -> ejecutor del mouse (supervisado: /confirmar)
                 r = mouse_autonomo.encargar_voz(arg)
                 msg = ("On it, sir. Confirm on Telegram with /confirmar if it asks." if r["ok"]
