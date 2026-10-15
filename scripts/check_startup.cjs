@@ -32,13 +32,9 @@ async function setup({hands=false,owner=true,hidden=false,audio=true,camera=true
   t=await setup({hands:true,camera:false});assert.equal(t.counts().starts,0);
   t=await setup({owner:false});assert.equal(t.counts().oscillators,0);
   t=await setup({owner:null});assert.equal(t.counts().oscillators,0);
-  t.window.JarvisAudioOwner=true;t.events['jarvis-audio-owner']({detail:true});await t.flush();assert.equal(t.counts().oscillators,2);
-  t=await setup();assert.equal(t.counts().oscillators,2);
-  assert.match(t.elements.find(e=>e.type==='button').textContent,/permiso del navegador/);
-  t.enableAudio();t.events.pointerdown();await t.flush();assert.equal(t.counts().oscillators,2,'resume reuses two oscillators');
-  t.window.JarvisAmbience.duck(true);assert.equal(t.gains.at(-1),.025);
-  t.window.JarvisAmbience.duck(false);assert.equal(t.gains.at(-1),.12);
-  t.events.pagehide();assert.equal(t.counts().stops,2);assert.equal(t.counts().closed,1);
-  assert.deepEqual(t.requests,['/api/state','/api/ambient-music']);   // solo el tema local del propio panel
-  console.log('PASS: camera startup opt-in, hidden-page guard, no audio in follower window, browser permission, bounded local music, voice ducking and cleanup.');
+  let cancelled=0;t.window.JarvisStopIntro=()=>cancelled++;
+  t.window.JarvisAmbience.duck(true);assert.equal(cancelled,1);
+  t.window.JarvisAmbience.duck(false);assert.equal(cancelled,1);
+  assert.deepEqual(t.requests,['/api/state']);
+  console.log('PASS: camera preferences preserved; no background audio; speech cancels intro.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

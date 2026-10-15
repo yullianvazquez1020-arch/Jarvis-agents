@@ -259,6 +259,7 @@
     if (!isOwner || rec || micPending || current || transcribing) return;
     if (state.stt && state.stt.problem) { setState("listo", state.stt.problem); $("transcript").focus(); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setState("error", "este navegador no da acceso al micrófono"); return; }
+    if(window.JarvisStopIntro)window.JarvisStopIntro();
     stopAudio();                                   // never listen while Jarvis is speaking (no echo loop)
     if (!state.prefs.mic) api("POST", "/api/prefs", { mic: true });
     micPending = true; var ticket = ++micGeneration;

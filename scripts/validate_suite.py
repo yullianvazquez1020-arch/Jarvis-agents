@@ -24,7 +24,7 @@ def main():
     if not shutil.which("redis-server"):
         raise RuntimeError("redis-server is required: Redis tests must not be skipped")
     sys.path.insert(0, str(ROOT))
-    for check in ("check_visual_gestures.cjs", "check_hands_camera.cjs", "check_avatar_controls.cjs"):
+    for check in ("check_visual_gestures.cjs", "check_hands_camera.cjs", "check_avatar_controls.cjs", "check_startup.cjs", "check_intro.cjs", "check_conversation_lifecycle.cjs"):
         subprocess.run(["node", str(ROOT / "scripts" / check)], cwd=ROOT, check=True)
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
     result = unittest.TextTestRunner(verbosity=1).run(suite)

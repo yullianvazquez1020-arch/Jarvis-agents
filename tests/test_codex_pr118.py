@@ -231,8 +231,11 @@ class Revision5(unittest.TestCase):
         au = self.au(); ses = {"agent": "jarvis"}; sz = (1440, 900)
         with patch.object(au.ae, "denial", return_value=None):
             click = {"agent": "jarvis", "action": "click", "x": 500, "y": 400}
-            for app in ("Microsoft Outlook", "Slack", "Mail", "Messages"):
+            for app in ("Mail", "Messages"):
                 self.assertEqual(au.validate(dict(click), ses, sz, app), "app_frente", app)
+            for app in ("Microsoft Outlook", "Slack"):
+                self.assertIsNone(au.validate(dict(click), ses, sz, app), app)
+                self.assertEqual(au.validate({"agent": "jarvis", "action": "type", "text": "hola"}, ses, sz, app), "mensajeria_sin_escribir", app)
             self.assertEqual(au.validate(dict(click), ses, sz, "Safari"), "sitio_no_verificado")
             self.assertEqual(au.validate(dict(click), ses, sz, "Safari", {"web_ok": True}), "sitio_no_verificado")
             ok = {"opened_host": "github.com", "page_url": "https://github.com/ejemplo/repo"}

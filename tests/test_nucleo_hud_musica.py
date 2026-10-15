@@ -34,7 +34,7 @@ class Musica(unittest.TestCase):
         with wave.open(str(UI / "audio/ambiente.wav")) as w:
             self.assertAlmostEqual(w.getnframes() / w.getframerate(), 40.0, places=1); self.assertEqual(w.getnchannels(), 2)
         js = (UI / "startup.js").read_text("utf-8")
-        self.assertIn("/api/ambient-music", js); self.assertIn("src.loop=true", js); self.assertIn("speaking?.025:.12", js)
+        self.assertNotIn("/api/ambient-music", js); self.assertNotIn("AudioContext", js)
         self.assertIn('"/api/ambient-music"', (ROOT / "desktop/app.py").read_text("utf-8"))
 
 
