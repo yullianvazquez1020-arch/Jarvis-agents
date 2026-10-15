@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jarvis</title>
   <link rel="stylesheet" href="/ui/app.css">
-  <link rel="stylesheet" href="/ui/negocios.css">
+  <link rel="stylesheet" href="/ui/nucleo-home.css">
 </head>
-<body>
+<body class="nucleo-home">
+  <canvas id="nucleo" aria-label="Núcleo de JARVIS: reactor azul con anillos que late con la voz"></canvas>
+  <div id="estado" class="nucleo-estado">EN LÍNEA</div>
+  <button id="paneles" class="paneles" type="button" aria-pressed="false">Paneles</button>
   <header class="top" aria-label="Estado">
     <div class="brand"><span id="dot" class="dot" title="Servidor"></span>JARVIS</div>
     <dl class="status">
@@ -23,7 +26,6 @@
     <div class="chips">
       <span id="chip-role" class="chip">…</span>
       <span id="chip-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
-      <a class="chip link" href="/avatar" target="_blank" rel="noopener">Avatar local</a>
       <a class="chip link" href="/nucleo" target="_blank" rel="noopener">Núcleo</a>
       <a class="chip link" href="/mercado" target="_blank" rel="noopener">Mercado (práctica)</a>
       <a class="chip link" href="/hud" target="_blank" rel="noopener">Abrir HUD (2.º monitor)</a>
@@ -102,6 +104,7 @@
 <script src="/ui/startup.js"></script>
 <script src="/ui/cielo.js"></script>
 <script src="/ui/mecanismo.js"></script>
-<script src="/ui/negocios.js"></script>
+<script src="/ui/nucleo.js"></script>
+<script src="/ui/nucleo-home.js"></script>
 <script src="/ui/arranque.js"></script></body>
 </html>

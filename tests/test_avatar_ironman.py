@@ -153,7 +153,8 @@ class Route(unittest.TestCase):
     def test_avatar_untouched(self):
         status, body = self.get("/avatar", self.login())
         self.assertEqual(status, 200)
-        self.assertIn(b"JARVIS / \xc3\x93RBITA", body)
+        self.assertIn(b"/ui/nucleo.js", body)                     # /avatar = núcleo; la ciudad orbital se retiró
+        self.assertNotIn(b"\xc3\x93RBITA", body); self.assertNotIn(b"PISOS", body)
 
     def test_avatar_does_not_advertise_the_view(self):
         """Con la bandera apagada, /avatar no enseña el enlace al holograma."""
@@ -181,9 +182,9 @@ class RouteOn(Route):
         self.assertIs(json.loads(body)["avatar_ironman"], True)
 
     def test_avatar_does_not_advertise_the_view(self):
-        """Con la bandera encendida, el enlace aparece en /avatar."""
+        """Con la bandera encendida /avatar sigue siendo el núcleo; el holograma vive en /avatar/ironman."""
         _, body = self.get("/avatar", self.login())
-        self.assertIn(b"/avatar/ironman", body)
+        self.assertIn(b"/ui/nucleo.js", body)
 
     def test_needs_a_session(self):
         self.assertEqual(self.get("/avatar/ironman")[0], 401)
