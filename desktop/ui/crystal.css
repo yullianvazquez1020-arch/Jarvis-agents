@@ -1,6 +1,6 @@
-/* Pre-rendered approved artwork: no WebGL, animation loop or fabricated telemetry. */
+/* Procedural animated core; no fabricated telemetry. */
 body.nucleo-home{background:#030a12;color:#dce7ee;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
-#crystal-art{position:fixed;inset:0;background:#030a12 url('/ui/crystal-core.jpg') center center/cover no-repeat;z-index:0;pointer-events:none}
+#crystal-art{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 44%,#123042 0%,#071521 38%,#02070d 78%);z-index:0;pointer-events:none}
 .crystal-brand{position:fixed;left:3.6vw;top:3.4vh;font-size:clamp(24px,2.2vw,42px);letter-spacing:.34em;font-weight:300;color:#e4eaf0;z-index:1}
 .crystal-brand span{display:block;font-size:10px;letter-spacing:.4em;margin-top:12px}
 .crystal-cards{position:fixed;top:17vh;width:22vw;max-height:57vh;overflow:auto;z-index:2;display:flex;flex-direction:column;gap:24px}
@@ -26,3 +26,5 @@ body[data-voice="ESCUCHANDO"] #crystal-art:after{opacity:.8}body[data-voice="HAB
 
 #crystal-motion{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
 #crystal-heard{color:#9fddff;font-size:13px;max-height:12vh;overflow:auto}
+
+.mic-source{font-size:11px;color:#b6ccdc}.mic-source select{max-width:180px;background:#071521;color:#dce7ee;border:1px solid #587285;border-radius:6px;padding:5px}#mic-level{width:65px;height:12px}#claim[hidden]{display:none}
