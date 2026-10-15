@@ -54,6 +54,12 @@ def send_to_jarvis(text: str, url: str, secret: str, post=None) -> bool:
     return getattr(r, "status_code", 0) == 200
 
 
+try:
+    from audio import una_voz
+except ImportError:
+    from desktop.audio import una_voz
+
+
 class Speaker:
     """TTS interrumpible: Piper si existe (PIPER_MODEL), si no `say` con voz masculina (Juan/Daniel)."""
 
@@ -80,13 +86,15 @@ class Speaker:
         forced = os.getenv("JARVIS_SAY_VOICE", "").strip()
         if forced and not is_female(forced):
             es = forced
-        voice = (es if detect_lang(text) == "es" and es else en or es) or "Daniel"   # inglés primero
-        return ["say", "-v", voice, "-r", str(speech_rate(180)), text]
+        voice = en or "Daniel"                          # SOLO inglés (Daniel en-GB)
+        return ["say", "-v", voice, "-r", str(speech_rate()), text]
 
     def speak(self, text: str) -> None:
         self.stop()
         cmd = self.command(text)
+        una_voz.claim()                                  # corta cualquier otra voz de Jarvis en esta Mac
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if cmd[0] == "sh" else None)
+        una_voz.register(getattr(self.proc, "pid", 0))
         if cmd[0] == "sh":
             self.proc.stdin.write(text.encode()); self.proc.stdin.close()
 

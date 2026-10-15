@@ -109,7 +109,7 @@ FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica
                  "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
 ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
 EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
-DEFAULT_WPM = 180                         # ~180 ppm: natural y ágil
+DEFAULT_WPM = 160                         # 160 ppm: pausado y claro (Yullian), JARVIS_VOZ_RATE lo cambia
 
 
 def is_female(name):
@@ -173,6 +173,10 @@ def speech_rate(default=DEFAULT_WPM):
         return default
 
 
+# Juan/Daniel/auto en la config: siempre Daniel (en-GB). Juan solo si no hay ninguna voz inglesa instalada.
+ROUTED_VOICES = {"auto-latino", "auto", "Juan", "Daniel"}
+
+
 class MacSay:
     name = "macos_say"
     BASE_WPM = DEFAULT_WPM
@@ -196,11 +200,16 @@ class MacSay:
 
     def resolve_voice(self, text=""):
         """Voz masculina según el idioma: Juan (es) / Daniel (en_GB); nunca descarga ni elige femenina."""
-        if self.voice != "auto-latino":
-            return self.voice
-        es, en = self.voices()
-        if en and (not text or detect_lang(text) == "en"):
-            return en                                    # inglés británico primero
+        if self.voice not in ROUTED_VOICES:
+            return self.voice                            # voz personalizada explícita: se respeta
+        try:
+            es, en = self.voices()
+        except EngineError:
+            if self.voice in ("Juan", "Daniel"):
+                return "Daniel"                          # sin listado de voces: Daniel, sin fallar
+            raise
+        if en:
+            return en                                    # SOLO inglés británico (Daniel), nunca Juan
         if es:
             self._resolved_voice = es
             return es
@@ -242,12 +251,12 @@ class MacSay:
 class Piper:
     name = "piper"
 
-    def __init__(self, binary, model, length_scale=1.18):
+    def __init__(self, binary, model, length_scale=1.1):
         self.binary = binary or "piper"; self.model = model or ""
-        try:                                              # 1.18 = Alan algo más pausado (más grave y señorial)
+        try:                                              # 1.1 = pausado y claro
             self.length_scale = max(0.5, min(float(length_scale), 2.5))
         except (TypeError, ValueError):
-            self.length_scale = 1.18
+            self.length_scale = 1.1
 
     def problem(self):
         if not (shutil.which(self.binary) or os.access(self.binary, os.X_OK)):
@@ -295,7 +304,7 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     return "none"
 
 
-DANIEL_WPM = 180                         # Daniel (say en la Mac): misma velocidad, sin lentitud
+DANIEL_WPM = 160                         # Daniel (say en la Mac): pausado y claro
 # Voces femeninas conocidas en inglés: nunca se usan como respaldo en en-GB (Jarvis es voz masculina).
 FEMALE_EN = {"samantha", "karen", "kate", "serena", "moira", "tessa", "victoria", "allison", "ava", "susan",
              "fiona", "veena", "zoe", "stephanie", "martha", "flo", "sandy", "shelley", "grandma",

@@ -29,7 +29,7 @@ class UnaSolaVoz(unittest.TestCase):
         self.assertEqual(app.speech_chunks("Hola"), ["Hola"])
 
     def test_calidad_y_ritmo(self):
-        self.assertEqual(engines.DEFAULT_WPM, 180); self.assertEqual(engines.DANIEL_WPM, 180)
+        self.assertEqual(engines.DEFAULT_WPM, 160); self.assertEqual(engines.DANIEL_WPM, 160)
         self.assertIn("LEI16@44100", inspect.getsource(engines.MacSay.synthesize))
 
     def test_navegador_cola_por_turno(self):

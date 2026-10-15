@@ -302,13 +302,13 @@ class Turns(CompanionBase):
         self.pair(); self.jarvis.close()
         ev = self.turn("¿qué tengo pendiente?", "offline-001")
         reply = [e for e in ev if e["type"] == "reply.text"][0]["text"]
-        self.assertIn("sin conexión", reply); self.assertIn("turn.error", [e["type"] for e in ev])
+        self.assertIn("no connection", reply); self.assertIn("turn.error", [e["type"] for e in ev])
 
     def test_discreet_mode_never_reads_amounts(self):
         self.pair(); self.app.tts = FakeTTS(); self.app.owner = "win-a"
         self.app.set_prefs(discreet=True)
         self.turn("muéstrame los cobros", "discreet-01")
-        self.assertEqual(self.app.tts.texts[-1][0], "Te lo dejé en pantalla.")
+        self.assertEqual(self.app.tts.texts[-1][0], "I left it on screen, sir.")
 
     def test_unpaired_device_gets_no_private_data(self):
         ev = self.turn("¿cuánto me deben?", "unpaired-01")
@@ -333,7 +333,7 @@ class Demo(CompanionBase):
         _, p, _, _ = self.req("GET", "/api/panels/cobros")
         self.assertTrue(p["demo"]); self.assertIn("DEMO", p["title"])
         ev = self.turn("¿cómo voy?", "demo-00001")
-        self.assertIn("DEMO", [e for e in ev if e["type"] == "reply.text"][0]["text"])
+        self.assertIn("Demo mode", [e for e in ev if e["type"] == "reply.text"][0]["text"])
         self.assertEqual(self.jarvis.calls, [])
         self.assertTrue(self.req("GET", "/api/state")[1]["demo"])
 
@@ -421,7 +421,7 @@ class AudioOutput(unittest.TestCase):
         for bad in ("🎉", "**", "https", "ZZZZ", "YYYY"):
             self.assertNotIn(bad, spoken)
         args = (tmp / "args").read_text()
-        self.assertIn("-v Juan", args); self.assertIn("-r 153", args); self.assertNotIn("tienes", args)
+        self.assertIn("-v Daniel", args); self.assertIn("-r 136", args); self.assertNotIn("tienes", args)
 
     def test_local_voice_prefers_male_juan_and_caches(self):
         listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nJuan es_MX # Hola\n"})()
@@ -547,7 +547,7 @@ class Displays(CompanionBase):
         self.pair(); self.app.tts = FakeTTS(); self.app.owner = "win-a"; self.app.set_prefs(discreet=True)
         self.jarvis.alerts = [{"key": "bill:9", "kind": "cuenta", "text": "Cuenta vencida: Luz $120.50", "when": "x"}]
         self.app.pulse_once()
-        self.assertEqual(self.app.tts.texts[-1][0], "Te lo dejé en pantalla.")
+        self.assertEqual(self.app.tts.texts[-1][0], "I left it on screen, sir.")
 
     def test_hud_filters_cards_and_opens_detail_in_main_window(self):
         self.pair()
