@@ -121,7 +121,7 @@ def main(argv=None):
         else:
             voice, locale, english = "", "", ""
         print("Voz elegida: %s · %s (español) · %s (inglés) · %s ppm" % (
-            voice or "ninguna masculina instalada", locale or "sin idioma", english or "falta Daniel", os.getenv("JARVIS_VOZ_RATE", "180")))
+            voice or "ninguna masculina instalada", locale or "sin idioma", english or "falta Daniel", os.getenv("JARVIS_VOZ_RATE", "170")))
         if not voice or not english:
             print("Instala Juan / Daniel: Ajustes del Sistema → Accesibilidad → Contenido leído → Voz del sistema → Gestionar voces.")
         if args.launch:

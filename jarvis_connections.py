@@ -4,6 +4,7 @@ No credentials in state; no LLM tool can publish, buy, send or authorize spendin
 import asyncio, datetime, hashlib, ipaddress, json, os, re, secrets
 from urllib.parse import parse_qsl, urlsplit
 import httpx
+import jarvis_amazon_config as amazon_config
 
 KEY = 'jarvis:connections'
 COMMANDS = {'/conexiones', '/verificarconexion', '/ia', '/marketing', '/redes',
@@ -26,7 +27,9 @@ FIELDS = {
  'instagram': ('META_PAGE_ACCESS_TOKEN','META_INSTAGRAM_ACCOUNT_ID','META_GRAPH_VERSION'),
 }
 
-def env(k, default=''): return os.getenv(k, default).strip()
+def env(k, default=''):
+    if k in amazon_config.LEGACY: return amazon_config.value(k)
+    return os.getenv(k, default).strip()
 def stamp(): return _core._now().isoformat(timespec='seconds')
 def digest(v): return hashlib.sha256(v.encode()).hexdigest()
 def load():
@@ -56,7 +59,7 @@ def configuration():
     with _core._data_lock: checks=load()['checks']
     out={}
     for name,fields in FIELDS.items():
-        missing=[f for f in fields if not env(f)]
+        missing=amazon_config.status()['missing'] if name=='amazon' else [f for f in fields if not env(f)]
         # Configuration is separate from an actual account check.
         out[name]={'configured':not missing,'missing':missing,'check':{k:v for k,v in checks.get(name,{'status':'not_tested'}).items() if k!='credential_signature'} if checks.get(name,{}).get('credential_signature')==digest('|'.join(env(f) for f in fields)) else {'status':'not_tested'}}
     out['external_agents']=_core.external_agents_status()
@@ -424,7 +427,7 @@ async def social_metrics(platform):
 
 async def check_connection(name):
     if name not in FIELDS:raise ValueError('Conexión desconocida')
-    missing=[x for x in FIELDS[name] if not env(x)]
+    missing=amazon_config.status()['missing'] if name=='amazon' else [x for x in FIELDS[name] if not env(x)]
     if missing:result={'status':'missing','missing':missing,'at':stamp()}
     else:
         try:
