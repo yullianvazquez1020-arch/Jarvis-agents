@@ -33,6 +33,14 @@
   var scan = document.createElement("canvas"); scan.width = 4; scan.height = 4; var sg = scan.getContext("2d");
   sg.fillStyle = "rgba(0,0,0,0.18)"; sg.fillRect(0, 0, 4, 1); var scanPat = g.createPattern(scan, "repeat");
   function ease(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  var bolts = [], nextBolt = 0;
+  function jag(x0, y0, x1, y1, d, out) {   // rayo procedural: desplazamiento de punto medio con ramas
+    if (d <= 0) { out.push([x0, y0, x1, y1]); return; }
+    var mx = (x0 + x1) / 2, my = (y0 + y1) / 2, len = Math.hypot(x1 - x0, y1 - y0), o = (Math.random() - 0.5) * len * 0.35;
+    mx += -(y1 - y0) / len * o; my += (x1 - x0) / len * o;
+    jag(x0, y0, mx, my, d - 1, out); jag(mx, my, x1, y1, d - 1, out);
+    if (d > 2 && Math.random() < 0.3) jag(mx, my, mx + (x1 - x0) * 0.4 + o, my + (y1 - y0) * 0.4 - o, d - 2, out);
+  }
   var last = performance.now();
   function frame(now) {
     var dt = now - last; last = now;
@@ -69,12 +77,29 @@
       g.fillRect(cx + Math.cos(p.a) * pr, cy + Math.sin(p.a) * pr, 1.5, 1.5); });
     for (var q = 0; q < 2; q++) { // anillo triangular interior (dos triángulos girando en contra)
       var tr = R * (0.40 - q * 0.04), a0 = (q ? -1 : 1) * t * 0.25 - Math.PI / 2;
-      g.lineWidth = q ? 2 : 6; g.strokeStyle = "rgba(200,240,255," + (0.7 * boost) + ")";
+      g.lineWidth = q ? 3 : 8; g.shadowBlur = 30 * boost; g.strokeStyle = "rgba(215,245,255," + Math.min(1, 0.9 * boost) + ")";
       g.beginPath(); for (var j = 0; j <= 3; j++) { var a = a0 + j * Math.PI * 2 / 3; g[j ? "lineTo" : "moveTo"](cx + Math.cos(a) * tr, cy + Math.sin(a) * tr); }
       g.closePath(); g.stroke(); }
+    if (now > nextBolt) {   // nuevos rayos cada 0.3–1.5 s (más seguido y más al hablar)
+      bolts = []; var nb = 1 + Math.floor(Math.random() * (2 + lv * 5));
+      for (var b = 0; b < nb; b++) { var ba = Math.random() * 7, r0 = R * 0.16, r1 = R * (0.5 + Math.random() * 0.45), seg = [];
+        jag(cx + Math.cos(ba) * r0, cy + Math.sin(ba) * r0, cx + Math.cos(ba + (Math.random() - 0.5)) * r1, cy + Math.sin(ba + (Math.random() - 0.5)) * r1, 6, seg);
+        bolts.push({ seg: seg, born: now, life: 120 + Math.random() * 260 }); }
+      nextBolt = now + (300 + Math.random() * 1200) * (1 - lv * 0.6);
+    }
+    bolts.forEach(function (bo) { var k = 1 - (now - bo.born) / bo.life; if (k <= 0) return;
+      var fl2 = k * (0.6 + 0.4 * Math.random()) * (0.7 + lv);
+      [[7, "rgba(60,160,255,"], [3, "rgba(150,220,255,"], [1.2, "rgba(255,255,255,"]].forEach(function (L2) {
+        g.lineWidth = L2[0]; g.strokeStyle = L2[1] + Math.min(1, fl2) + ")"; g.shadowBlur = 25; g.beginPath();
+        bo.seg.forEach(function (q2) { g.moveTo(q2[0], q2[1]); g.lineTo(q2[2], q2[3]); }); g.stroke(); }); });
+    var flick = 0.94 + 0.06 * Math.random();
+    [[3.2, "rgba(20,90,255,", 0.18], [2.0, "rgba(40,170,255,", 0.35], [1.2, "rgba(140,230,255,", 0.6]].forEach(function (B) {   // bloom en capas
+      var br = R * 0.2 * B[0] * (1 + lv * 0.4), bg = g.createRadialGradient(cx, cy, 0, cx, cy, br);
+      bg.addColorStop(0, B[1] + B[2] * boost * flick + ")"); bg.addColorStop(0.5, B[1] + B[2] * 0.35 * flick + ")"); bg.addColorStop(1, B[1] + "0)");
+      g.fillStyle = bg; g.beginPath(); g.arc(cx, cy, br, 0, 7); g.fill(); });
     var cr = R * (0.17 + 0.015 * breath + 0.07 * lv + 0.02 * st.listen);
     var core = g.createRadialGradient(cx, cy, 0, cx, cy, cr * 2.2);
-    core.addColorStop(0, "rgba(255,255,255,1)"); core.addColorStop(0.35, "rgba(200,245,255,0.95)");
+    core.addColorStop(0, "rgba(255,255,255,1)"); core.addColorStop(0.15, "rgba(255,250,235," + flick + ")"); core.addColorStop(0.35, "rgba(200,245,255,0.95)");
     core.addColorStop(0.6, "rgba(80,190,255,0.5)"); core.addColorStop(1, "rgba(0,90,200,0)");
     g.shadowBlur = 60 * boost; g.fillStyle = core; g.beginPath(); g.arc(cx, cy, cr * 2.2, 0, 7); g.fill();
     var fl = g.createLinearGradient(cx - R * 1.6, cy, cx + R * 1.6, cy);   // destello de lente horizontal
