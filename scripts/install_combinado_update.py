@@ -44,8 +44,9 @@ def merge_local(local, base, incoming, name=''):
 
 def prepare(source, target, destination):
     source, destination = Path(source).resolve(), Path(destination).resolve()
-    if git(source, 'rev-parse', 'HEAD').decode().strip() != BASE:
-        raise RuntimeError('Source version changed. This installer expects efb5832; nothing was installed.')
+    source_base = git(source, 'rev-parse', 'HEAD').decode().strip()
+    if source_base not in (BASE, '0d7408695c2851b59c367fe7395d2cd707a56860'):
+        raise RuntimeError('Source version changed. This installer expects efb5832 or 0d740869; nothing was installed.')
     if destination.exists():
         raise RuntimeError('Destination already exists; it will not be overwritten.')
     target = git(source, 'rev-parse', '--verify', target + '^{commit}').decode().strip()
@@ -55,7 +56,7 @@ def prepare(source, target, destination):
         path = source / name
         if not path.is_file() or path.is_symlink():
             raise RuntimeError('Unsupported local change: ' + name)
-        base = git(source, 'show', BASE + ':' + name)
+        base = git(source, 'show', source_base + ':' + name)
         incoming = git(source, 'show', target + ':' + name)
         # The owner explicitly requested replacement of continuous music with a bounded intro.
         # Both originals are retained in the untouched source checkout and in the backup.
