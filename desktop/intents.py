@@ -4,7 +4,10 @@ Interface orders ("silencio", "repite", "más despacio", "abre práctica") are r
 an approval, a code or a command is refused here too, so it never reaches Jarvis or any parser."""
 import re
 import unicodedata
-from account_navigation import parse_account, parse_application
+try:
+    from .account_navigation import parse_account, parse_application
+except ImportError:
+    from account_navigation import parse_account, parse_application
 
 PANELS = ("estado", "agenda", "cobros", "practica", "brief", "caja")
 

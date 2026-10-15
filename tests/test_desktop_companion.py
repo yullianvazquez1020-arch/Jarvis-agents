@@ -815,11 +815,13 @@ class GalaxyTheme(CompanionBase):
 
     def test_home_is_the_nucleo_full_screen(self):
         body = self.req("GET", "/")[3]
-        self.assertIn(b'<canvas id="nucleo"', body); self.assertIn(b'<script src="/ui/nucleo.js?v=arc3"></script>', body)
+        self.assertIn(b'<div id="crystal-art"', body)
+        self.assertIn(b'/ui/crystal.js?v=1', body)
+        self.assertNotIn(b'/ui/nucleo-gl.js', body)
         self.assertIn(b'<script src="/ui/nucleo-home.js"></script>', body); self.assertIn(b'<script src="/ui/app.js"></script>', body)
         for banned in (b"negocios.js", b"atlas.js", b"torre", "ÓRBITA".encode(), b"PISOS", b"CIUDADELA", b"/avatar\""):
             self.assertNotIn(banned, body, banned)
-        for f in ("/ui/nucleo-home.js", "/ui/nucleo-home.css"):
+        for f in ("/ui/nucleo-home.js", "/ui/nucleo-home.css", "/ui/crystal.js", "/ui/crystal.css", "/ui/crystal-core.jpg"):
             self.assertEqual(self.req("GET", f, cookie=False)[0], 401); self.assertEqual(self.req("GET", f)[0], 200)
 
     def test_sky_script_is_local_and_reads_no_data(self):
@@ -828,7 +830,7 @@ class GalaxyTheme(CompanionBase):
         self.assertEqual(st, 200); self.assertIn("javascript", r.getheader("Content-Type"))
         for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"getUserMedia", b"eval("):
             self.assertNotIn(banned, js, banned)
-        for page in ("/", "/hud"):
+        for page in ("/hud",):
             body = self.req("GET", page)[3]
             self.assertIn(b'<script src="/ui/cielo.js"></script>', body)
             self.assertNotIn(b"<script>", body)
@@ -840,7 +842,7 @@ class GalaxyTheme(CompanionBase):
         self.assertEqual(st, 200)
         for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"eval("):
             self.assertNotIn(banned, js, banned)
-        for page in ("/", "/hud", "/mercado"):
+        for page in ("/hud", "/mercado"):
             self.assertIn(b'<script src="/ui/mecanismo.js"></script>', self.req("GET", page)[3], page)
         hud = self.req("GET", "/ui/hud.js")[3]
         for yellow in (b"#ffda78", b"#f5ce5e"):
