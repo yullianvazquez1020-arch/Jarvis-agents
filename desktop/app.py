@@ -44,6 +44,7 @@ from hand_mouse import HandMouse                  # noqa: E402
 from audio import engines                         # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
 import negocios                                  # noqa: E402
+import paneles                                   # noqa: E402
 import mouse_autonomo                            # noqa: E402
 import ciclo                                     # noqa: E402
 from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe_events, PANELS  # noqa: E402
@@ -61,7 +62,7 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8"}
 VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
                 "three/three.core.js": "text/javascript; charset=utf-8",
                 "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
@@ -571,6 +572,20 @@ class Companion:
                     return {"events": new, "seq": self.seq, "owner": self.owner == window}
                 self.cond.wait(max(0.1, end - time.time()))
                 self._seen(window)
+
+    def paneles_negocio(self):
+        """Cobros reales del servidor solo si está emparejado; nunca DEMO. Cripto: precio público en caché."""
+        cobros = None
+        if not self.demo and self.client.url and self._token():
+            try:
+                p = self.panel("cobros"); cobros = {"lineas": p.get("lines") or [], "as_of": p.get("as_of")}
+            except Exception:   # servidor caído: el panel dice sin datos
+                cobros = None
+        try:
+            cr = negocios.mercado()
+        except Exception:
+            cr = None
+        return paneles.resumen(servidor_cobros=cobros, cripto=cr)
 
     def voz_view(self):
         with self.lock:
@@ -1101,6 +1116,12 @@ def make_handler(app, host, port):
                 return self._send(200, c.estado_view() if c else {"activo": False})
             if u.path == "/api/negocios":                     # torre de Aincrad: cifras DEMO, sin red
                 return self._send(200, negocios.torre())
+            if u.path == "/api/paneles-negocio":             # paneles del núcleo: solo datos reales locales
+                return self._send(200, app.paneles_negocio())
+            m = re.fullmatch(r"/api/evidencia/(\d{1,12}\.png)", u.path)
+            if m:
+                img = paneles.captura(paneles.control_dir(), m.group(1))
+                return self._send(200, img, "image/png") if img else self._send(404, {"error": "no existe"})
             if u.path == "/api/cripto":                       # precios públicos, sin claves ni trading
                 return self._send(200, negocios.mercado())
             if u.path == "/api/hud":
