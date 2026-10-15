@@ -6318,14 +6318,33 @@ class AIModelError(RuntimeError):
 # fix for "(Respuesta interrumpida; pídemela por partes.)" (stop_reason max_tokens).
 AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
 
+_model_timing = {}
+
+def _cache_tools(tools):
+    """Cache only tool definitions; preserve channel scope and the shared registry."""
+    if not tools or os.getenv('AI_TOOL_CACHE_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
+        return tools
+    return list(tools[:-1]) + [{**tools[-1], 'cache_control': {'type': 'ephemeral'}}]
+
+async def _model_call(history, tools, system):
+    started = time.monotonic()
+    result = await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+                                          tools=_cache_tools(tools), messages=history)
+    usage = getattr(result, 'usage', None)
+    def count(name):
+        value = getattr(usage, name, 0)
+        return value if type(value) is int and value >= 0 else 0
+    _model_timing.update(reply_ms=round((time.monotonic() - started) * 1000),
+                         cache_read_tokens=count('cache_read_input_tokens'),
+                         cache_write_tokens=count('cache_creation_input_tokens'))
+    return result
+
 async def _ai_call(history):
-    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt(),
-                                        tools=TOOLS, messages=history)
+    return await _model_call(history, TOOLS, system_prompt())
 
 async def _ai_call_scoped(history, tools, extra_system):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt() + extra_system,
-                                        tools=tools, messages=history)
+    return await _model_call(history, tools, system_prompt() + extra_system)
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
