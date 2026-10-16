@@ -10,6 +10,9 @@
   var warmStream = null, micDevice = "";
   try { micDevice = localStorage.getItem("jarvis-mic-device") || ""; } catch (_) {}
   var revealed = false, lastReply = "", lastPanel = null;
+  /* Silencio de fin de frase. Un solo sitio: desktop/audio/latencia.py lo repite y
+     tests/test_voz_ingles_primero.py comprueba que los dos digan lo mismo. */
+  var VAD_SILENCE_MS = 350;
   var PANEL_NAMES = { agenda: 1, cobros: 1, practica: 1, estado: 1, brief: 1, caja: 1 };
   var HUD_NAMES = { cobros: 1, vencidos: 1, agenda: 1, balances: 1, stock: 1, mensajes: 1, practica: 1 };
   var clockFmt = new Intl.DateTimeFormat("en-PR", { timeZone: "America/Puerto_Rico", hour: "2-digit", minute: "2-digit",
@@ -319,7 +322,7 @@
         stream.getAudioTracks().forEach(function(t){t.enabled=true;});
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = openingContext = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
-        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: 550, maxMs: 30000 });
+        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000 });
         var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
         ctx.onstatechange = function () { captureState(capture); };
         stream.getAudioTracks().forEach(function (track) {
@@ -342,7 +345,7 @@
           var r = det.push(data, data.length / rec.rate * 1000);
           phrase.push(data, det.heard);
           if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
-          else if (r === "no-speech") { det = new W.Detector({ silenceMs: 550, maxMs: 30000 }); phrase.frames.length=0; phrase.samples=0; setState("listening", "No detecto una frase. Comprueba el nivel y el micrófono seleccionado."); }
+          else if (r === "no-speech") { det = new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000 }); phrase.frames.length=0; phrase.samples=0; setState("listening", "No detecto una frase. Comprueba el nivel y el micrófono seleccionado."); }
         };
         src.connect(node); node.connect(ctx.destination);
         $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";

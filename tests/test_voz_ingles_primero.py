@@ -1,4 +1,4 @@
-import os, signal, sys, tempfile, unittest
+import os, re, signal, sys, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,7 +57,16 @@ class Latencia(unittest.TestCase):
 
     def test_vad_and_prewarm(self):
         js = (Path(__file__).parents[1] / "desktop" / "ui" / "app.js").read_text()
-        self.assertIn("silenceMs: 350", js)
+        # La prueba vieja repetía el número y se quedó obsoleta sin que nadie se enterara
+        # (app.js decía 550, la prueba 350, el commit 450). Ahora comprueba que haya un solo
+        # sitio donde se declara y que latencia.py diga lo mismo.
+        from audio import latencia
+        declared = re.search(r"var VAD_SILENCE_MS = (\d+);", js)
+        self.assertIsNotNone(declared, "app.js debe declarar VAD_SILENCE_MS una sola vez")
+        self.assertEqual(int(declared.group(1)), latencia.VAD_SILENCE_MS)
+        self.assertNotIn("silenceMs: 3", js)            # ningún número a mano en los Detector
+        self.assertNotIn("silenceMs: 5", js)
+        self.assertEqual(js.count("var VAD_SILENCE_MS ="), 1)
         self.assertIn("app.prewarm_tts()", SRC)
         self.assertIn("ONLY in", (Path(__file__).parents[1] / "jarvis_desktop_api.py").read_text())
 

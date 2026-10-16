@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-VAD_SILENCE_MS = 550          # igual que desktop/ui/app.js (Detector silenceMs)
+VAD_SILENCE_MS = 350          # igual que desktop/ui/app.js (var VAD_SILENCE_MS); una prueba lo comprueba
 
 
 def log_path() -> Path:
