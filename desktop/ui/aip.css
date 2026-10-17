@@ -1,0 +1,150 @@
+/* Advanced Interface Protocol: un solo panel alrededor del núcleo.
+   Se carga DESPUÉS de app.css, nucleo-home.css y crystal.css, y solo cambia la disposición:
+   ningún identificador, ningún texto de estado y ninguna regla de las otras hojas se toca.
+   El hueco del centro es eso, un hueco: el cristal se ve y se anima por debajo. */
+
+:root {
+  --aip-borde: rgba(150, 200, 255, .22);
+  --aip-fondo: rgba(8, 18, 34, .62);
+  --aip-fondo-alto: rgba(10, 22, 40, .78);
+  --aip-texto: #dbe9ff;
+  --aip-tenue: #8fa8c8;
+  --aip-brillo: #7fc7ff;
+  --aip-columna: clamp(260px, 22vw, 420px);
+}
+
+body.aip-on { color: var(--aip-texto); }
+
+/* El marco. Columnas a los lados, barra arriba y abajo, y el centro vacío para el cristal. */
+body.aip-on .aip {
+  position: fixed; inset: 0; z-index: 3;
+  display: grid;
+  grid-template-columns: var(--aip-columna) 1fr var(--aip-columna);
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: "top top top" "left core right" "bottom bottom bottom";
+  gap: 10px; padding: 10px;
+  pointer-events: none;                 /* el hueco del centro no captura el ratón */
+}
+body.aip-on .aip > * { pointer-events: auto; }
+body.aip-on .aip-core { grid-area: core; pointer-events: none; display: flex;
+                        align-items: flex-end; justify-content: center; padding-bottom: 4vh; }
+
+/* La superficie: un solo cristal esmerilado, con el mismo borde en todas las piezas. */
+body.aip-on .aip-top, body.aip-on .aip-bottom, body.aip-on .aip-card {
+  background: var(--aip-fondo);
+  border: 1px solid var(--aip-borde);
+  border-radius: 14px;
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+body.aip-on .aip-top {
+  grid-area: top; display: flex; align-items: center; gap: 18px;
+  padding: 8px 16px; flex-wrap: wrap;
+}
+body.aip-on .aip-name {
+  font-size: 10px; letter-spacing: .3em; color: var(--aip-brillo);
+  margin-left: 12px; opacity: .85; font-weight: 400;
+}
+body.aip-on .aip-bottom {
+  /* .foot de app.css es `position: fixed`: fuera de la rejilla se salia del marco y se
+     montaba encima de las columnas. Aqui vuelve a ser una celda mas. */
+  grid-area: bottom; position: static; inset: auto; width: auto; max-width: none; margin: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; flex-wrap: wrap; justify-content: center;
+}
+
+body.aip-on .aip-left  { grid-area: left; }
+body.aip-on .aip-right { grid-area: right; }
+body.aip-on .aip-left, body.aip-on .aip-right {
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--aip-borde) transparent;
+}
+body.aip-on .aip-left::-webkit-scrollbar, body.aip-on .aip-right::-webkit-scrollbar { width: 6px; }
+body.aip-on .aip-left::-webkit-scrollbar-thumb, body.aip-on .aip-right::-webkit-scrollbar-thumb {
+  background: var(--aip-borde); border-radius: 3px;
+}
+
+body.aip-on .aip-card { padding: 12px 14px; }
+body.aip-on .aip-card h2 {
+  margin: 0 0 8px; font-size: 11px; letter-spacing: .22em;
+  color: var(--aip-brillo); font-weight: 500; text-transform: uppercase;
+}
+body.aip-on .aip-card small { color: var(--aip-tenue); font-size: 11px; display: block; margin-top: 4px; }
+body.aip-on .aip-card p { margin: 4px 0; font-size: 13px; }
+
+/* La lista de paneles, en vertical: ya no es una fila de pestañas apretada. */
+body.aip-on .aip-left .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+body.aip-on .aip-left .tabs button, body.aip-on .aip-card > button {
+  width: 100%; text-align: left; padding: 7px 10px; font-size: 12px;
+  background: rgba(255, 255, 255, .04); color: var(--aip-texto);
+  border: 1px solid var(--aip-borde); border-radius: 8px; cursor: pointer;
+}
+body.aip-on .aip-left .tabs button:hover, body.aip-on .aip-card > button:hover {
+  background: rgba(127, 199, 255, .14); border-color: rgba(127, 199, 255, .5);
+}
+body.aip-on .aip-left .tabs button[aria-selected="true"],
+body.aip-on .aip-left .tabs button.active {
+  background: rgba(127, 199, 255, .2); border-color: var(--aip-brillo);
+}
+body.aip-on .aip-card > button { margin-top: 4px; }
+
+body.aip-on .aip-detail { flex: 1 1 auto; min-height: 120px; }
+body.aip-on .aip-detail .lines { margin: 0; padding-left: 16px; font-size: 12.5px; line-height: 1.5; }
+body.aip-on .aip-assistant .reply, body.aip-on .aip-assistant .state { font-size: 13px; }
+body.aip-on .aip-assistant textarea {
+  width: 100%; background: rgba(0, 0, 0, .3); color: var(--aip-texto);
+  border: 1px solid var(--aip-borde); border-radius: 8px; padding: 7px; font: inherit; font-size: 13px;
+}
+body.aip-on .aip-alerts .alert-list { margin: 0; padding-left: 18px; font-size: 12.5px; }
+body.aip-on .aip-alerts .alerts-head {
+  display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .22em;
+  color: var(--aip-brillo); margin-bottom: 6px;
+}
+
+body.aip-on .status { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; flex: 1 1 auto; }
+body.aip-on .status div { display: flex; gap: 6px; align-items: baseline; }
+body.aip-on .status dt { font-size: 9.5px; letter-spacing: .16em; color: var(--aip-tenue); text-transform: uppercase; }
+body.aip-on .status dd { margin: 0; font-size: 12px; }
+body.aip-on .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Las tarjetas sueltas de antes ya no existen como capa aparte: ahora están dentro del panel. */
+body.aip-on .crystal-cards, body.aip-on .crystal-brand, body.aip-on main.layout { display: none !important; }
+body.aip-on .aip-core .nucleo-estado {
+  position: static; font-size: 12px; letter-spacing: .3em; color: var(--aip-brillo);
+  background: rgba(8, 18, 34, .5); border: 1px solid var(--aip-borde);
+  border-radius: 999px; padding: 5px 18px; backdrop-filter: blur(8px);
+}
+
+/* Pantallas estrechas: las columnas se apilan y el cristal pasa a ser el fondo. */
+@media (max-width: 1100px) {
+  body.aip-on .aip {
+    grid-template-columns: 1fr;
+    grid-template-areas: "top" "left" "right" "bottom";
+    grid-template-rows: auto auto 1fr auto;
+  }
+  body.aip-on .aip-core { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.aip-on .aip-card, body.aip-on .aip-top, body.aip-on .aip-bottom { backdrop-filter: none; }
+}
+
+
+/* El boton de detalle: en crystal.css y nucleo-home.css esta `position: fixed` y se salia
+   de la barra. Dentro del panel es una pastilla mas de la fila de chips. */
+body.aip-on .aip-top .paneles {
+  position: static; top: auto; right: auto; z-index: auto; margin: 0;
+  padding: 4px 14px; border-radius: 999px; cursor: pointer;
+  background: rgba(127, 199, 255, .12); border: 1px solid var(--aip-borde); color: var(--aip-texto);
+}
+body.aip-on .aip-top .paneles:hover { background: rgba(127, 199, 255, .24); border-color: var(--aip-brillo); }
+
+/* Estado y respuesta salian DOS veces: #crystal-state/#crystal-reply (crystal.js) dicen lo
+   mismo que #state/#reply (app.js). Se quedan en el DOM —los dos scripts los escriben— pero
+   solo se ve uno. «LAST HEARD» (#crystal-heard) no se duplica: ese es unico y se queda. */
+body.aip-on #crystal-state, body.aip-on #crystal-reply { display: none; }
+body.aip-on .aip-assistant .state { font-size: 13px; color: var(--aip-brillo); margin-bottom: 6px; }
+body.aip-on .aip-assistant .reply { margin: 2px 0 8px; }
