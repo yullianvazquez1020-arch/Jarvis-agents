@@ -111,18 +111,30 @@ async def inventario(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
     return out
 
 
-async def pedidos(client: httpx.AsyncClient, dias: int = 7) -> List[Dict[str, Any]]:
+async def pedidos(client: httpx.AsyncClient, dias: int = 7) -> tuple:
+    """Lee getOrders siguiendo NextToken. Tope de 10 páginas; si queda token, el resultado es parcial."""
     desde = (datetime.now(timezone.utc) - timedelta(days=max(1, min(dias, 30)))).strftime("%Y-%m-%dT%H:%M:%SZ")
-    data = await _get(client, "/orders/v0/orders", {
-        "MarketplaceIds": _env("SPAPI_MARKETPLACE_ID"), "CreatedAfter": desde})
     out = []
-    for o in (data.get("payload") or {}).get("Orders", []):
-        total = o.get("OrderTotal") or {}
-        out.append({"id": o.get("AmazonOrderId"), "fecha": o.get("PurchaseDate"),
-                    "estado": o.get("OrderStatus"), "total": total.get("Amount"),
-                    "moneda": total.get("CurrencyCode"), "unidades": o.get("NumberOfItemsShipped", 0)
-                    + o.get("NumberOfItemsUnshipped", 0)})
-    return out
+    token = None
+    partial = False
+    for _ in range(10):
+        params = {"MarketplaceIds": _env("SPAPI_MARKETPLACE_ID"), "CreatedAfter": desde}
+        if token:
+            params["NextToken"] = token
+        data = await _get(client, "/orders/v0/orders", params)
+        payload = data.get("payload") or {}
+        for o in payload.get("Orders") or []:
+            total = o.get("OrderTotal") or {}
+            out.append({"id": o.get("AmazonOrderId"), "fecha": o.get("PurchaseDate"),
+                        "estado": o.get("OrderStatus"), "total": total.get("Amount"),
+                        "moneda": total.get("CurrencyCode"), "unidades": o.get("NumberOfItemsShipped", 0)
+                        + o.get("NumberOfItemsUnshipped", 0)})
+        token = payload.get("NextToken")
+        if not token:
+            break
+    else:
+        partial = bool(token)
+    return out, partial
 
 
 async def precios(client: httpx.AsyncClient, skus: List[str]) -> List[Dict[str, Any]]:
@@ -153,13 +165,21 @@ async def precios(client: httpx.AsyncClient, skus: List[str]) -> List[Dict[str, 
     return out
 
 
-def _fmt(sub: str, rows: List[Dict[str, Any]]) -> str:
+def _fmt(sub: str, rows: List[Dict[str, Any]], note: str = "") -> str:
     if not rows:
-        return f"Amazon {sub}: sin resultados."
+        text = f"Amazon {sub}: sin resultados."
+        return text + ("\n" + note if note else "")
     lines = [f"Amazon {sub} ({len(rows)}):"]
     for r in rows[:25]:
         lines.append("• " + " · ".join(f"{k}: {v}" for k, v in r.items() if v is not None))
-    return "\n".join(lines) + "\nConsulta parcial: primera página, máximo 25 filas mostradas; no representa todo el catálogo o historial."
+    extra = []
+    if len(rows) > 25:
+        extra.append(f"Se muestran 25 de {len(rows)}.")
+    if note:
+        extra.append(note)
+    if extra:
+        lines.append(" ".join(extra))
+    return "\n".join(lines)
 
 
 async def command(text: str, client: Optional[httpx.AsyncClient] = None) -> str:
@@ -176,14 +196,18 @@ async def command(text: str, client: Optional[httpx.AsyncClient] = None) -> str:
     client = client or httpx.AsyncClient()
     try:
         if sub == "inventario":
-            return _fmt(sub, await inventario(client))
+            return _fmt(sub, await inventario(client),
+                        "Consulta parcial: primera página de inventario, máximo 25 filas mostradas.")
         if sub == "pedidos":
             dias = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 7
-            return _fmt(sub, await pedidos(client, dias))
+            rows, partial = await pedidos(client, dias)
+            note = "Resultado parcial: Amazon todavía tiene más páginas." if partial else ""
+            return _fmt(sub, rows, note)
         skus = ",".join(parts[2:]).split(",") if len(parts) > 2 else []
         if not skus:
             return "Indica los SKU: /amazon precios SKU1,SKU2"
-        return _fmt(sub, await precios(client, skus))
+        return _fmt(sub, await precios(client, skus),
+                    "Consulta parcial: precios de los SKU pedidos, máximo 25 filas mostradas.")
     except Exception as exc:  # nunca se filtra el token
         return f"Amazon no respondió ({type(exc).__name__}); revisa permisos, conexión y configuración."
     finally:
