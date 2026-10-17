@@ -6171,7 +6171,7 @@ def system_prompt():
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT + PERSONALITY_PROMPT +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT + LANGUAGE_RULE +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6317,6 +6317,22 @@ class AIModelError(RuntimeError):
 # 4.2.7: reply budget per model call (default unchanged 1500). Raising it costs more tokens per answer; it is the
 # fix for "(Respuesta interrumpida; pídemela por partes.)" (stop_reason max_tokens).
 AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
+
+# 4.2.8 IDIOMA: una sola variable decide en qué idioma contesta Jarvis, por voz y por escrito.
+# El dueño (17 oct): «has que todo sea en inglés, yo soy full english». Antes el idioma estaba
+# escrito a mano en cuatro sitios distintos y no coincidían entre ellos.
+# JARVIS_REPLY_LANGUAGE=es-PR (o cualquier es-*) lo devuelve al español sin tocar código.
+REPLY_LANG = "es" if os.getenv("JARVIS_REPLY_LANGUAGE", "en-GB").strip().lower().replace("_", "-").startswith("es") else "en"
+SPEECH_STYLE = {
+    "en": ("For spoken conversation, use warm, direct British English, with calm confidence and natural "
+           "phrasing. Reply in English even when the question mixes in Spanish words or names."),
+    "es": ("For spoken conversation, use warm, direct Latin American Spanish, with calm confidence and "
+           "natural phrasing. Do not imitate an accent with misspellings."),
+}[REPLY_LANG]
+LANGUAGE_RULE = ("\nLANGUAGE: always answer in English, including when the tone file below is written in "
+                 "Spanish. Keep the owner's own names for things (ISLAFIX, /cobros, client names) as they are.\n"
+                 if REPLY_LANG == "en" else
+                 "\nIDIOMA: contesta siempre en español.\n")
 
 # 4.2.8 CACHÉ DEL PROMPT: las definiciones de herramientas (~3 400 tokens) son IDÉNTICAS en cada
 # llamada, y en el orden de la caché van antes que la instrucción del sistema. Por eso se cachean
@@ -6848,9 +6864,8 @@ async def _handle_tg(chat_id, text, *, read_only=False):
                               extra_system="\nVOICE QUERY: read-only. Never change data, prepare or send actions, "
                               "or approve anything. If the request needs an action, explain it was not executed "
                               "and ask the owner to review and process the numbered dictation explicitly. "
-                              "For spoken conversation, use warm, direct Latin American Spanish, with calm "
-                              "confidence and natural phrasing. Do not imitate an accent with misspellings. "
-                              "Start with one complete spoken sentence under 180 characters that keeps any "
+                              + SPEECH_STYLE +
+                              " Start with one complete spoken sentence under 180 characters that keeps any "
                               "essential qualification. Then add details only when useful. Avoid headings, "
                               "tables, emoji, repeated greetings and theatrical filler. Never invent progress, "
                               "capabilities, income or promises to sound reassuring.")
