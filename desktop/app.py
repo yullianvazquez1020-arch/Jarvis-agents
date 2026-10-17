@@ -801,6 +801,34 @@ class Companion:
             t = self.turns.get(tid)
             return t.setdefault("lat", {}) if t is not None else {}
 
+    def prewarm_stt(self):
+        """Precalienta whisper.cpp al arrancar el panel.
+
+        Por qué: el log de latencia del dueño (33 turnos reales) dice que los primeros cuatro
+        turnos tardan 6 669 ms en transcribir y los 29 siguientes 2 098 ms. Tres veces más al
+        empezar, porque el modelo y el binario llegan al caché del sistema con el primer turno.
+        Esto los trae antes, con un tono corto generado aquí: 0,4 s de audio, sin micrófono.
+
+        No toca el micrófono, no graba nada, no sale de la Mac, y si falla no pasa nada: el
+        primer turno real vuelve a pagar el arranque y ya está. El resultado se descarta."""
+        import math
+        if self.stt.problem():
+            return
+
+        def run():
+            try:
+                from audio import wav as _wav
+            except ImportError:
+                from desktop.audio import wav as _wav
+            muestras = [int(1500 * math.sin(2 * math.pi * 220 * i / _wav.RATE))
+                        for i in range(int(_wav.RATE * 0.4))]
+            try:
+                self.stt.transcribe(_wav.make_wav(muestras))     # se descarta a propósito
+            except Exception:
+                return                                            # el primer turno pagará el arranque
+
+        threading.Thread(target=run, daemon=True).start()
+
     def prewarm_tts(self):
         """Precalienta say/Piper al arrancar (y deja el saludo en caché): la primera respuesta no paga el arranque."""
         def run():
@@ -1320,6 +1348,7 @@ def serve(cfg, open_browser=True):
     port = int(cfg["VOICE_PORT"])
     app = Companion(cfg)
     app.prewarm_tts()                                  # TTS listo antes de la primera respuesta
+    app.prewarm_stt()                                  # y Whisper: el primer turno tardaba 3x más
     httpd = Server((host, port), http.server.BaseHTTPRequestHandler)
     real_port = httpd.server_address[1]                  # differs from port only when port is 0 (tests)
     httpd.RequestHandlerClass = make_handler(app, host, real_port)

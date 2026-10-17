@@ -6318,14 +6318,43 @@ class AIModelError(RuntimeError):
 # fix for "(Respuesta interrumpida; pídemela por partes.)" (stop_reason max_tokens).
 AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
 
+# 4.2.8 CACHÉ DEL PROMPT: las definiciones de herramientas (~3 400 tokens) son IDÉNTICAS en cada
+# llamada, y en el orden de la caché van antes que la instrucción del sistema. Por eso se cachean
+# ellas y no la instrucción: la primera línea de system_prompt() lleva la hora al minuto, así que
+# cambia cada sesenta segundos y no se podría reutilizar nunca.
+# Esto no cambia lo que el modelo ve: mismas herramientas, misma instrucción, mismo orden.
+# Medido en el latencia.log del dueño: el primer token tarda 4 807 ms de mediana (57 % del turno).
+# AI_PROMPT_CACHE=false lo apaga. Si la API rechaza la marca, se reintenta sin ella y se avisa una
+# vez: una respuesta tarde es mejor que un chat roto.
+PROMPT_CACHE_ON = os.getenv("AI_PROMPT_CACHE", "true").strip().lower() not in ("false", "0", "no")
+_cache_unsupported = {"si": False}        # se pone a True si la API la rechaza; no se reintenta más
+
+def _tools_cached(tools):
+    """Las mismas herramientas, con el punto de corte de la caché en la última."""
+    if not PROMPT_CACHE_ON or _cache_unsupported["si"] or not tools:
+        return tools
+    marcada = dict(tools[-1])
+    marcada["cache_control"] = {"type": "ephemeral"}
+    return list(tools[:-1]) + [marcada]
+
+async def _create_con_cache(history, system, tools):
+    try:
+        return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+                                            tools=_tools_cached(tools), messages=history)
+    except (BadRequestError, TypeError) as e:
+        if _cache_unsupported["si"] or not PROMPT_CACHE_ON or "cache" not in str(e).lower():
+            raise
+        _cache_unsupported["si"] = True                  # una sola vez por proceso
+        logger.warning("la API rechazó la caché del prompt (%s); sigo sin ella", type(e).__name__)
+        return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+                                            tools=tools, messages=history)
+
 async def _ai_call(history):
-    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt(),
-                                        tools=TOOLS, messages=history)
+    return await _create_con_cache(history, system_prompt(), TOOLS)
 
 async def _ai_call_scoped(history, tools, extra_system):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system_prompt() + extra_system,
-                                        tools=tools, messages=history)
+    return await _create_con_cache(history, system_prompt() + extra_system, tools)
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
