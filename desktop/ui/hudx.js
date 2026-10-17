@@ -17,7 +17,7 @@
     }
     if (!list) return;
     clear(list);
-    if (!voz.lineas.length) { list.appendChild(el("li", "small", "A su disposición.")); return; }
+    if (!voz.lineas.length) { list.appendChild(el("li", "small", "At your service.")); return; }
     voz.lineas.forEach(function (linea) {
       var quien = linea.quien === "tu" ? "Usted" : "Jarvis";
       list.appendChild(el("li", linea.quien === "tu" ? "tu" : "jarvis", quien + ". " + linea.texto));
@@ -31,13 +31,13 @@
   // ---------- trabajos: barra = etapa real ----------
   function renderJobs() {
     var ul = $("hx-jobs"); clear(ul);
-    if (!Array.isArray(data.jobs)) { ul.appendChild(el("li", "small", "sin dato")); return; }
+    if (!Array.isArray(data.jobs)) { ul.appendChild(el("li", "small", "no data")); return; }
     if (!data.jobs.length) { ul.appendChild(el("li", "small", "No hay trabajos abiertos.")); return; }
     data.jobs.forEach(function (j) {
       var li = el("li", "hx-job" + (j.overdue ? " late" : ""));
       var head = el("div", "hx-job-head");
       head.appendChild(el("span", "hx-job-title", show(j.title, true)));
-      head.appendChild(el("span", "hx-job-pct", (j.overdue ? "⚠ vencido · " : "") + j.stage + " · " + j.progress + "%"));
+      head.appendChild(el("span", "hx-job-pct", (j.overdue ? "⚠ overdue · " : "") + j.stage + " · " + j.progress + "%"));
       var bar = el("div", "hx-bar"); bar.setAttribute("role", "img");
       bar.setAttribute("aria-label", j.stage + ", " + j.progress + " por ciento" + (j.overdue ? ", vencido" : ""));
       var fill = el("span", "hx-fill"); fill.style.width = j.progress + "%";
@@ -64,9 +64,9 @@
       t.style.left = (d / 14 * 100) + "%"; scale.appendChild(t);
     }
     g.appendChild(scale);
-    if (!Array.isArray(data.jobs)) { g.appendChild(el("p", "small", "sin dato")); return; }
+    if (!Array.isArray(data.jobs)) { g.appendChild(el("p", "small", "no data")); return; }
     var rows = data.jobs.filter(function (j) { return day(j.due) !== null; });
-    if (!rows.length) { g.appendChild(el("p", "small", "Ningún trabajo abierto tiene fecha de entrega.")); return; }
+    if (!rows.length) { g.appendChild(el("p", "small", "No open job has a delivery date.")); return; }
     rows.forEach(function (j) {
       var row = el("div", "hx-row"), label = el("span", "hx-row-label", show(j.title, true));
       var lane = el("div", "hx-lane"), b = el("span", "hx-span" + (j.overdue ? " late" : ""));
@@ -74,7 +74,7 @@
       var l = Math.max(0, (s - from) / span), r = Math.min(1, (e - from) / span);
       if (r <= 0 || l >= 1) { b.className += " off"; l = r <= 0 ? 0 : 0.97; r = l + 0.03; }
       b.style.left = (l * 100) + "%"; b.style.width = Math.max(1.5, (r - l) * 100) + "%";
-      b.title = j.stage + (j.overdue ? " · vencido" : "") + " · entrega " + j.due;
+      b.title = j.stage + (j.overdue ? " · overdue" : "") + " · delivery " + j.due;
       lane.appendChild(b); row.appendChild(label); row.appendChild(lane); g.appendChild(row);
     });
     var mark = el("i", "hx-today"); mark.style.left = (3 / 14 * 100) + "%"; mark.title = "Hoy";
@@ -88,26 +88,26 @@
       var w = el("div", p[2] || ""); w.appendChild(el("dt", "", p[0])); w.appendChild(el("dd", "", p[1])); box.appendChild(w);
     });
   }
-  var STATE = { ok: "Conectado", demo: "Demostración", slow: "Con retraso", down: "Sin conexión", error: "Error",
-                unpaired: "Sin emparejar", unknown: "Sin comprobar" };
+  var STATE = { ok: "Connected", demo: "Demo", slow: "Slow", down: "Offline", error: "Error",
+                unpaired: "Not paired", unknown: "Not checked" };
   function renderStatus() {
     var h = health || { state: "unknown", info: {} }, i = h.info || {};
-    var known = function (v, yes, no) { return v === undefined || v === null ? "sin dato" : v ? yes : no; };
+    var known = function (v, yes, no) { return v === undefined || v === null ? "no data" : v ? yes : no; };
     dl("hx-assist", [
-      ["Servidor", STATE[h.state] || "Sin comprobar", h.state === "ok" || h.state === "demo" ? "good" : "watch"],
-      ["Versión", i.jarvis_version || "sin dato"],
-      ["Datos", i.storage || "sin dato"],
-      ["IA", known(i.ai_configured, "configurada", "sin configurar")],
-      ["Respuesta", h.latency_ms == null ? "sin dato" : h.latency_ms + " ms"]
+      ["Server", STATE[h.state] || "Not checked", h.state === "ok" || h.state === "demo" ? "good" : "watch"],
+      ["Version", i.jarvis_version || "no data"],
+      ["Data", i.storage || "no data"],
+      ["AI", known(i.ai_configured, "configured", "not configured")],
+      ["Response", h.latency_ms == null ? "no data" : h.latency_ms + " ms"]
     ]);
     var real = i.real_trading_active;
     dl("hx-secure", [
-      ["Modo cripto", i.crypto_mode === "practice" ? "Práctica (simulado)" : i.crypto_mode === "real" ? "REAL" : "sin dato",
+      ["Crypto mode", i.crypto_mode === "practice" ? "Practice (simulated)" : i.crypto_mode === "real" ? "REAL" : "no data",
        i.crypto_mode === "real" ? "alert" : ""],
-      ["Trading real", known(real, "⚠ ACTIVO", "Apagado"), real ? "alert" : "good"],
-      ["Topes", "$100 por operación · $300 al día"],
-      ["Aprobar o enviar", "Solo tú, en tu chat privado"],
-      ["Mouse", "Permiso firmado, de un uso"]
+      ["Live trading", known(real, "⚠ ON", "Off"), real ? "alert" : "good"],
+      ["Limits", "$100 per order · $300 per day"],
+      ["Approve or send", "Only you, in your private chat"],
+      ["Mouse", "Signed one-use grant"]
     ]);
   }
 
@@ -182,9 +182,9 @@
       var n = parseFloat(String(c.value).replace(/[^0-9.\-]/g, "")), level, note;
       if (c.id === "practica") {
         var p = pnl(c); level = p == null ? 0 : Math.min(1, Math.abs(p) / 10);
-        note = p == null ? "sin dato" : (p >= 0 ? "+" : "") + p.toFixed(2) + "% simulado";
-      } else if (ATTN[c.id]) { level = n > 0 ? 1 : 0; note = n > 0 ? (ATTN[c.id] === 2 ? "⚠ por atender ya" : "por atender") : "al día"; }
-      else { level = 0.5; note = c.stale ? "⚠ dato viejo" : "informativo"; }
+        note = p == null ? "no data" : (p >= 0 ? "+" : "") + p.toFixed(2) + "% simulated";
+      } else if (ATTN[c.id]) { level = n > 0 ? 1 : 0; note = n > 0 ? (ATTN[c.id] === 2 ? "⚠ needs attention now" : "needs attention") : "up to date"; }
+      else { level = 0.5; note = c.stale ? "⚠ stale data" : "informational"; }
       var b = el("button", "hx-gauge"); b.type = "button";
       var cv = el("canvas"); cv.setAttribute("aria-hidden", "true");
       var txt = el("div", "hx-gauge-text");
