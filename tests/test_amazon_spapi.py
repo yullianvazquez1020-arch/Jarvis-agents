@@ -77,6 +77,39 @@ class AmazonTests(unittest.TestCase):
             self.assertNotIn("ficticio.test", out)
             self.assertNotIn("San Juan", out)
 
+    def test_pedidos_siguen_next_token(self):
+        pages = {"n": 0}
+
+        def h(req: httpx.Request):
+            u = str(req.url)
+            if u.startswith(amz.LWA_URL):
+                return httpx.Response(200, json={"access_token": "Atza|ficticio", "expires_in": 3600})
+            self.assertIn("/orders/v0/orders", u)
+            pages["n"] += 1
+            if pages["n"] == 1:
+                self.assertNotIn("NextToken", u)
+                return httpx.Response(200, json={"payload": {"NextToken": "pagina-2-ficticia", "Orders": [
+                    {"AmazonOrderId": "111-0000000-0000001", "PurchaseDate": "2026-10-10T12:00:00Z",
+                     "OrderStatus": "Shipped", "OrderTotal": {"Amount": "10.00", "CurrencyCode": "USD"},
+                     "NumberOfItemsShipped": 1}]}})
+            self.assertIn("NextToken=pagina-2-ficticia", u)
+            return httpx.Response(200, json={"payload": {"Orders": [
+                {"AmazonOrderId": "111-0000000-0000002", "PurchaseDate": "2026-10-11T12:00:00Z",
+                 "OrderStatus": "Unshipped", "OrderTotal": {"Amount": "12.00", "CurrencyCode": "USD"},
+                 "NumberOfItemsUnshipped": 1, "BuyerInfo": {"BuyerEmail": "otro@ficticio.test"}}]}})
+
+        async def go():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(h)) as c:
+                return await amz.command("/amazon pedidos 7", c)
+
+        with mock.patch.dict(os.environ, ENV):
+            out = asyncio.run(go())
+        self.assertEqual(pages["n"], 2)
+        self.assertIn("111-0000000-0000001", out)
+        self.assertIn("111-0000000-0000002", out)
+        self.assertNotIn("otro@ficticio.test", out)
+        self.assertNotIn("más páginas", out)
+
     def test_precios(self):
         with mock.patch.dict(os.environ, ENV):
             out = run("/amazon precios ISLA-001")
