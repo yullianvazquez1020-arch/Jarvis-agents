@@ -47,7 +47,7 @@ class VozMasculina(unittest.TestCase):
         with patch.object(engines.subprocess, "run", return_value=listing):
             v = engines.MacSay()
             self.assertEqual(v.resolve_voice("Hello sir, how are you today?"), "Daniel")
-            self.assertEqual(v.resolve_voice("Hola señor, ¿cómo está?"), "Daniel")   # solo inglés
+            self.assertEqual(v.resolve_voice("Hola señor, ¿cómo está?"), "Juan")   # cada uno con su voz
 
     def test_voz_loop_speaker_male(self):
         sys.path.insert(0, str(Path(__file__).parents[1] / "desktop"))
@@ -56,7 +56,7 @@ class VozMasculina(unittest.TestCase):
         with patch.dict(os.environ, {"PIPER_MODEL": "", "JARVIS_SAY_VOICE": "Paulina"}), \
                 patch.object(voz_loop.subprocess, "run", return_value=listing):
             cmd = voz_loop.Speaker().command("Hola señor")
-            self.assertEqual(cmd[:3], ["say", "-v", "Daniel"]); self.assertIn("160", cmd)
+            self.assertEqual(cmd[:3], ["say", "-v", "Juan"]); self.assertIn("160", cmd)
             cmd = voz_loop.Speaker().command("Hello sir, how are you?")
             self.assertEqual(cmd[:3], ["say", "-v", "Daniel"]); self.assertIn("160", cmd)
 

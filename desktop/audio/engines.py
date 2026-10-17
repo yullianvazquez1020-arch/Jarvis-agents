@@ -162,13 +162,25 @@ _ES_WORDS = set("el la los las de que y en un una es por para con no se lo como 
                 "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más".split())
 
 
+def preferred_lang():
+    """Idioma del dueño: JARVIS_REPLY_LANGUAGE (es-* -> español). Decide los casos sin señal."""
+    v = str(os.environ.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-")
+    return "es" if v.startswith("es") else "en"
+
+
 def detect_lang(text):
+    """Idioma de ESTE texto, para leerlo con la voz que le toca.
+
+    Un texto en español leído por una voz inglesa no se entiende: es lo que le pasaba al dueño.
+    Sin ninguna palabra reconocible ("ok", "3", "") manda el idioma configurado, no el inglés."""
     t = str(text or "").lower()
     if re.search(r"[ñáéíóú¿¡]", t):
         return "es"
     words = re.findall(r"[a-z']+", t)
     en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
-    return "es" if es > en else "en"          # inglés (Daniel) es el idioma principal; español solo si lo es
+    if es == en:                               # empate o ninguna señal: lo que el dueño configuró
+        return preferred_lang()
+    return "es" if es > en else "en"
 
 
 def speech_rate(default=DEFAULT_WPM):
@@ -178,7 +190,7 @@ def speech_rate(default=DEFAULT_WPM):
         return default
 
 
-# Juan/Daniel/auto en la config: siempre Daniel (en-GB). Juan solo si no hay ninguna voz inglesa instalada.
+# Juan/Daniel/auto en la config: la voz la decide el idioma del texto (detect_lang), no una fija.
 ROUTED_VOICES = {"auto-latino", "auto", "Juan", "Daniel"}
 
 
@@ -204,7 +216,12 @@ class MacSay:
         return self._pair
 
     def resolve_voice(self, text=""):
-        """Voz masculina según el idioma: Juan (es) / Daniel (en_GB); nunca descarga ni elige femenina."""
+        """Voz masculina SEGÚN EL IDIOMA DEL TEXTO: Juan (es) / Daniel (en_GB).
+
+        Antes devolvía siempre la inglesa, incluso para un texto en español. El dueño lo
+        describió exactamente así: «la voz responde pero no lo entiendo». Era eso: sus
+        respuestas llegan en español y las leía Daniel, de Londres.
+        Nunca descarga nada ni elige una voz femenina."""
         if self.voice not in ROUTED_VOICES:
             return self.voice                            # voz personalizada explícita: se respeta
         try:
@@ -213,12 +230,13 @@ class MacSay:
             if self.voice in ("Juan", "Daniel"):
                 return "Daniel"                          # sin listado de voces: Daniel, sin fallar
             raise
-        if en:
-            return en                                    # SOLO inglés británico (Daniel), nunca Juan
-        if es:
-            self._resolved_voice = es
-            return es
-        raise EngineError("no hay una voz masculina en español instalada (instala Juan en Ajustes → Accesibilidad → Contenido leído)")
+        quiere = detect_lang(text)
+        elegida = (es if quiere == "es" else en) or en or es
+        if not elegida:
+            raise EngineError("no hay una voz masculina instalada (instala Juan en Ajustes → "
+                              "Accesibilidad → Contenido leído)")
+        self._resolved_voice = elegida
+        return elegida
 
     def problem(self):
         if sys.platform != "darwin" or not shutil.which("say"):

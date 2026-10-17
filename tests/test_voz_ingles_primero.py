@@ -16,9 +16,13 @@ class InglesPrimero(unittest.TestCase):
             v = engines.MacSay(voice)
             return v.resolve_voice("Good morning, sir. All systems are online."), v.resolve_voice("Hola señor, ¿cómo está?")
 
-    def test_english_only_daniel_even_for_spanish_text(self):
+    def test_la_voz_sigue_al_idioma_del_texto(self):
+        """CAMBIO DE DECISIÓN (17 de octubre, pedido por el dueño: «la voz responde pero no lo
+        entiendo»). Antes esta prueba exigía Daniel para TODO, incluido el español. Sus
+        respuestas llegan en español, así que las leía una voz inglesa y no se entendían.
+        Ahora: texto inglés -> Daniel, texto español -> Juan."""
         for voice in ("", "Juan", "Daniel", "auto-latino"):
-            self.assertEqual(self._say(voice), ("Daniel", "Daniel"), voice)
+            self.assertEqual(self._say(voice), ("Daniel", "Juan"), voice)
 
     def test_custom_voice_respected(self):
         self.assertEqual(self._say("Oliver"), ("Oliver", "Oliver"))

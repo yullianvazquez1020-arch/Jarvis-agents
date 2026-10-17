@@ -72,9 +72,9 @@ class Speaker:
             return ["sh", "-c", 'piper --model "$1" --output_file /tmp/jarvis_voz.wav && afplay /tmp/jarvis_voz.wav',
                     "piper", model]
         try:
-            from audio.engines import choose_voices, is_female, speech_rate
+            from audio.engines import choose_voices, detect_lang, is_female, speech_rate
         except ImportError:
-            from desktop.audio.engines import choose_voices, is_female, speech_rate
+            from desktop.audio.engines import choose_voices, detect_lang, is_female, speech_rate
         listing = getattr(Speaker, "_listing", None)
         if listing is None:                              # una sola consulta de voces: menos demora por frase
             try:
@@ -86,10 +86,11 @@ class Speaker:
         forced = os.getenv("JARVIS_SAY_VOICE", "").strip()
         if is_female(forced):                            # Jarvis es voz masculina: una femenina se ignora
             forced = ""
-        # Inglés primero (Daniel en-GB), igual que engines.MacSay.resolve_voice. JARVIS_SAY_VOICE manda
-        # si la voz es masculina; si no hay ninguna inglesa instalada, cae a la española antes que a un
-        # nombre fijo que puede no existir en esta Mac.
-        voice = forced or en or es or "Daniel"
+        # La voz sigue al IDIOMA DEL TEXTO, igual que engines.MacSay.resolve_voice: una respuesta en
+        # español leída por Daniel no se entiende. JARVIS_SAY_VOICE manda si es masculina, y si no hay
+        # voz del idioma que toca se usa la otra antes que un nombre fijo que puede no existir aquí.
+        quiere = detect_lang(text)
+        voice = forced or (es if quiere == "es" else en) or en or es or "Daniel"
         return ["say", "-v", voice, "-r", str(speech_rate()), text]
 
     def speak(self, text: str) -> None:

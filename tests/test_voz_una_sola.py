@@ -18,9 +18,12 @@ class UnaSolaVoz(unittest.TestCase):
         self.assertNotIn('"say"', src)
 
     def test_ingles_por_defecto(self):
-        self.assertEqual(engines.detect_lang("Systems online"), "en")
-        self.assertEqual(engines.detect_lang("ok"), "en")
-        self.assertEqual(engines.detect_lang("¿Cómo estás?"), "es")
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"JARVIS_REPLY_LANGUAGE": ""}):   # sin preferencia: inglés
+            self.assertEqual(engines.detect_lang("Systems online"), "en")
+            self.assertEqual(engines.detect_lang("ok"), "en")
+            self.assertEqual(engines.detect_lang("¿Cómo estás?"), "es")
         self.assertIn("ENGLISH", (ROOT / "jarvis_desktop_api.py").read_text("utf-8"))
 
     def test_frases_para_hablar_enseguida(self):
