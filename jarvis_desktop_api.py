@@ -665,9 +665,9 @@ def install(j):
     core = j
     READ_TOOLS = j.READ_ONLY_TOOLS
 
-    async def _body(request):
+    async def _body(request, limit=BODY_MAX):
         raw = await request.body()
-        if len(raw) > BODY_MAX:
+        if len(raw) > limit:
             raise DesktopError(413, "solicitud demasiado grande")
         try:
             data = json.loads(raw or b"{}")
@@ -755,6 +755,27 @@ def install(j):
             data = await _body(request)
             return await turn(dev, data.get("request_id"), data.get("text"))
         return await _audited("turns", authorization, work)
+
+    @j.app.post('/desktop/v1/documents')
+    async def desk_document(request: j.Request, authorization: str = j.Header(None)):
+        async def work():
+            import sys
+            import jarvis_desktop_documents
+            dev = await asyncio.to_thread(authenticate, authorization, 'converse')
+            data = await _body(request, limit=131072)
+            return await jarvis_desktop_documents.generate(sys.modules[__name__], dev,
+                data.get('request_id'), data.get('text'), data.get('previous'), data.get('preferences'))
+        return await _audited('documents', authorization, work)
+
+    @j.app.post('/desktop/v1/documents/get')
+    async def desk_document_get(request: j.Request, authorization: str = j.Header(None)):
+        async def work():
+            import sys
+            import jarvis_desktop_documents
+            dev = await asyncio.to_thread(authenticate, authorization, 'converse')
+            data = await _body(request)
+            return await asyncio.to_thread(jarvis_desktop_documents.lookup, sys.modules[__name__], dev, data.get('request_id'))
+        return await _audited('documents/get', authorization, work)
 
     @j.app.post("/desktop/v1/turns/get")
     async def desk_turn_get(request: j.Request, authorization: str = j.Header(None)):
