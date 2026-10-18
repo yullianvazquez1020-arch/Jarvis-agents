@@ -14,6 +14,27 @@ class Connections(unittest.TestCase):
  def test_configuration_not_verification(self):
   with patch.dict(os.environ,META):
    r=c.configuration()['facebook'];self.assertTrue(r['configured']);self.assertEqual(r['check']['status'],'not_tested');self.assertNotIn('test-meta-secret',str(c.configuration()))
+ def test_communication_diagnostics_distinguish_sms_from_whatsapp(self):
+  with patch.object(j,'SMS_ON',True),patch.object(j,'TW_FROM','+17875550123'),patch.object(j,'EMAIL_ON',False):
+   info=c.autonomy_status()['communication']
+  self.assertFalse(info['whatsapp']['configured'])
+  self.assertEqual(info['whatsapp']['provider'],'twilio')
+  self.assertFalse(info['gumroad']['delivery_verified'])
+  self.assertNotIn('WHATSAPP_BUSINESS_API_KEY',str(info))
+  with patch.object(j,'SMS_ON',True),patch.object(j,'TW_FROM','whatsapp:+17875550123'):
+   self.assertTrue(c.autonomy_status()['communication']['whatsapp']['configured'])
+ def test_provider_error_keeps_only_numeric_diagnostics(self):
+  response=SimpleNamespace(status_code=403,json=lambda:{'error':{'code':200,'error_subcode':2018001,'message':'private-token-secret'}})
+  client=AsyncMock();client.request.return_value=response;client.__aenter__.return_value=client
+  with patch.object(c.httpx,'AsyncClient',return_value=client):
+   with self.assertRaisesRegex(ValueError,'HTTP 403 · code=200 · error_subcode=2018001') as error:
+    self.runasync(c.request('POST','https://example.invalid'))
+  self.assertNotIn('private-token-secret',str(error.exception))
+  with patch.dict(os.environ,META),patch.object(c,'graph',new=AsyncMock(side_effect=error.exception)):
+   id=self.draft();code=self.code(id)
+   with self.assertRaises(ValueError):self.runasync(c.publish_social(id,code))
+  failure=c.social_activity()['posts'][0]['failure']
+  self.assertEqual(failure,{'type':'ValueError','http_status':403,'code':200,'error_subcode':2018001})
  def test_draft_no_network(self):
   with patch.object(c,'graph',new=AsyncMock()) as network:
    self.draft();network.assert_not_called();self.assertEqual(c.load()['posts'][0]['status'],'draft')

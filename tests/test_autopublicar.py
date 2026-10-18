@@ -36,6 +36,33 @@ class AutoPublicar(unittest.TestCase):
                 with self.assertRaises(ValueError): self.run_(c.auto_publish_own_post(self.draft()))
             g.assert_not_called()
 
+    def test_uncertain_post_blocks_new_id_after_restart_without_network_or_budget_use(self):
+        with patch.dict(os.environ, ON), patch.object(c, 'graph', new=AsyncMock(side_effect=TimeoutError('private failure'))) as g:
+            original = self.draft()
+            with self.assertRaises(TimeoutError):
+                self.run_(c.auto_publish_own_post(original))
+            before = c.load()['auto_pub']['n']
+            another = self.draft()
+            # Gate reads persistent state, not a process-local retry counter.
+            with self.assertRaisesRegex(ValueError, 'sin resolver'):
+                self.run_(c.auto_publish_own_post(another))
+            self.assertEqual(g.await_count, 1)
+            self.assertEqual(c.load()['auto_pub']['n'], before)
+            self.assertEqual(c.find(c.load(), another)['status'], 'draft')
+            self.assertEqual(c.find(c.load(), original)['failure'], {'type': 'TimeoutError'})
+            self.assertNotIn('private failure', str(c.social_activity()))
+
+    def test_unresolved_facebook_does_not_block_instagram(self):
+        with patch.dict(os.environ, ON):
+            original = self.draft()
+            d = c.load(); c.find(d, original)['status'] = 'publishing'; c.save(d)
+            other = c.prepare_social_post('instagram', 'Otro contenido ficticio', 'https://assets.example.com/a.jpg')['id']
+            with patch.object(c, 'publish_social', new=AsyncMock(return_value={'remote_id': '12345', 'status': 'published'})) as pub, \
+                 patch.object(c, 'graph', new=AsyncMock(return_value={'permalink': 'https://www.instagram.com/p/example/'})), \
+                 patch.object(j, '_tg_safe_send', new=AsyncMock()):
+                self.run_(c.auto_publish_own_post(other))
+            pub.assert_awaited_once()
+
     def test_not_in_read_only_or_voice_and_caps_unchanged(self):
         self.assertNotIn('auto_publish_own_post', j.READ_ONLY_TOOLS)
         self.assertEqual((j.HARD_MAX_ORDER_USD, j.HARD_MAX_DAY_USD), (100.0, 300.0))
