@@ -6830,7 +6830,7 @@ async def _tg_send(chat_id, text):
             if not confirmed:
                 raise RuntimeError("Telegram did not confirm sendMessage")
 
-async def _handle_tg(chat_id, text, *, read_only=False):
+async def _handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
     session = f"tg:{chat_id}"
     try:
         if read_only:
@@ -6847,6 +6847,8 @@ async def _handle_tg(chat_id, text, *, read_only=False):
         else:
             reply = await run(session, text)
     except Exception as e:
+        if raise_errors:
+            raise
         logger.exception("telegram chat failed")
         if read_only and not isinstance(e, (AINotConfigured, StaleInstance, AIModelError)):
             reply = "No pude responder esa consulta. No ejecuté acciones; puedes volver a preguntar."
@@ -6855,9 +6857,13 @@ async def _handle_tg(chat_id, text, *, read_only=False):
         failed = True
     else:
         failed = reply.endswith(AI_OFF_MSG)
+    if raise_errors and failed:
+        raise AINotConfigured("IA no configurada para el ciclo autónomo")
     try:
         await _tg_send(chat_id, reply)
     except Exception:
+        if raise_errors:
+            raise
         return None
     if read_only and failed:
         return None          # PR11 rev (6): the voice path never reads an error message aloud

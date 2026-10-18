@@ -72,6 +72,7 @@ def autonomy_status():
     """Inspect existing gates without credentials, account calls, writes or model calls."""
     import jarvis_brain
     cfg = configuration()
+    brain = jarvis_brain.health(_core)
     accounts = {name: {'configured': cfg[name]['configured'],
                       'check': cfg[name]['check'].get('status', 'not_tested'),
                       'checked_at': cfg[name]['check'].get('at'),
@@ -82,8 +83,9 @@ def autonomy_status():
         'check': 'not_tested', 'checked_at': None,
         'missing': [] if env('TIKTOK_ACCESS_TOKEN') else [key for key in
             ('TIKTOK_REFRESH_TOKEN', 'TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET') if not env(key)]}
-    return {'as_of': stamp(), 'brain_enabled': jarvis_brain.owner_enabled(_core),
-            'last_cycle': jarvis_brain.mem.get('last_cycle'),
+    return {'as_of': stamp(), 'brain_enabled': brain['enabled'],
+            'last_cycle': brain['last_cycle'],
+            'brain_status': brain,
             'auto_publish_enabled': auto_publish_enabled(),
             'meta_publish_enabled': cfg['publication_enabled'],
             'daily_post_limit': auto_publish_max_day(), 'accounts': accounts,

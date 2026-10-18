@@ -369,10 +369,12 @@ def install(j):
     # La voz de solo lectura no pasa por local_answer: el rechazo fijo también se da aquí, sin tokens ni escrituras.
     old_handle = j._handle_tg
 
-    async def handle_tg(chat_id, text, *, read_only=False):
+    async def handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
         refusal = v.autonomy_refusal(text) if str(chat_id) == str(j.TG_OWNER) else None
         if not refusal:
-            return await old_handle(chat_id, text, read_only=read_only)
+            return await old_handle(chat_id, text, read_only=read_only, **({"raise_errors": True} if raise_errors else {}))
+        if raise_errors:
+            raise RuntimeError("Ciclo bloqueado por regla local de autonomía")
         try:
             await j._tg_send(chat_id, refusal)
         except Exception:

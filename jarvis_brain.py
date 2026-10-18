@@ -86,12 +86,15 @@ async def fetch(core, now=None):
         if r.status_code != 200 or not r.text.strip():
             raise RuntimeError(f"BRAIN HTTP {r.status_code}")
         text = sanitize(r.text)
+        if not text:
+            raise RuntimeError("BRAIN vacío tras eliminar comandos")
         await asyncio.to_thread(core.kv_set, CACHE_KEY, {"text": text, "at": core._now().isoformat()})
         mem.update(text=text, loaded=True)
     except Exception as e:
         cached = await asyncio.to_thread(core.kv_get, CACHE_KEY, {})
-        if isinstance(cached, dict) and cached.get("text"):
-            mem.update(text=sanitize(cached["text"]), loaded=True)
+        cached_text = sanitize(cached.get("text")) if isinstance(cached, dict) else ""
+        if cached_text:
+            mem.update(text=cached_text, loaded=True)
         mem["last_error"] = f"fetch: {type(e).__name__}: {str(e)[:120]}"
     mem["fetched_at"] = now
     return mem["loaded"]
@@ -109,7 +112,9 @@ async def gumroad_status():
 
 
 def cycle_text(brain, gumroad, prev_error, auto_social=False):
-    err = f"\nError del ciclo anterior (repórtalo): {prev_error}" if prev_error else ""
+    err = (f"\nError del ciclo anterior (repórtalo): {prev_error}. "
+           "Revisa los registros antes de repetir: el intento pudo haber ejecutado acciones. "
+           "No repitas efectos cuyo resultado sea incierto.") if prev_error else ""
     social = (
         'Autopublicación orgánica habilitada por el dueño: consulta list_social_posts y connection_status. '
         'Si hay contenido propio pertinente y una cuenta Facebook o Instagram configurada, prepara como '
@@ -140,9 +145,35 @@ async def run_cycle(core):
     auto_social = (os.getenv('AUTO_PUBLISH_OWN_SOCIAL', 'false').lower() == 'true'
                    and os.getenv('SOCIAL_PUBLISH_ENABLED', 'false').lower() == 'true')
     prompt = cycle_text(mem["text"], await gumroad_status(), mem["pending_error"], auto_social)
-    await core._handle_tg(core.TG_OWNER, prompt)
-    mem.update(last_cycle=core._now().isoformat(), pending_error=None, failures=0)
+    await asyncio.to_thread(_record_result, core, "running")
+    try:
+        reply = await core._handle_tg(core.TG_OWNER, prompt, raise_errors=True)
+        if not reply:
+            raise RuntimeError("El ciclo no produjo una respuesta entregada")
+    except asyncio.CancelledError:
+        await asyncio.to_thread(_record_result, core, "interrupted", "Interrumpido; revisar resultados antes de repetir acciones")
+        raise
+    except Exception as exc:
+        error = core._redact_secrets(f"{type(exc).__name__}: {exc}")[0][:240]
+        await asyncio.to_thread(_record_result, core, "failed", error)
+        raise
+    completed = core._now().isoformat()
+    await asyncio.to_thread(_record_result, core, "response_delivered", completed=completed)
+    mem.update(last_cycle=completed, pending_error=None, last_error=None, failures=0)
     return "ok"
+
+
+def _record_result(core, status, error=None, completed=None):
+    """Keep operational evidence, never the prompt, reply or customer data."""
+    with core._data_lock:
+        state = _state(core)
+        if status == "running":
+            state["last_attempt"] = core._now().isoformat()
+        state["last_status"] = status
+        state["last_error"] = error
+        if completed:
+            state["last_cycle"] = completed
+        core.kv_set(STATE_KEY, state)
 
 
 async def loop(core, sleep=asyncio.sleep):
@@ -165,8 +196,12 @@ async def loop(core, sleep=asyncio.sleep):
 
 
 def health(core):
-    return {"enabled": owner_enabled(core), "loaded": mem["loaded"], "last_cycle": mem["last_cycle"],
-            "last_error": mem["last_error"]}
+    state = _state(core)
+    return {"enabled": owner_enabled(core), "loaded": mem["loaded"],
+            "last_cycle": mem["last_cycle"] or state.get("last_cycle"),
+            "last_error": mem["last_error"] or state.get("last_error"),
+            "last_attempt": state.get("last_attempt"),
+            "last_status": state.get("last_status", "not_run")}
 
 
 def command_text(core, arg):
@@ -179,4 +214,6 @@ def command_text(core, arg):
     h = health(core)
     return (f"🧠 BRAIN: {'encendido' if h['enabled'] else 'apagado'} · cargado: {'sí' if h['loaded'] else 'no'} · "
             f"ciclos hoy: {_count_today(core)}/{max_cycles_day()} · cada {interval_s() // 60} min\n"
-            f"Último ciclo: {h['last_cycle'] or '—'}\nÚltimo error: {h['last_error'] or '—'}")
+            f"Último intento: {h['last_attempt'] or '—'}\nEstado del intento: {h['last_status']}\n"
+            f"Última respuesta entregada (no verifica entregables): {h['last_cycle'] or '—'}\n"
+            f"Último error: {h['last_error'] or '—'}")
