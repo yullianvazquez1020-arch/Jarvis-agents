@@ -297,6 +297,14 @@ def _panel_estado():
         lines += [f"Ciclo autónomo: {'activo' if autonomy['brain_enabled'] else 'apagado'}",
                   f"Autopublicación: {'habilitada' if autonomy['auto_publish_enabled'] else 'apagada'} · tope {autonomy['daily_post_limit']}/día",
                   f"Publicación Meta: {'habilitada' if autonomy['meta_publish_enabled'] else 'apagada'}"]
+        brain = autonomy.get('brain_status', {})
+        labels = {'not_run': 'sin intentos registrados', 'running': 'en curso',
+                  'failed': 'falló', 'interrupted': 'interrumpido; revisar',
+                  'response_delivered': 'respuesta entregada; no verifica entregables'}
+        lines += [f"Resultado autónomo: {labels.get(brain.get('last_status'), 'sin evidencia')}",
+                  f"Última respuesta autónoma entregada: {brain.get('last_cycle') or '—'}"]
+        if brain.get('last_error'):
+            lines.append('Error autónomo: ' + str(brain['last_error'])[:240])
         for name, account in autonomy['accounts'].items():
             lines.append(f"{name}: {'configurado' if account['configured'] else 'sin configuración completa'} · verificación {account['check']}")
             if account.get("missing"):

@@ -35,8 +35,9 @@ MONEY_MOVE_RX = re.compile(
 )
 ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
 # 4.2.2: sin conciencia ni autonomía. Texto fijo y sin tokens; esas frases no se guardan como meta ni beneficio.
-AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
-                    "El dinero sigue en el gate.")
+AUTONOMY_REFUSAL = ("Puedo preparar trabajo y ejecutar las tareas que estén habilitadas en el ciclo autónomo. "
+                    "No tengo conciencia ni puedo saltarme permisos. Los pagos, compras y mensajes conservan "
+                    "la aprobación del dueño.")
 AUTONOMY_RX = re.compile(
     # Formas verbales exactas: «actualiza solo el precio» o «facturas sin aprobar» no son autonomía.
     r"\b(conciencia|consciente|autoconscien\w*|"

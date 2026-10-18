@@ -397,16 +397,18 @@ def install(j):
     # Voz y /dictado llegan a _handle_tg solo desde el chat privado del dueño (la voz exige is_owner_private).
     old_handle = j._handle_tg
 
-    async def handle_tg(chat_id, text, *, read_only=False):
+    async def handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
         cmd = phrase_command(text)
         if not cmd or str(chat_id) != str(j.TG_OWNER):
-            return await old_handle(chat_id, text, read_only=read_only)
+            return await old_handle(chat_id, text, read_only=read_only, **({"raise_errors": True} if raise_errors else {}))
         if read_only and cmd in WRITING_PHRASE_COMMANDS:
             reply = f"Por voz no guardo nada. Escribe {cmd} en tu chat privado."
         else:
             try:
                 reply = await reply_for(cmd, "")
             except j.StaleInstance as exc:
+                if raise_errors:
+                    raise
                 reply = j._fail_text(exc)
                 try:
                     await j._tg_send(chat_id, reply)
@@ -416,6 +418,8 @@ def install(j):
         try:
             await j._tg_send(chat_id, reply)
         except Exception:
+            if raise_errors:
+                raise
             return None
         return reply
 
