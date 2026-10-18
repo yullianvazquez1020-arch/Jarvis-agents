@@ -53,7 +53,7 @@
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function () {
       if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
-    }, 450);
+    }, 150);
   }
   function pauseConversation() { conversationPaused = true; clearTimeout(resumeTimer); stopMic(true); }
   function setOwner(own) {
@@ -268,13 +268,14 @@
         if (ticket !== micGeneration || !isOwner) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
         micPending = false;
         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
-        var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(4096, 1, 1);
-        var chunks = [], det = new W.Detector({ silenceMs: 850, maxMs: 30000 });
-        rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
+        var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
+        var capture = new W.CaptureBuffer(ctx.sampleRate, 300), det = new W.Detector({ silenceMs: 600, maxMs: 30000 });
+        rec = { stream: stream, ctx: ctx, node: node, src: src, capture: capture, rate: ctx.sampleRate };
         node.onaudioprocess = function (ev) {
           if (!rec) return;
-          var data = new Float32Array(ev.inputBuffer.getChannelData(0)); chunks.push(data);
+          var data = new Float32Array(ev.inputBuffer.getChannelData(0));
           var r = det.push(data, data.length / rec.rate * 1000);
+          capture.push(data, r === "speech");
           if (r === "silence-end" || r === "max") stopMic(false);
           else if (r === "no-speech") { stopMic(true); setState("ready", "waiting for speech"); resumeConversation(); }
         };
@@ -291,8 +292,7 @@
     r.stream.getTracks().forEach(function (t) { t.stop(); });   // the indicator goes off immediately
     r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
     if (discard) { setState("listo"); return; }
-    var n = 0; r.chunks.forEach(function (c) { n += c.length; });
-    var all = new Float32Array(n), o = 0; r.chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+    var all = r.capture.audio();
     var wav = W.encodeWav(W.downsample(all, r.rate, W.OUT_RATE));
     transcribing = true; var transcriptTicket = micGeneration; setState("transcribing");
     api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
