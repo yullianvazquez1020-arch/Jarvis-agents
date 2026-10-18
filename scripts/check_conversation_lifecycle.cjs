@@ -34,6 +34,22 @@ function harness() {
 }
 async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
 (async()=>{
+  const W=require('../desktop/ui/wav.js'), rate=48000;
+  const buffer=new W.CaptureBuffer(rate,300), detector=new W.Detector({silenceMs:600});
+  const quiet=new Float32Array(1024), onset=new Float32Array(1024).fill(0.012);
+  for(let i=0;i<320;i++) buffer.push(quiet,false); // nearly seven seconds waiting to speak
+  buffer.push(onset,false); // quiet consonant before energy crosses the detector threshold
+  const speech=new Float32Array(1024).fill(0.25);
+  for(let i=0;i<47;i++) {const result=detector.push(speech,1024/rate*1000);buffer.push(speech,result==='speech');}
+  for(let i=0;i<14;i++) assert.notEqual(detector.push(quiet,1024/rate*1000),'silence-end','short hesitation must not end a phrase');
+  const tail=new Float32Array(1024).fill(0.004);buffer.push(tail,false);
+  const captured=buffer.audio();
+  assert.ok(captured.length<rate*1.4,'idle silence must not be sent to Whisper');
+  assert.deepEqual(captured.slice(rate*0.3-onset.length,rate*0.3),onset,'quiet onset remains in pre-roll');
+  assert.deepEqual(captured.slice(rate*0.3,rate*0.3+speech.length),speech,'first speech frame is preserved');
+  assert.deepEqual(captured.slice(-tail.length),tail,'audio after speech is never trimmed');
+  let end=null;for(let i=0;i<16;i++)end=detector.push(quiet,1024/rate*1000);
+  assert.equal(end,'silence-end','completed silence closes the phrase');
   const h=harness();await settle();
   h.flush();assert.equal(h.captures(),1,'hands-free startup requests microphone');
   h.win.test.startMic();assert.equal(h.captures(),1,'only one permission request in flight');
