@@ -17,6 +17,13 @@ class Connections(unittest.TestCase):
  def test_draft_no_network(self):
   with patch.object(c,'graph',new=AsyncMock()) as network:
    self.draft();network.assert_not_called();self.assertEqual(c.load()['posts'][0]['status'],'draft')
+ def test_read_only_activity_contains_receipts_without_private_content(self):
+  self.draft()
+  with patch.object(j,'kv_set',side_effect=AssertionError('read must not write')):
+   result=self.runasync(j.run_tool('social_activity',{},read_only='desktop'))
+  self.assertEqual(result['posts'][0]['status'],'draft')
+  for key in ('caption','asset_url','approval','approval_hash'):
+   self.assertNotIn(key,result['posts'][0])
  def test_reject_missing_instagram_asset(self):
   with self.assertRaises(ValueError):self.draft('instagram')
  def test_reject_secret_and_local_media_url(self):

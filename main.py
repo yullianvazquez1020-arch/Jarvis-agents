@@ -6489,6 +6489,8 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                             _WRITE_BLOCK.reset(token)
                     else:
                         out = _redact_any(await run_tool(b.name, _redact_any(b.input)))
+                    import jarvis_brain
+                    jarvis_brain.record_tool(b.name, out)
                     results.append({"type": "tool_result", "tool_use_id": b.id,
                                     "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
             history.append({"role": "user", "content": results})
@@ -6874,6 +6876,8 @@ async def _handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
         failed = reply.endswith(AI_OFF_MSG)
     if raise_errors and failed:
         raise AINotConfigured("IA no configurada para el ciclo autónomo")
+    import jarvis_brain
+    reply += jarvis_brain.evidence_summary()
     try:
         await _tg_send(chat_id, reply)
     except Exception:

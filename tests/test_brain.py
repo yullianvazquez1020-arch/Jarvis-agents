@@ -105,7 +105,40 @@ class Brain(h.Base):
         self.assertIn('BRAIN', send.await_args.args[1]); self.assertIn('privado', deny.await_args.args[1])
         self.assertTrue(b.owner_enabled(j))
         hb = c.get('/health').json()['brain']
-        self.assertEqual(set(hb), {'enabled', 'loaded', 'last_cycle', 'last_error', 'last_attempt', 'last_status'})
+        self.assertEqual(set(hb), {'enabled', 'loaded', 'last_cycle', 'last_error', 'last_attempt', 'last_status', 'tool_evidence'})
+
+    def test_no_tool_cycle_is_explicit_and_evidence_survives_restart(self):
+        with patch.object(j, 'run', new=AsyncMock(return_value='Texto solamente')), patch.object(j, '_tg_send', new=AsyncMock()) as send:
+            asyncio.run(b.run_cycle(j))
+        self.assertIn('no ejecutó herramientas', send.await_args.args[1])
+        self.assertEqual(b.health(j)['tool_evidence']['attempted'], 0)
+        b.mem['last_cycle'] = None
+        self.assertEqual(b.health(j)['tool_evidence']['attempted'], 0)
+        self.assertIsNone(b._tool_evidence.get())
+
+    def test_real_model_tool_loop_records_errors_without_private_payload(self):
+        from types import SimpleNamespace as N
+        responses = [N(stop_reason='tool_use', content=[N(type='tool_use', name='overview', input={}, id='one'),
+                     N(type='tool_use', name='missing_test_tool', input={}, id='two')]), h.ai_text('Reporte')]
+        with patch.object(j, 'AI_READY', True), patch.object(j, '_ai_call', new=AsyncMock(side_effect=responses)), \
+             patch.object(j, '_tg_send', new=AsyncMock()), patch.dict(j.HANDLERS, {'overview': lambda: {'private': 'secret payload'}}):
+            asyncio.run(b.run_cycle(j))
+        evidence = b.health(j)['tool_evidence']
+        self.assertEqual(evidence['attempted'], 2)
+        self.assertEqual(evidence['errors'], 1)
+        self.assertEqual(evidence['failed_tools'], ['missing_test_tool'])
+        self.assertNotIn('secret payload', str(evidence))
+        self.assertIsNone(b._tool_evidence.get())
+
+    def test_failed_cycle_keeps_attempt_evidence(self):
+        async def failure(*args, **kwargs):
+            b.record_tool('overview', {'error': 'private error'})
+            raise RuntimeError('model failed')
+        with patch.object(j, '_handle_tg', new=failure):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(b.run_cycle(j))
+        self.assertEqual(b.health(j)['tool_evidence']['errors'], 1)
+        self.assertIsNone(b._tool_evidence.get())
 
 
     def test_failed_model_and_delivery_never_count_as_success(self):

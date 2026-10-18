@@ -305,6 +305,13 @@ def _panel_estado():
                   f"Última respuesta autónoma entregada: {brain.get('last_cycle') or '—'}"]
         if brain.get('last_error'):
             lines.append('Error autónomo: ' + str(brain['last_error'])[:240])
+        evidence = brain.get('tool_evidence')
+        if isinstance(evidence, dict):
+            lines.append(f"Herramientas del último intento: {evidence.get('attempted', 0)} llamadas · {evidence.get('errors', 0)} errores")
+            if not evidence.get('attempted'):
+                lines.append('Sin ejecución de herramientas: trabajo no verificado.')
+            if evidence.get('failed_tools'):
+                lines.append('Herramientas con error: ' + ', '.join(evidence['failed_tools']))
         for name, account in autonomy['accounts'].items():
             lines.append(f"{name}: {'configurado' if account['configured'] else 'sin configuración completa'} · verificación {account['check']}")
             if account.get("missing"):
