@@ -73,6 +73,22 @@ def autonomy_status():
     import jarvis_brain
     cfg = configuration()
     brain = jarvis_brain.health(_core)
+    with _core._data_lock:
+        pending = [{'id': p['id'], 'platform': p['platform'], 'status': p['status']}
+                   for p in load()['posts'] if p.get('status') in ('publishing', 'uncertain')]
+    communication = {
+        'whatsapp': {'provider': 'twilio',
+                     'configured': bool(_core.SMS_ON and _core.TW_FROM.startswith('whatsapp:')),
+                     'required_env': ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM'],
+                     'outbound': 'owner_approval_required'},
+        'email': {'provider': 'resend', 'configured': bool(_core.EMAIL_ON),
+                  'required_env': ['RESEND_API_KEY', 'EMAIL_FROM'],
+                  'outbound': 'owner_approval_required'},
+        'gumroad': {'receiver': '/public/gumroad-sale',
+                    'custom_secret_configured': bool(env('GUMROAD_PING_SECRET')),
+                    'seller_configured': bool(env('GUMROAD_SELLER_ID')),
+                    'delivery_verified': False,
+                    'note': 'Receiver availability does not prove Gumroad has registered the webhook or delivered a sale.'}}
     accounts = {name: {'configured': cfg[name]['configured'],
                       'check': cfg[name]['check'].get('status', 'not_tested'),
                       'checked_at': cfg[name]['check'].get('at'),
@@ -89,6 +105,7 @@ def autonomy_status():
             'auto_publish_enabled': auto_publish_enabled(),
             'meta_publish_enabled': cfg['publication_enabled'],
             'daily_post_limit': auto_publish_max_day(), 'accounts': accounts,
+            'publication_blockers': pending, 'communication': communication,
             'purchases': 'owner_approval_required',
             'amazon_listing': 'validation_and_owner_publication_required',
             'note': 'Configuration and stored read checks do not verify current publishing or selling permissions.'}
@@ -96,7 +113,19 @@ def autonomy_status():
 async def request(method,url,**kw):
     async with httpx.AsyncClient(timeout=60,follow_redirects=False) as hc:
         r=await hc.request(method,url,**kw)
-    if r.status_code>=300: raise ValueError('El proveedor rechazó la solicitud (HTTP '+str(r.status_code)+'). Revisa permisos/configuración.')
+    if r.status_code>=300:
+        # Numeric codes are useful diagnostics; provider text can contain secrets.
+        codes = ''
+        try:
+            error = r.json().get('error', {})
+            if isinstance(error, dict):
+                for key in ('code', 'error_subcode'):
+                    value = error.get(key)
+                    if type(value) is int:
+                        codes += f' · {key}={value}'
+        except (ValueError, AttributeError, TypeError):
+            pass
+        raise ValueError('El proveedor rechazó la solicitud (HTTP '+str(r.status_code)+codes+'). Revisa permisos/configuración.')
     result=r.json()
     if not isinstance(result,dict) or result.get('error'): raise ValueError('Respuesta del proveedor inválida')
     return result
@@ -289,7 +318,7 @@ def list_social_posts():
 def social_activity():
     """Stored publication receipts only; no captions, media URLs or approval tokens."""
     with _core._data_lock:
-        posts = [{k: p[k] for k in ('id', 'platform', 'status', 'created', 'published', 'remote_id') if k in p}
+        posts = [{k: p[k] for k in ('id', 'platform', 'status', 'created', 'published', 'remote_id', 'failure') if k in p}
                  for p in load()['posts']]
     return {'posts': posts, 'note': 'Stored receipts; does not verify that a remote post is still online.'}
 
@@ -356,9 +385,18 @@ async def publish_social(id,code):
         with _core._data_lock:
             d=load();find(d,id).update(status='published',remote_id=str(remote),published=stamp());save(d)
         return {'id':id,'status':'published','remote_id':str(remote)}
-    except BaseException:
+    except BaseException as exc:
+        failure = {'type': type(exc).__name__}
+        # Persist numeric diagnostics only, never a provider body or exception text.
+        match = re.fullmatch(r'El proveedor rechazó la solicitud \(HTTP (\d{3})(.*?)\)\. Revisa permisos/configuración\.', str(exc))
+        if match:
+            failure['http_status'] = int(match[1])
+            for key in ('code', 'error_subcode'):
+                number = re.search(r' · '+key+r'=(\d+)', match[2])
+                if number:
+                    failure[key] = int(number[1])
         with _core._data_lock:
-            d=load();find(d,id).update(status='uncertain',note='Resultado no confirmado. Revisa Meta; Jarvis no reenvía automáticamente.');save(d)
+            d=load();find(d,id).update(status='uncertain',failure=failure,note='Resultado no confirmado. Revisa Meta; Jarvis no reenvía automáticamente.');save(d)
         raise
 
 def auto_publish_enabled():
@@ -380,6 +418,10 @@ async def auto_publish_own_post(id):
     with _core._data_lock:
         d=load();p=find(d,id)
         if p['status']!='draft':raise ValueError('Solo borradores nuevos; nunca repito una publicación')
+        unresolved = [q for q in d['posts'] if q.get('platform') == p['platform']
+                      and q.get('status') in ('publishing', 'uncertain')]
+        if unresolved:
+            raise ValueError(f"{p['platform']}: publicación #{unresolved[0]['id']} sin resolver. Revisa el destino antes de publicar otra; no reintento automáticamente.")
         ap=d.get('auto_pub') if isinstance(d.get('auto_pub'),dict) else {}
         if ap.get('day')!=today:ap={'day':today,'n':0}
         if ap['n']>=auto_publish_max_day():raise ValueError(f"Tope diario de {auto_publish_max_day()} publicaciones automáticas alcanzado")

@@ -317,6 +317,13 @@ def _panel_estado():
             if account.get("missing"):
                 lines.append("  Faltan: " + ", ".join(account["missing"]))
         lines.append('Compras: aprobación del dueño. Fichas Amazon: validación y publicación por el dueño.')
+        for post in autonomy.get('publication_blockers', []):
+            lines.append(f"Autopublicación bloqueada en {post['platform']}: revisar envío #{post['id']} ({post['status']}).")
+        channels = autonomy.get('communication', {})
+        if channels:
+            lines.append('WhatsApp Twilio: ' + ('configurado' if channels['whatsapp']['configured'] else 'sin configurar'))
+            lines.append('Correo Resend: ' + ('configurado' if channels['email']['configured'] else 'sin configurar'))
+            lines.append('Gumroad: recepción de notificaciones sin verificar; un enlace activo no prueba ventas registradas.')
     except Exception:
         lines.append('Autonomía: estado no disponible; no equivale a cuentas desconectadas.')
     timing = getattr(core, '_model_timing', {})
