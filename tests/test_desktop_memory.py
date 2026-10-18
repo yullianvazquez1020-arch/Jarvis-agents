@@ -3,6 +3,20 @@ from desktop_helpers import DesktopBase, ai_text, j
 from unittest.mock import AsyncMock, patch
 
 class DesktopMemory(DesktopBase):
+    def test_language_switches_keep_dialogue_and_scoped_tools(self):
+        token, device = self.pair()
+        calls = self.ai(ai_text('Sí, estoy aquí.'), ai_text('Yes, I am here.'), ai_text('Podemos seguir.'))
+        for i, text in enumerate(('¿Estás despierto?', 'Are you awake?', 'Sigamos hablando de la visita')):
+            self.assertEqual(self.turn(token, text, rid=f'language-{i:05d}').status_code, 200)
+        for call in calls:
+            self.assertIn("EACH turn", call['system'])
+            self.assertIn("Spanish input", call['system'])
+            self.assertIn("English input", call['system'])
+            self.assertNotIn("Keep replies in English", call['system'])
+            self.assertNotIn('add_income', call['tools'])
+        self.assertIn('¿Estás despierto?', str(calls[-1]['history']))
+        self.assertIn('Are you awake?', str(calls[-1]['history']))
+
     def test_restart_restores_plain_dialogue_for_same_device(self):
         token, device = self.pair()
         calls = self.ai(ai_text("Your project is Coral."), ai_text("Coral."))

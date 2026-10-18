@@ -21,7 +21,6 @@ class UnaSolaVoz(unittest.TestCase):
         self.assertEqual(engines.detect_lang("Systems online"), "en")
         self.assertEqual(engines.detect_lang("ok"), "en")
         self.assertEqual(engines.detect_lang("¿Cómo estás?"), "es")
-        self.assertIn("ENGLISH", (ROOT / "jarvis_desktop_api.py").read_text("utf-8"))
 
     def test_frases_para_hablar_enseguida(self):
         self.assertEqual(app.speech_chunks("Good evening, sir. All systems are online. Ready."),
