@@ -286,6 +286,13 @@ def prepare_social_post(platform,caption,asset_url='',media_type='image',planned
 def list_social_posts():
     with _core._data_lock:return {'posts':[{k:v for k,v in p.items() if k not in ('approval','approval_hash')} for p in load()['posts']]}
 
+def social_activity():
+    """Stored publication receipts only; no captions, media URLs or approval tokens."""
+    with _core._data_lock:
+        posts = [{k: p[k] for k in ('id', 'platform', 'status', 'created', 'published', 'remote_id') if k in p}
+                 for p in load()['posts']]
+    return {'posts': posts, 'note': 'Stored receipts; does not verify that a remote post is still online.'}
+
 def find(d,id):
     p=next((p for p in d['posts'] if p['id']==id),None)
     if not p:raise ValueError('Borrador no encontrado')
@@ -503,6 +510,7 @@ def install(j):
     j._SECRET_ENVS=tuple(j._SECRET_ENVS)+('META_PAGE_ACCESS_TOKEN','SPECIALIST_AGENT_KEY','TIKTOK_CLIENT_SECRET','TIKTOK_ACCESS_TOKEN','TIKTOK_REFRESH_TOKEN')
     S={'type':'string'};I={'type':'integer'}
     specs=[('connection_status',configuration,'Show configured/missing integrations; configuration does not prove authorization.',{},[]),
+           ('social_activity',social_activity,'Read stored social publication statuses, times and remote IDs. No captions or secrets. Does not verify current remote visibility.',{},[]),
            ('autonomy_status',autonomy_status,'Read real background and publication gates plus configured accounts. Never implies live permissions or sales.',{},[]),
            ('list_social_posts',list_social_posts,'List drafted social posts and suggested calendar; no publishing.',{},[]),
            ('prepare_social_post',prepare_social_post,'Save an ORIGINAL exact-caption post for owner review. No publish. Planned date is only a calendar suggestion.',{'platform':S,'caption':S,'asset_url':S,'media_type':S,'planned_at':S},['platform','caption'])]
@@ -514,7 +522,7 @@ def install(j):
             ('auto_publish_tiktok',auto_publish_tiktok,'Post one of YOUR OWN videos (public HTTPS URL) to the owner\'s OWN TikTok. Only with AUTO_PUBLISH_OWN_SOCIAL on; shared daily cap; private until TikTok audits the app.',{'caption':S,'video_url':S},['caption','video_url']),
             ('marketing_brief',marketing_brief,'Create a campaign brief and 7 original content ideas. Uses configured AI, no posting.',{'topic':S},['topic'])]
     for name,fn,desc,props,req in asyncs:j.ASYNC_TOOLS[name]=fn;j.TOOLS.append(j._t(name,desc,props,req))
-    j.READ_ONLY_TOOLS = j.READ_ONLY_TOOLS | {'connection_status', 'autonomy_status'}
+    j.READ_ONLY_TOOLS = j.READ_ONLY_TOOLS | {'connection_status', 'autonomy_status', 'social_activity'}
     if getattr(j, '_desktop', None):
         j._desktop.READ_TOOLS = j.READ_ONLY_TOOLS
     old_prompt=j.system_prompt
