@@ -17,6 +17,7 @@ _PREFIX = "sealed:v1:"
 
 # Estas llaves salen cifradas. El resto (cola de Telegram, lider, contadores) se queda operable.
 SEALED_KEYS = {
+    "jarvis:desktop:document-turns",
     "jarvis:history",
     "jarvis:profile",
     "jarvis:bio",

@@ -40,6 +40,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import intents                                    # noqa: E402
+import documentos                                # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
 from audio import engines                         # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
@@ -993,6 +994,8 @@ class Companion:
             log.warning("turn failed: %s", type(e).__name__)
             self._finish(tid, "error", "Algo falló en el panel local; inténtalo otra vez.")
 
+
+documentos.install(Companion)
 
 INDEX_401 = (b"<!doctype html><meta charset=utf-8><title>Jarvis</title><body style='background:#071426;color:#cfe;"
              b"font:18px system-ui;padding:40px'><h1>Jarvis</h1><p>Abre el enlace que muestra la terminal "

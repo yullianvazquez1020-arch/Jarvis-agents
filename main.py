@@ -452,7 +452,7 @@ def _kv_raw(key, default):
 
 # Fase A (revisada): keys that jarvis_seal.py seals. Kept here too so that, if that file is missing from a
 # deploy, Jarvis still refuses to overwrite sealed data in clear (every other key is never affected).
-_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history"})
+_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history", "jarvis:desktop:document-turns"})
 _seal_warned = set()
 
 def _seal_module():
