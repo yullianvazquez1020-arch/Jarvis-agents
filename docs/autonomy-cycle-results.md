@@ -14,3 +14,5 @@ Se conserva el último envío exitoso aunque un intento posterior falle o se rei
 El ciclo conserva el límite diario, el interruptor del dueño y los permisos de cada herramienta. No se activan conexiones, publicaciones ni movimientos de dinero. La respuesta fija de autonomía describe las capacidades actuales en vez de negar todo trabajo autónomo.
 
 Validación local: pruebas de IA apagada, error de modelo, fallo de Telegram, falta de respuesta, reinicio, caché inválida y diagnóstico sin escrituras. Las integraciones reales y la Mac requieren comprobación en sus entornos.
+
+La configuración de Anthropic admite una clave sola o un ejemplo curl que contenga exactamente una clave distinta. No ejecuta el texto del ejemplo y rechaza entradas ambiguas. Los registros filtran también las excepciones encadenadas del SDK. Una clave expuesta antes de esta corrección requiere rotación en el proveedor y actualización segura en Render.

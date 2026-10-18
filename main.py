@@ -189,11 +189,14 @@ class _RedactingFilter(logging.Filter):
             msg = record.getMessage(); clean, found = _redact_secrets(msg)
             if found: record.msg, record.args = clean, ()
             if record.exc_info and record.exc_info[1] is not None:
-                exc = record.exc_info[1]
-                exc_txt, f2 = _redact_secrets(str(exc))
-                if f2:   # drop the raw traceback text, keep the type and a masked message
-                    record.exc_info = None; record.exc_text = None
-                    record.msg = f"{record.getMessage()} [{type(exc).__name__}: {exc_txt}]"; record.args = ()
+                # SDK exceptions can hide the credential in __cause__, not in str(exc).
+                import traceback
+                exc_txt, f2 = _redact_secrets("".join(traceback.format_exception(*record.exc_info)))
+                if f2:
+                    record.exc_info = None
+                    record.exc_text = exc_txt
+            elif record.exc_text:
+                record.exc_text = _redact_secrets(record.exc_text)[0]
         except Exception:
             pass
         return True
@@ -247,8 +250,20 @@ app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
 _AI_PLACEHOLDERS = {"", "change-me", "changeme", "dummy", "fake", "none", "local", "test", "test-local-only", "x"}
-AI_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-AI_READY = AI_KEY.lower() not in _AI_PLACEHOLDERS and not AI_KEY.lower().startswith(("test-", "fake-", "dummy-"))
+def _anthropic_key(raw):
+    """Read one key from a bare value or a pasted curl example. Never execute the example."""
+    value = str(raw or "").strip()
+    pattern = r"sk-ant-[A-Za-z0-9_-]{16,}"
+    if re.fullmatch(pattern, value):
+        return value
+    if not value.startswith("curl "):
+        return ""
+    keys = set(re.findall(r"(?<![A-Za-z0-9_-])" + pattern + r"(?![A-Za-z0-9_-])", value))
+    return keys.pop() if len(keys) == 1 else ""
+
+
+AI_KEY = _anthropic_key(os.getenv("ANTHROPIC_API_KEY", ""))
+AI_READY = bool(AI_KEY)
 MODEL = os.getenv("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"   # documented API id (models overview)
 MODEL_FORMAT_OK = bool(re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", MODEL))
 
