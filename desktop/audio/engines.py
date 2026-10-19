@@ -86,7 +86,7 @@ class WhisperCpp:
             out = Path(tmp) / "out"
             decoding = ["-bs", "1", "-bo", "1"] if self.fast else []
             # Whisper codifica siempre 30 s; -ac ajusta la ventana a la frase (1500 = 30 s, 50 por segundo).
-            decoding += ["-ac", str(min(1500, max(256, int(seconds * 50) + 64)))]
+            decoding += ["-ac", str(min(1500, max(512, int(seconds * 50) + 64)))]
             _run([self.binary, "-m", self.model, "-f", str(src), "-l", self.language, "-t", str(self.threads),
                   "-nt", "-np", "-otxt", "-of", str(out)] + decoding, timeout=max(30, int(seconds * 6)))
             txt = out.with_suffix(".txt")
