@@ -301,6 +301,8 @@ def startup_sound(cfg):
 def native_intro(app, cfg):
     """Al iniciar el servicio: música por los altavoces, saludo corto encima y la música se corta al terminar."""
     proc, player = None, local_player()
+    generation = getattr(app, "_voz_gen", 0)
+    app._intro_until = time.monotonic() + 15
     snd = startup_sound(cfg)
     if snd and player and player[0] == "afplay":
         try:
@@ -308,8 +310,12 @@ def native_intro(app, cfg):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
             proc = None
+    app._intro_process = proc
     start = time.time()
     time.sleep(3.0 if proc else 0.5)
+    if generation != getattr(app, "_voz_gen", 0):
+        app._intro_until = 0
+        return
     try:
         audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
         app._play_local(audio)
@@ -320,6 +326,8 @@ def native_intro(app, cfg):
         time.sleep(0.2)
     if proc and proc.poll() is None:
         proc.terminate()
+    app._intro_until = 0
+    app._intro_process = None
 
 
 def core_mode(server_state, last_alert_at, now):
@@ -773,24 +781,52 @@ class Companion:
                 **({"chart": clean_chart(p.get("chart"))} if name == "practica" else {})}
 
     # --- speech ---
-    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
+    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey|please|por\s+favor)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
 
-    def transcribe(self, wav):
-        out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
-        return self._wake_filter(out)
+    def transcribe(self, wav, interrupt=False):
+        # Only one whisper.cpp process at a time, including requests from another tab.
+        with self.lock:
+            if not hasattr(self, '_stt_lock'):
+                self._stt_lock = threading.Lock()
+        with self._stt_lock:
+            out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+        native_speech = ((self._playback_native() and time.time() < getattr(self, "speaking_until", 0))
+                         or time.monotonic() < getattr(self, "_intro_until", 0))
+        filtered = self._wake_filter(out, require_wake=interrupt or native_speech)
+        if native_speech and filtered.get("text"):
+            filtered = dict(filtered, interrupt_verified=True)
+        return filtered
 
-    def _wake_filter(self, out):
-        """Solo voz: atiende si empieza con «Jarvis» o si sigue la conversación reciente."""
-        if not truthy(self.cfg.get("VOICE_WAKE_WORD_ENABLED", "false")) or not out.get("text"):
+    def _wake_filter(self, out, require_wake=False):
+        """During playback require the name even inside the follow-up window."""
+        text = str(out.get('text') or '').strip()
+        if not text:
             return out
-        text = out["text"]
+        enabled = truthy(self.cfg.get('VOICE_WAKE_WORD_ENABLED', 'false'))
         m = self.WAKE_RE.match(text)
-        if m or time.time() < getattr(self, "_wake_until", 0.0):
-            self._wake_until = time.time() + self._wake_follow()
-            if m:                                       # "Yarvis", "Harbys"... -> "Jarvis" para el resto del panel
-                out = dict(out, text=text[:m.start("w")] + "Jarvis" + text[m.end("w"):])
+        if require_wake:
+            # AEC is browser/hardware dependent. Suppress a transcript copied from our own reply.
+            def words(value):
+                return ' '.join(re.findall(r'[^\W_]+', str(value).casefold(), re.UNICODE))
+            heard = words(text)
+            reply = words(getattr(self, 'last', {}).get('text', ''))
+            if len(heard) >= 8 and heard in reply:
+                return dict(out, text='', reason='playback_echo')
+        if not enabled and not require_wake:
             return out
-        return dict(out, text="", reason="no_wake_word")
+        if m or (not require_wake and time.monotonic() < getattr(self, '_wake_until', 0.0)):
+            self._wake_until = time.monotonic() + self._wake_follow()
+            if m:
+                rest = text[m.end():].strip(' ,.:;!?¿¡')
+                if not rest:
+                    return dict(out, text='', reason='wake_word_only')
+                out = dict(out, text='Jarvis' + text[m.end('w'):])
+            return out
+        return dict(out, text='', reason='no_wake_word')
+
+    def voice_follow(self):
+        self._wake_until = time.monotonic() + self._wake_follow()
+        return {'ok': True}
 
     def _wake_follow(self):
         try:
@@ -841,6 +877,8 @@ class Companion:
                 self.emit({"type": "audio.play", "id": aid, "turn": turn_id or first, "seq": i})
             total += _wav_secs(audio)
         self.speaking_until = time.time() + (total or 3)
+        if native:
+            self._wake_until = time.monotonic() + (total or 3) + self._wake_follow()
         return first
 
     def _lat(self, tid):
@@ -870,7 +908,11 @@ class Companion:
             muestras = [int(1500 * math.sin(2 * math.pi * 220 * i / _wav.RATE))
                         for i in range(int(_wav.RATE * 0.4))]
             try:
-                self.stt.transcribe(_wav.make_wav(muestras))     # se descarta a propósito
+                with self.lock:
+                    if not hasattr(self, "_stt_lock"):
+                        self._stt_lock = threading.Lock()
+                with self._stt_lock:
+                    self.stt.transcribe(_wav.make_wav(muestras))     # se descarta a propósito
             except Exception:
                 return                                            # el primer turno pagará el arranque
 
@@ -947,6 +989,14 @@ class Companion:
 
     def stop_local_audio(self):
         """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
+        self.speaking_until = 0
+        self._intro_until = 0
+        intro = getattr(self, "_intro_process", None)
+        if intro and intro.poll() is None:
+            try:
+                intro.terminate()
+            except OSError:
+                pass
         with _VOZ_INIT_LOCK:                             # siempre invalida la generación, aunque la cola no exista aún
             self._voz_gen = getattr(self, "_voz_gen", 0) + 1
             if not hasattr(self, "_voz_q"):
@@ -990,6 +1040,7 @@ class Companion:
                 raise KeyError(turn_id)
             done = t["state"] in ("done", "error")
             t["cancelled"] = True
+            t["state"] = "cancelled"
         self.stop_local_audio(); self.emit({"type": "audio.stop", "turn": turn_id})
         self.emit({"type": "turn.cancelled", "turn": turn_id})
         return {"cancelled": True, "already_done": done,
@@ -1010,7 +1061,7 @@ class Companion:
                 "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.":
                     "Mouse stopped. Remove the STOP file on your Mac when you want to resume.",
             }.get(reply, reply)
-        self._wake_until = time.time() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
+        self._wake_until = time.monotonic() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
         with self.lock:
             t = self.turns[tid]; t["state"] = state; cancelled = t["cancelled"]
             if reply is not None:
@@ -1036,6 +1087,8 @@ class Companion:
 
     def _run_turn(self, tid, text):
         with self.lock:
+            if self.turns[tid].get("cancelled"):
+                return
             self.turns[tid]["state"] = "consultando"
         self.emit({"type": "state", "state": "consultando", "turn": tid})
         kind, arg = intents.parse(text)
@@ -1307,7 +1360,7 @@ def make_handler(app, host, port):
                     wav = self.rfile.read(n)
                     app.emit({"type": "state", "state": "transcribiendo"})
                     t0 = latencia.now_ms()
-                    out = app.transcribe(wav); out["id"] = uuid.uuid4().hex
+                    out = app.transcribe(wav, interrupt=urllib.parse.parse_qs(u.query).get("interrupt") == ["1"]); out["id"] = uuid.uuid4().hex
                     app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0,
                                         "audio_duration_ms": out.get("duration_s", 0) * 1000}
                     app.emit({"type": "state", "state": "listo"})
@@ -1328,6 +1381,8 @@ def make_handler(app, host, port):
                         return self._send(200, out)
                     except RuntimeError as exc:
                         return self._send(503, {"error": str(exc)})
+                if u.path == "/api/voice/follow":
+                    return self._send(200, app.voice_follow())
                 if u.path == "/voice/synthesize":
                     audio, ctype = app.tts.synthesize(str(data.get("text", ""))[:1500], rate=app.prefs["rate"])
                     return self._send(200, audio, ctype)

@@ -159,9 +159,9 @@ def choose_voices(listing):
 
 
 _EN_WORDS = set("the you your is are and of to what how hello sir i it this that with for have has be will "
-                "can do not we my me on in at today guess much money made".split())
+                "can do not we my me on in at today guess much money made thanks ready understood sure".split())
 _ES_WORDS = set("el la los las de que y en un una es por para con no se lo como qué hola señor tu su "
-                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más".split())
+                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más perfecto gracias listo entendido vale claro correcto".split())
 
 
 def preferred_lang():
@@ -170,7 +170,7 @@ def preferred_lang():
     return "es" if v.startswith("es") else "en"
 
 
-def detect_lang(text):
+def detect_lang(text, fallback=None):
     """Idioma de ESTE texto, para leerlo con la voz que le toca.
 
     Un texto en español leído por una voz inglesa no se entiende: es lo que le pasaba al dueño.
@@ -181,7 +181,7 @@ def detect_lang(text):
     words = re.findall(r"[a-z']+", t)
     en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
     if es == en:                               # empate o ninguna señal: lo que el dueño configuró
-        return preferred_lang()
+        return fallback if fallback in ("es", "en") else preferred_lang()
     return "es" if es > en else "en"
 
 
@@ -232,7 +232,8 @@ class MacSay:
             if self.voice in ("Juan", "Daniel"):
                 return "Daniel"                          # sin listado de voces: Daniel, sin fallar
             raise
-        quiere = detect_lang(text)
+        quiere = detect_lang(text, getattr(self, "_last_lang", None))
+        self._last_lang = quiere
         elegida = (es if quiere == "es" else en) or en or es
         if not elegida:
             raise EngineError("no hay una voz masculina instalada (instala Juan en Ajustes → "
@@ -374,6 +375,14 @@ def build(cfg):
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
                     cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
                     fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes")) if stt == "whisper_cpp" else NoSTT())
+    if stt == "whisper_resident":
+        from .resident import ResidentWhisper
+        fallback = WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
+            cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+            fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes"))
+        s = ResidentWhisper(cfg.get("VOICE_WHISPER_SERVER_BIN", ""), cfg.get("VOICE_STT_MODEL_PATH", ""),
+            cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+            fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes"), fallback=fallback)
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":

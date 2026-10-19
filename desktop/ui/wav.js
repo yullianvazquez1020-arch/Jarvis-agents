@@ -39,22 +39,51 @@
   }
 
   /* End-of-phrase: speech starts when level > threshold; the phrase ends after silenceMs below it.
-     Returns "speech" | "silence-end" | "no-speech" | "max" | null for each frame. */
+     Returns "speech" | "silence-end" | "no-speech" | "max" | null for each frame.
+     Opcional (el panel lo activa; por defecto se comporta como antes):
+       adaptive: el umbral sube con el ruido de fondo (noiseFactor veces el ruido medido, ruido máximo 0.04).
+         Al abrir, calibrateMs mide el ruido (el nivel más bajo) sin aceptar voz; noise: medida de un turno anterior.
+       minStartMs: hace falta sonido sostenido para empezar una frase; un clic o un golpe no la abren.
+       minSpeechMs: una "frase" con menos voz que esto se descarta en silencio y no se transcribe. */
   function Detector(opts) {
     opts = opts || {};
     this.threshold = opts.threshold || 0.015; this.silenceMs = opts.silenceMs || 1200;
     this.noSpeechMs = opts.noSpeechMs || 8000; this.maxMs = opts.maxMs || 30000;
+    this.adaptive = !!opts.adaptive; this.noiseFactor = opts.noiseFactor || 2.5;
+    this.minStartMs = opts.minStartMs || 0; this.minSpeechMs = opts.minSpeechMs || 0;
+    this.calibrateMs = opts.noise ? 0 : (opts.calibrateMs || 0);
+    this.noise = Math.min(0.04, opts.noise || this.threshold / 2); this.calMin = Infinity;
+    this.run = 0; this.speechMs = 0;
     this.t = 0; this.heard = false; this.quiet = 0;
   }
+  Detector.prototype.level = function () {
+    return this.adaptive ? Math.max(this.threshold, this.noise * this.noiseFactor) : this.threshold;
+  };
   Detector.prototype.push = function (frame, ms) {
     this.t += ms;
-    var loud = rms(frame) > this.threshold;
-    if (loud) { this.heard = true; this.quiet = 0; }
-    else if (this.heard) this.quiet += ms;
+    var r = rms(frame);
+    if (this.adaptive && this.t <= this.calibrateMs) {      // calibración: solo mide el cuarto
+      this.calMin = Math.min(this.calMin, r);
+      if (this.t + ms > this.calibrateMs) this.noise = Math.min(0.04, Math.max(this.threshold / 2, this.calMin));
+      return null;
+    }
+    var loud = r > this.level();
+    if (this.adaptive && !this.heard && !loud) this.noise = Math.min(0.04, this.noise * 0.95 + r * 0.05);
+    if (!this.heard) {
+      this.run = loud ? this.run + ms : Math.max(0, this.run - ms / 2);
+      if (this.run >= this.minStartMs && loud) { this.heard = true; this.quiet = 0; this.speechMs = this.run; }
+    } else if (loud) { this.quiet = 0; this.speechMs += ms; }
+    else this.quiet += ms;
     if (this.t >= this.maxMs) return "max";
     if (!this.heard && this.t >= this.noSpeechMs) return "no-speech";
-    if (this.heard && this.quiet >= this.silenceMs) return "silence-end";
-    return loud ? "speech" : null;
+    if (this.heard && this.quiet >= this.silenceMs) {
+      if (this.speechMs < this.minSpeechMs) {            // fue un ruido corto: se olvida sin transcribir
+        this.heard = false; this.quiet = 0; this.speechMs = 0; this.run = 0;
+        return null;
+      }
+      return "silence-end";
+    }
+    return loud && this.heard ? "speech" : null;
   };
 
   // Keep a short lead-in until speech starts; never trim within a spoken phrase.
