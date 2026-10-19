@@ -114,7 +114,10 @@
       ctx.fillText("Inicio " + money0.format(start), M.l + g.pw, ys - 4);
     }
     // revelado inicial de la curva
-    var grow = reduce ? 1 : Math.min(1, (t - state.born) / 1400), last = Math.max(1, Math.floor((n - 1) * grow));
+    var grow = reduce ? 1 : Math.min(1, (t - state.born) / 1400);
+    // Con UN solo registro, Math.max(1, …) daba last = 1 y el bucle leía pts[1], que no existe.
+    // Fallo viejo que no se veía porque el lienzo quedaba fuera de pantalla; la barra lo destapó.
+    var last = Math.min(n - 1, Math.max(1, Math.floor((n - 1) * grow)));
     // área
     var grad = ctx.createLinearGradient(0, M.t, 0, M.t + g.ph);
     grad.addColorStop(0, "rgba(47,143,230,0.22)"); grad.addColorStop(1, "rgba(47,143,230,0)");
@@ -261,7 +264,9 @@
       if (!p.chart) { showEmpty("La gráfica solo muestra la práctica con dinero simulado, y no hay datos todavía."); return; }
       var first = !state.chart;
       state.chart = p.chart;
+      window.JarvisMercado = { chart: p.chart };            // la barra de arriba lee de aquí
       state.pts = (p.chart.equity || []).filter(function (e) { return num(e.v) != null; });
+      if (window.JarvisBarra) window.JarvisBarra.pintar(p.chart);   // la barra: también cuando no hay curva
       $("when").textContent = state.demo ? "datos de ejemplo" : "actualizado " + whenFmt.format(new Date());
       renderSummary(p.chart); renderRings(p.chart.products || []); renderTable();
       if (!state.pts.length) { showEmpty("La práctica todavía no ha corrido. La curva aparece después de la primera revisión."); return; }
