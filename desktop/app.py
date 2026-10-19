@@ -298,6 +298,30 @@ def startup_sound(cfg):
     return (default, "audio/wav") if default.is_file() else None
 
 
+def native_intro(app, cfg):
+    """Al iniciar el servicio: música por los altavoces, saludo corto encima y la música se corta al terminar."""
+    proc, player = None, local_player()
+    snd = startup_sound(cfg)
+    if snd and player and player[0] == "afplay":
+        try:
+            proc = subprocess.Popen(["afplay", "-v", "0.35", str(snd[0])],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            proc = None
+    start = time.time()
+    time.sleep(3.0 if proc else 0.5)
+    try:
+        audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
+        app._play_local(audio)
+        until = time.time() + _wav_secs(audio) + 1.0
+    except Exception:
+        until = time.time() + 1.0
+    while time.time() < min(until, start + 15.0) and proc and proc.poll() is None:
+        time.sleep(0.2)
+    if proc and proc.poll() is None:
+        proc.terminate()
+
+
 def core_mode(server_state, last_alert_at, now):
     """Núcleo: "jarvis" (azul) normal; "ultron" (rojo/naranja) con aviso reciente o servidor caído."""
     if server_state in BAD_SERVER:
@@ -1482,6 +1506,8 @@ def main(argv=None):
     if truthy(cfg["VOICE_WAKE_WORD_ENABLED"]):
         print("Palabra de activación: activa. Empieza con «Jarvis»; después puedes seguir hablando sin repetirlo.")
     app, httpd, port = serve(cfg)
+    if truthy(cfg.get("VOICE_STARTUP_GREETING", "true")) and not truthy(cfg.get("VOICE_DEMO", "false")):
+        threading.Thread(target=native_intro, args=(app, cfg), daemon=True).start()   # música + saludo
     if truthy(cfg.get("VOICE_CICLO", "true")):
         app.ciclo.arrancar()                             # ciclo autónomo local, siempre encendido
     host = cfg["VOICE_BIND_HOST"]
