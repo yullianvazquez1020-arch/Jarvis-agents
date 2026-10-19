@@ -316,59 +316,10 @@ def native_intro(app, cfg):
         until = time.time() + _wav_secs(audio) + 1.0
     except Exception:
         until = time.time() + 1.0
-    # La canción sigue hasta el final: acompaña toda la introducción.
-
-
-class IdleMusic:
-    """Música de fondo cuando nadie habla: bajito por los altavoces; se corta al hablar."""
-
-    def __init__(self, cfg):
-        self.cfg = cfg; self.last = time.time(); self.proc = None; self.lock = threading.Lock()
-
-    def activity(self):
-        self.last = time.time(); self.stop()
-
-    def stop(self):
-        with self.lock:
-            p, self.proc = self.proc, None
-        if p and p.poll() is None:
-            p.terminate()
-
-    def _num(self, key, default, low, high):
-        try:
-            return max(low, min(high, float(self.cfg.get(key, default))))
-        except (TypeError, ValueError):
-            return float(default)
-
-    def _file(self):
-        own = str(self.cfg.get("JARVIS_IDLE_MUSIC", "") or "").strip()
-        if own.lower() in ("off", "none", "0", "false"):
-            return None
-        if own:
-            p = Path(own).expanduser()
-            if p.is_file() and p.suffix.lower() in SOUND_TYPES:
-                return p
-        p = HERE / "ui" / "audio" / "fondo.wav"
-        return p if p.is_file() else None
-
-    def loop(self, app):
-        wait = self._num("VOICE_IDLE_MUSIC_MIN", 3, 0.5, 120) * 60
-        volume = self._num("VOICE_IDLE_MUSIC_VOLUME", 0.2, 0.02, 1.0)
-        while True:
-            time.sleep(2)
-            f, player = self._file(), local_player()
-            if not f or not player or player[0] != "afplay":
-                continue
-            if time.time() - self.last < wait or time.time() < getattr(app, "speaking_until", 0):
-                continue
-            with self.lock:
-                if self.proc and self.proc.poll() is None:
-                    continue                                   # ya suena; al terminar, se repite
-                try:
-                    self.proc = subprocess.Popen(["afplay", "-v", str(volume), str(f)],
-                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except OSError:
-                    self.proc = None
+    while time.time() < min(until, start + 15.0) and proc and proc.poll() is None:
+        time.sleep(0.2)
+    if proc and proc.poll() is None:
+        proc.terminate()
 
 
 def core_mode(server_state, last_alert_at, now):
@@ -826,10 +777,7 @@ class Companion:
 
     def transcribe(self, wav):
         out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
-        out = self._wake_filter(out)
-        if out.get("text") and getattr(self, "idle", None):
-            self.idle.activity()                     # te entendió: se corta la música de fondo
-        return out
+        return self._wake_filter(out)
 
     def _wake_filter(self, out):
         """Solo voz: atiende si empieza con «Jarvis» o si sigue la conversación reciente."""
@@ -852,8 +800,6 @@ class Companion:
 
     def speak(self, text, turn_id=None, sensitive=False):
         """Synthesize and tell the audio window to play it. Text stays on screen if voice fails."""
-        if getattr(self, "idle", None):
-            self.idle.activity()                         # Jarvis habla: sin música de fondo
         self.speaking_topics = speech_topics(text)          # solo etiquetas (BTC, id de negocio), nunca el texto
         with self.lock:
             discreet = self.prefs["discreet"]; rate = self.prefs["rate"]; owner = self.owner
@@ -1562,9 +1508,6 @@ def main(argv=None):
     app, httpd, port = serve(cfg)
     if truthy(cfg.get("VOICE_STARTUP_GREETING", "true")) and not truthy(cfg.get("VOICE_DEMO", "false")):
         threading.Thread(target=native_intro, args=(app, cfg), daemon=True).start()   # música + saludo
-    app.idle = IdleMusic(cfg)
-    if truthy(cfg.get("JARVIS_FONDO", "true")) and not truthy(cfg.get("VOICE_DEMO", "false")):
-        threading.Thread(target=app.idle.loop, args=(app,), daemon=True).start()   # música si nadie habla
     if truthy(cfg.get("VOICE_CICLO", "true")):
         app.ciclo.arrancar()                             # ciclo autónomo local, siempre encendido
     host = cfg["VOICE_BIND_HOST"]
