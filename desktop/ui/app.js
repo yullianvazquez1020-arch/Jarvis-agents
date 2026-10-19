@@ -189,8 +189,14 @@
       }
     });
   }
+  // Lo minimo que necesita barge-in.js para interrumpir: el stream ya concedido, parar el
+  // audio y abrir el microfono de verdad. No expone nada que la pagina no haga ya.
+  window.JarvisMicAPI = { warmStream: function () { return warmStream; },
+                          startMic: function () { startMic(); },
+                          stopAudio: function () { stopAudio(); } };
   function play(id, keepQ) {
     stopMic(true); clearTimeout(resumeTimer);
+    if (window.JarvisBargeIn) window.JarvisBargeIn.watch();   // sigue escuchando MIENTRAS habla
     if (!keepQ) playQ = [];
     stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
     var audio = audioEl;
@@ -206,6 +212,7 @@
     if (rec && rec.ctx.state === "suspended") resumeCapture(rec);
   });
   function stopAudio(keepQ) {
+    if (window.JarvisBargeIn) window.JarvisBargeIn.stop();
     if (!keepQ) playQ = [];
     if(window.JarvisAmbience)window.JarvisAmbience.duck(false);
     if (audioEl) { var old = audioEl; audioEl = null; old.onended = null; old.onerror = null; voice.detach(old); old.pause(); old.src = ""; }
