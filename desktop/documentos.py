@@ -26,13 +26,17 @@ def english_request(text):
 
 
 def intent(text, has_document=False):
-    value = re.sub(r'^(?:(?:oye|hey|please)\s+)?jarvis[, :]*', '', norm(text))
-    value = re.sub(r'^(?:por favor|please)\s+', '', value)
-    value = re.sub(r'^(?:puedes|podrias|can you|could you)\s+', '', value).rstrip(' .!?¿¡')
+    # Whisper often writes "Jarvis." or "¿Jarvis, ...": any punctuation after the name is accepted.
+    value = re.sub(r'^[\s¿¡]*(?:(?:oye|hey|please)[\s,]+)?jarvis\b[\s,.:;!?¿¡]*', '', norm(text))
+    value = re.sub(r'^[\s¿¡]*(?:por favor|please)[\s,]+', '', value)
+    value = re.sub(r'^[\s¿¡]*(?:puedes|podrias|can you|could you)\s+', '', value).lstrip(' ¿¡').rstrip(' .!?¿¡')
+    verb = (r'(?:redacta(?:me)?|escribe(?:me)?|crea(?:me)?|prepara(?:me)?|haz(?:me)?|genera(?:me)?'
+            r'|me (?:redactas|escribes|creas|preparas|haces|generas)'
+            r'|(?:redactar|escribir|crear|preparar|hacer|generar)(?:me)?|write|draft|create|prepare)')
     match = re.fullmatch(r'(?:recuerda|remember) (?:para mis documentos|for my documents)\s*[:,]?\s+(.{3,300})', value)
     if match:
         return 'preference'
-    if re.match(r'^(?:redacta(?:me)?|escribe(?:me)?|crea(?:me)?|prepara(?:me)?|haz(?:me)?|genera(?:me)?|write|draft|create|prepare)\b', value) and re.search(
+    if re.match(r'^' + verb + r'\b', value) and re.search(
             r'\b(monografia|ensayo|informe|documento|carta|propuesta|resumen|monograph|essay|report|document|letter|proposal)\b', value):
         return 'new'
     if re.fullmatch(r'(?:abre|abrir|open|muestra|show)(?: el| the)? (?:ultimo documento|documento|last document|document)', value):
