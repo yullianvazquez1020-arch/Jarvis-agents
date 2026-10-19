@@ -38,6 +38,20 @@ class LocalDocuments(unittest.TestCase):
         self.assertIsNone(local.intent('¿Qué es una monografía?'))
         self.assertEqual(local.intent('Jarvis, hazme una monografía del sol'), 'new')
         self.assertEqual(local.intent('expand the introduction', True), 'revise')
+        # Whisper transcriptions: punctuation after the name and question forms.
+        for text in ('Jarvis. Hazme un documento corto sobre energía solar.',
+                     '¿Jarvis, me haces un documento sobre energía solar?',
+                     'Jarvis! Redáctame un informe del proyecto',
+                     'Oye, Jarvis: escríbeme una carta para el cliente',
+                     '¿Puedes hacerme un ensayo sobre el agua?',
+                     'Jarvis; write an essay about solar energy'):
+            with self.subTest(text=text):
+                self.assertEqual(local.intent(text), 'new')
+        for text in ('Jarvis. ¿Qué es una monografía?', 'Jarvis, ¿cómo va el día?', 'Jarvisito, hazme caso',
+                     'Me haces falta', 'Jarvis. Hazme caso'):
+            with self.subTest(text=text):
+                self.assertIsNone(local.intent(text))
+        self.assertEqual(local.intent('Jarvis. Abre el último documento.'), 'open')
         self.store.remember('Recuerda para mis documentos: usa párrafos cortos')
         self.assertEqual(self.store.preferences(), ['usa párrafos cortos'])
         with self.assertRaises(ValueError): self.store.remember('Recuerda para mis documentos: mi password es secreto')
