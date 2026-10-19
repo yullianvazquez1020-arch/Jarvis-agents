@@ -19,12 +19,12 @@ async function scenario(payload){
  await new Promise(setImmediate);return {get, reveal(){get('hud-reveal').checked=true;get('hud-reveal').onchange();(get('hud-reveal').listeners.change||[]).forEach(f=>f());},async disconnect(){fail=true;get('hud-refresh').onclick();await new Promise(setImmediate);}};
 }
 (async()=>{
- let s=await scenario({cards:[]});assert.equal(s.get('hx-jobs').textContent,'sin dato');assert.match(s.get('hx-assist').textContent,/0 ms/);assert.match(s.get('hx-secure').textContent,/Apagado/);
+ let s=await scenario({cards:[]});assert.equal(s.get('hx-jobs').textContent,'no data');assert.match(s.get('hx-assist').textContent,/0 ms/);assert.match(s.get('hx-secure').textContent,/Off/);
  s=await scenario({cards:[],jobs:[],jobs_count:0});assert.match(s.get('hx-jobs').textContent,/No hay trabajos abiertos/);
  s=await scenario({cards:[],jobs:[{title:'Trabajo $900',status:'in_progress',stage:'En progreso',progress:50,start:'2026-10-01',due:'2026-10-10'},{title:'Otro',stage:'Cotización',progress:10,start:null,due:'2026-02-30'}]});
  assert.match(s.get('hx-jobs').textContent,/En progreso/);assert.doesNotMatch(s.get('hx-jobs').textContent,/900|function/);
  assert.equal(s.get('hx-gantt').children.filter(e=>e.className==='hx-row').length,1);
  s.reveal();assert.match(s.get('hx-jobs').textContent,/900/);
- await s.disconnect();assert.equal(s.get('hx-jobs').textContent,'sin dato');assert.match(s.get('hx-assist').textContent,/Sin conexión/);assert.equal(s.get('hx-gauges').children.length,0);
+ await s.disconnect();assert.equal(s.get('hx-jobs').textContent,'no data');assert.match(s.get('hx-assist').textContent,/Offline/);assert.equal(s.get('hx-gauges').children.length,0);
  console.log('HUD v2: real stages, missing and zero values, privacy, dates and offline clearing OK');
 })().catch(e=>{console.error(e);process.exitCode=1;});

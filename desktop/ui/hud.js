@@ -25,7 +25,7 @@
       var ul = el("ul"); (c.lines || []).slice(0, 5).forEach(function (l) { ul.appendChild(el("li", "", show(l, c.sensitive))); });
       b.appendChild(ul);
       var when = c.as_of ? "Dato del " + String(c.as_of).slice(0, 16).replace("T", " ") : (c.demo ? "Ejemplo" : "");
-      if (c.stale) when += " · DATO VIEJO (más de 3 días)";
+      if (c.stale) when += " · STALE DATA (over 3 days)";
       b.appendChild(el("div", "when", when));
       b.onclick = function () { api("POST", "/api/open", { target: c.id }); };
       g.appendChild(b);
@@ -35,7 +35,7 @@
     return api("GET", "/api/hud").then(function (r) {
       cards = r.cards || []; $("hud-demo").hidden = !r.demo; render();
       document.dispatchEvent(new CustomEvent("jarvis:hud", { detail: r }));   // hudx.js dibuja barras, línea de tiempo y medidores
-      $("deck-caption").textContent = r.demo ? "DEMO · datos de ejemplo, sin conexión real" : "Datos del escritorio · toca un módulo para abrir el detalle";
+      $("deck-caption").textContent = r.demo ? "DEMO · sample data, no real connection" : "Desktop data · tap a module to open its detail";
       $("hud-updated").textContent = "Actualizado " + clockFmt.format(new Date());
     }).catch(function (e) { cards = []; render(); document.dispatchEvent(new CustomEvent("jarvis:hud", {detail:{cards:[],jobs:null}})); $("hud-updated").textContent = "Error: " + e.message; deckHealth({state:"down"}); });
   }
@@ -58,7 +58,7 @@
   function deckHealth(h) {
     document.dispatchEvent(new CustomEvent("jarvis:health", { detail: h }));
     $("dot").setAttribute("data-s", h.state);
-    $("deck-state").textContent = {ok:"Servidor conectado",demo:"Demostración",slow:"Con retraso",down:"Sin conexión",error:"Error",unpaired:"Sin emparejar",unknown:"Sin comprobar"}[h.state] || "Sin comprobar";
+    $("deck-state").textContent = {ok:"Servidor conectado",demo:"Demo",slow:"Con retraso",down:"Offline",error:"Error",unpaired:"Sin emparejar",unknown:"Sin comprobar"}[h.state] || "Sin comprobar";
   }
   var V2 = document.body.classList.contains("hud-v2");   // HUD v2: los módulos van en la franja de arriba, no alrededor del núcleo
   function renderNodes() {
@@ -87,7 +87,7 @@
   }
   var canvas = $("deck-canvas"), ctx = canvas.getContext("2d"), lastFrame = 0;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)"), paused = reduced.matches;
-  function motionLabel() { $("deck-motion").textContent = paused ? "Activar animación" : "Pausar animación"; $("deck-motion").setAttribute("aria-pressed", String(paused)); }
+  function motionLabel() { $("deck-motion").textContent = paused ? "Resume animation" : "Pause animation"; $("deck-motion").setAttribute("aria-pressed", String(paused)); }
   function draw(time) {
     requestAnimationFrame(draw);
     if (document.hidden || (time - lastFrame < 40) || (paused && lastFrame)) return;
@@ -113,8 +113,8 @@
   $("deck-motion").onclick=function(){paused=!paused;lastFrame=0;motionLabel();};
   window.addEventListener("resize",function(){lastFrame=0;});
   $("deck-fullscreen").onclick=function(){var fn=document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
-    if(fn){var p=fn.call(document.documentElement);if(p&&p.catch)p.catch(function(){$("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";});}
-    else $("deck-caption").textContent="Usa pantalla completa desde el menú del navegador.";};
+    if(fn){var p=fn.call(document.documentElement);if(p&&p.catch)p.catch(function(){$("deck-caption").textContent="Use full screen from the browser menu.";});}
+    else $("deck-caption").textContent="Use full screen from the browser menu.";};
   motionLabel(); requestAnimationFrame(draw);
 
   $("hud-refresh").onclick = load;

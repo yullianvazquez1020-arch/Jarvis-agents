@@ -1,71 +1,74 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Jarvis · HUD</title>
   <link rel="stylesheet" href="/ui/app.css">
+  <!-- El ULTIMO: funde los paneles sueltos en una sola superficie. -->
+  <link rel="stylesheet" href="/ui/hud-uno.css?v=1">
 </head>
 <body class="hud-page hud-v2">
   <header class="top">
-    <div class="brand"><span id="dot" class="dot"></span>JARVIS · HUD <span class="small">solo lectura</span></div>
+    <div class="brand"><span id="dot" class="dot"></span>JARVIS · HUD <span class="small">read only</span></div>
     <div class="chips">
       <span id="hud-clock" class="chip">--:--</span>
-      <span id="hud-demo" class="chip warn" hidden>DEMO · datos de ejemplo</span>
+      <span id="hud-demo" class="chip warn" hidden>DEMO · sample data</span>
       <span id="hud-updated" class="chip">…</span>
-      <button id="hud-refresh" type="button" class="ghost">Actualizar</button>
-      <label class="check"><input id="hud-reveal" type="checkbox"> Mostrar montos</label>
+      <button id="hud-refresh" type="button" class="ghost">Refresh</button>
+      <label class="check"><input id="hud-reveal" type="checkbox"> Show amounts</label>
     </div>
   </header>
 
   <div class="hudx">
-    <h1 class="hx-title">JARVIS HUD <span>· PROTOCOLO DE INTERFAZ AVANZADO</span></h1>
-    <main id="grid" class="grid deck-cards strip" aria-label="Módulos de Jarvis: toca uno para abrir el detalle"></main>
+    <h1 class="hx-title">JARVIS <span>· ADVANCED INTERFACE PROTOCOL</span></h1>
+    <main id="grid" class="grid deck-cards strip" aria-label="Jarvis modules: tap one to open its detail"></main>
 
+    <!-- Fila propia, antes del cuerpo: era la tira de tarjetas y decia lo mismo. -->
+    <section class="hx-gauges" id="hx-gauges" aria-label="Module gauges"></section>
     <div class="hudx-body">
       <aside class="hx-col" aria-label="Trabajos">
         <section class="hx-panel">
-          <h2>Trabajos y tareas <small>etapa real de cada trabajo abierto</small></h2>
-          <ul id="hx-jobs" class="hx-jobs"><li class="small">Sin datos todavía.</li></ul>
+          <h2>Jobs and tasks <small>real stage of every open job</small></h2>
+          <ul id="hx-jobs" class="hx-jobs"><li class="small">No data yet.</li></ul>
         </section>
         <section class="hx-panel">
-          <h2>Línea de tiempo <small>14 días · inicio → entrega</small></h2>
-          <div id="hx-gantt" class="hx-gantt" role="img" aria-label="Trabajos abiertos en el tiempo"></div>
+          <h2>Timeline <small>14 days · start → delivery</small></h2>
+          <div id="hx-gantt" class="hx-gantt" role="img" aria-label="Open jobs over time"></div>
         </section>
       </aside>
 
-      <section class="command-deck hx-center" aria-label="Centro visual de Jarvis">
-        <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · CENTRO DE OPERACIONES</span><h1>JARVIS <span>HUD</span></h1></div>
-          <nav class="deck-links"><a href="/" target="_blank" rel="noopener">Conversación ↗</a><a href="/mercado" target="_blank" rel="noopener">Mercado ↗</a>
-          <button id="deck-motion" type="button" aria-pressed="false">Pausar animación</button>
-          <button id="deck-fullscreen" type="button">Pantalla completa</button></nav></div>
+      <section class="command-deck hx-center" aria-label="Jarvis visual centre">
+        <div class="deck-heading"><div><span class="deck-kicker">ISLAFIX PRO · OPERATIONS CENTRE</span><h1>JARVIS <span>HUD</span></h1></div>
+          <nav class="deck-links"><a href="/" target="_blank" rel="noopener">Conversation ↗</a><a href="/mercado" target="_blank" rel="noopener">Market ↗</a>
+          <button id="deck-motion" type="button" aria-pressed="false">Pause animation</button>
+          <button id="deck-fullscreen" type="button">Full screen</button></nav></div>
         <div class="deck-stage">
           <canvas id="deck-canvas" aria-hidden="true"></canvas>
-          <div class="deck-core"><span class="deck-kicker">NÚCLEO</span><strong>JARVIS</strong><span id="deck-state">Sin comprobar</span><small>Solo lectura</small></div>
-          <div id="deck-nodes" aria-label="Módulos"></div>
+          <div class="deck-core"><span class="deck-kicker">CORE</span><strong>JARVIS</strong><span id="deck-state">Not checked</span><small>Read only</small></div>
+          <div id="deck-nodes" aria-label="Modules"></div>
         </div>
-        <section class="hx-gauges" id="hx-gauges" aria-label="Medidores por módulo"></section>
-        <div class="deck-bottom"><span id="deck-caption">Esperando datos del escritorio</span><span>Solo lectura · desde aquí no se cambia nada</span></div>
+        <div class="deck-bottom"><span id="deck-caption">Waiting for desktop data</span><span>Read only · nothing is changed from here</span></div>
       </section>
 
-      <aside class="hx-col" aria-label="Asistente y seguridad">
+      <aside class="hx-col" aria-label="Assistant and safety">
         <section class="hx-panel">
-          <h2>Asistente <small>estado del servidor</small></h2>
+          <h2>Assistant <small>server status</small></h2>
           <div class="hx-figure" data-voz="idle"><canvas id="hx-figure" aria-hidden="true"></canvas><dl id="hx-assist" class="hx-dl"></dl></div>
         </section>
         <section class="hx-panel hx-voz" aria-live="polite">
-          <h2>Conversación <small id="hx-voz-meta">En espera · ES</small></h2>
-          <ol id="hx-voz-lines" class="hx-lines"><li class="small">A su disposición.</li></ol>
+          <h2>Conversation <small id="hx-voz-meta">Idle · EN</small></h2>
+          <ol id="hx-voz-lines" class="hx-lines"><li class="small">At your service.</li></ol>
         </section>
         <section class="hx-panel">
-          <h2>Seguridad <small>reglas fijas y modo actual</small></h2>
+          <h2>Safety <small>fixed rules and current mode</small></h2>
           <dl id="hx-secure" class="hx-dl"></dl>
         </section>
       </aside>
     </div>
 
   </div>
-  <p class="small hud-note">Tocar una tarjeta abre el detalle en la ventana principal. Desde aquí no se cambia nada.</p>
+  <p class="small hud-note">Tapping a card opens its detail in the main window. Nothing is changed from here.</p>
   <script src="/ui/mask.js"></script>
   <script src="/ui/mecanismo.js"></script>
   <script src="/ui/hud.js"></script>
