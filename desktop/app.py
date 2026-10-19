@@ -277,7 +277,7 @@ def local_player(which=shutil.which):
 
 
 SOUND_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4"}
-GREETING = "Good morning, sir. All systems are online."
+GREETING = "Buenas, señor. Todo listo."
 
 
 def startup_sound(cfg):

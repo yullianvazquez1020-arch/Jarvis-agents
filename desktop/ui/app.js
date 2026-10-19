@@ -60,6 +60,7 @@
       if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
     }, 50);
   }
+  addEventListener("jarvis-intro-done", function () { resumeConversation(); });
   function releaseWarmMic() {
     if (warmStream) { warmStream.getTracks().forEach(function(t){t.stop();}); warmStream=null; }
   }
@@ -305,6 +306,7 @@
     } catch (err) { /* sin audio: seguimos */ }
   }
   function startMic() {
+    if (window.JarvisIntroBusy) return;              // la introducción termina antes de escuchar
     if (!isOwner || rec || micPending || current || transcribing) return;
     if (state.stt && state.stt.problem) { setState("listo", state.stt.problem); $("transcript").focus(); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setState("error", "este navegador no da acceso al micrófono"); return; }
@@ -432,7 +434,7 @@
   function showCode(code) { $("pair-code").hidden = false; $("pair-code").textContent = code;
     $("pair-msg").textContent = "En tu chat privado de Telegram con Jarvis escribe: /emparejar " + code; }
 
-  $("talk").onclick = function () { conversationPaused = false; rec ? stopMic(false) : startMic(); };
+  $("talk").onclick = function () { if (window.JarvisStopIntro) window.JarvisStopIntro(); conversationPaused = false; rec ? stopMic(false) : startMic(); };
   try { $("convo").checked = (localStorage.getItem("jarvis-conversation") || (localStorage.getItem("jarvis-convo") === "0" ? "off" : "on")) !== "off"; } catch (_) { $("convo").checked = true; }
   $("convo").onchange = function () {
     try { localStorage.setItem("jarvis-conversation", this.checked ? "on" : "off"); } catch (_) {}
