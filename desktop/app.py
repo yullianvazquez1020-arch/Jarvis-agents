@@ -749,8 +749,30 @@ class Companion:
                 **({"chart": clean_chart(p.get("chart"))} if name == "practica" else {})}
 
     # --- speech ---
+    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
+
     def transcribe(self, wav):
-        return self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+        out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+        return self._wake_filter(out)
+
+    def _wake_filter(self, out):
+        """Solo voz: atiende si empieza con «Jarvis» o si sigue la conversación reciente."""
+        if not truthy(self.cfg.get("VOICE_WAKE_WORD_ENABLED", "false")) or not out.get("text"):
+            return out
+        text = out["text"]
+        m = self.WAKE_RE.match(text)
+        if m or time.time() < getattr(self, "_wake_until", 0.0):
+            self._wake_until = time.time() + self._wake_follow()
+            if m:                                       # "Yarvis", "Harbys"... -> "Jarvis" para el resto del panel
+                out = dict(out, text=text[:m.start("w")] + "Jarvis" + text[m.end("w"):])
+            return out
+        return dict(out, text="", reason="no_wake_word")
+
+    def _wake_follow(self):
+        try:
+            return max(0.0, min(300.0, float(self.cfg.get("VOICE_WAKE_FOLLOW_S", "40"))))
+        except (TypeError, ValueError):
+            return 40.0
 
     def speak(self, text, turn_id=None, sensitive=False):
         """Synthesize and tell the audio window to play it. Text stays on screen if voice fails."""
@@ -964,6 +986,7 @@ class Companion:
                 "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.":
                     "Mouse stopped. Remove the STOP file on your Mac when you want to resume.",
             }.get(reply, reply)
+        self._wake_until = time.time() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
         with self.lock:
             t = self.turns[tid]; t["state"] = state; cancelled = t["cancelled"]
             if reply is not None:
@@ -1457,7 +1480,7 @@ def main(argv=None):
             raise SystemExit("--hand-mouse solo se permite localmente en macOS, fuera de DEMO.")
         cfg["_HAND_MOUSE_ENABLED"] = True
     if truthy(cfg["VOICE_WAKE_WORD_ENABLED"]):
-        print("Aviso: la palabra de activación aún no está implementada (fase 2); se ignora.")
+        print("Palabra de activación: activa. Empieza con «Jarvis»; después puedes seguir hablando sin repetirlo.")
     app, httpd, port = serve(cfg)
     if truthy(cfg.get("VOICE_CICLO", "true")):
         app.ciclo.arrancar()                             # ciclo autónomo local, siempre encendido

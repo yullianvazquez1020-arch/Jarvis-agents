@@ -382,7 +382,7 @@
     api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
       transcribing = false; if (transcriptTicket !== micGeneration) return; $("transcript").value = t.text;
       lastHeard = t.text; renderReply();
-      if (!t.text) { setState("ready", "No distinguí palabras. Repite tu instrucción."); resumeConversation(); return; }
+      if (!t.text) { setState("ready", t.reason === "no_wake_word" ? "Di «Jarvis» para hablarme" : "No distinguí palabras. Repite tu instrucción."); resumeConversation(); return; }
       if (!$("review").checked) send(t.text, "voice"); else setState("listo", "Review the transcript and press Send");
     }).catch(function (e) { transcribing = false; if (transcriptTicket !== micGeneration) return; setState("error", e.message); resumeConversation(); });
   }
