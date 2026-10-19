@@ -1,0 +1,619 @@
+--- a/desktop/app.py
++++ b/desktop/app.py
+@@ -301,6 +301,8 @@
+ def native_intro(app, cfg):
+     """Al iniciar el servicio: música por los altavoces, saludo corto encima y la música se corta al terminar."""
+     proc, player = None, local_player()
++    generation = getattr(app, "_voz_gen", 0)
++    app._intro_until = time.monotonic() + 15
+     snd = startup_sound(cfg)
+     if snd and player and player[0] == "afplay":
+         try:
+@@ -308,8 +310,12 @@
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+         except OSError:
+             proc = None
++    app._intro_process = proc
+     start = time.time()
+     time.sleep(3.0 if proc else 0.5)
++    if generation != getattr(app, "_voz_gen", 0):
++        app._intro_until = 0
++        return
+     try:
+         audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
+         app._play_local(audio)
+@@ -320,6 +326,8 @@
+         time.sleep(0.2)
+     if proc and proc.poll() is None:
+         proc.terminate()
++    app._intro_until = 0
++    app._intro_process = None
+ 
+ 
+ def core_mode(server_state, last_alert_at, now):
+@@ -773,24 +781,52 @@
+                 **({"chart": clean_chart(p.get("chart"))} if name == "practica" else {})}
+ 
+     # --- speech ---
+-    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
+-
+-    def transcribe(self, wav):
+-        out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+-        return self._wake_filter(out)
+-
+-    def _wake_filter(self, out):
+-        """Solo voz: atiende si empieza con «Jarvis» o si sigue la conversación reciente."""
+-        if not truthy(self.cfg.get("VOICE_WAKE_WORD_ENABLED", "false")) or not out.get("text"):
++    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey|please|por\s+favor)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
++
++    def transcribe(self, wav, interrupt=False):
++        # Only one whisper.cpp process at a time, including requests from another tab.
++        with self.lock:
++            if not hasattr(self, '_stt_lock'):
++                self._stt_lock = threading.Lock()
++        with self._stt_lock:
++            out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
++        native_speech = ((self._playback_native() and time.time() < getattr(self, "speaking_until", 0))
++                         or time.monotonic() < getattr(self, "_intro_until", 0))
++        filtered = self._wake_filter(out, require_wake=interrupt or native_speech)
++        if native_speech and filtered.get("text"):
++            filtered = dict(filtered, interrupt_verified=True)
++        return filtered
++
++    def _wake_filter(self, out, require_wake=False):
++        """During playback require the name even inside the follow-up window."""
++        text = str(out.get('text') or '').strip()
++        if not text:
+             return out
+-        text = out["text"]
++        enabled = truthy(self.cfg.get('VOICE_WAKE_WORD_ENABLED', 'false'))
+         m = self.WAKE_RE.match(text)
+-        if m or time.time() < getattr(self, "_wake_until", 0.0):
+-            self._wake_until = time.time() + self._wake_follow()
+-            if m:                                       # "Yarvis", "Harbys"... -> "Jarvis" para el resto del panel
+-                out = dict(out, text=text[:m.start("w")] + "Jarvis" + text[m.end("w"):])
++        if require_wake:
++            # AEC is browser/hardware dependent. Suppress a transcript copied from our own reply.
++            def words(value):
++                return ' '.join(re.findall(r'[^\W_]+', str(value).casefold(), re.UNICODE))
++            heard = words(text)
++            reply = words(getattr(self, 'last', {}).get('text', ''))
++            if len(heard) >= 8 and heard in reply:
++                return dict(out, text='', reason='playback_echo')
++        if not enabled and not require_wake:
+             return out
+-        return dict(out, text="", reason="no_wake_word")
++        if m or (not require_wake and time.monotonic() < getattr(self, '_wake_until', 0.0)):
++            self._wake_until = time.monotonic() + self._wake_follow()
++            if m:
++                rest = text[m.end():].strip(' ,.:;!?¿¡')
++                if not rest:
++                    return dict(out, text='', reason='wake_word_only')
++                out = dict(out, text='Jarvis' + text[m.end('w'):])
++            return out
++        return dict(out, text='', reason='no_wake_word')
++
++    def voice_follow(self):
++        self._wake_until = time.monotonic() + self._wake_follow()
++        return {'ok': True}
+ 
+     def _wake_follow(self):
+         try:
+@@ -841,6 +877,8 @@
+                 self.emit({"type": "audio.play", "id": aid, "turn": turn_id or first, "seq": i})
+             total += _wav_secs(audio)
+         self.speaking_until = time.time() + (total or 3)
++        if native:
++            self._wake_until = time.monotonic() + (total or 3) + self._wake_follow()
+         return first
+ 
+     def _lat(self, tid):
+@@ -947,6 +985,14 @@
+ 
+     def stop_local_audio(self):
+         """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
++        self.speaking_until = 0
++        self._intro_until = 0
++        intro = getattr(self, "_intro_process", None)
++        if intro and intro.poll() is None:
++            try:
++                intro.terminate()
++            except OSError:
++                pass
+         with _VOZ_INIT_LOCK:                             # siempre invalida la generación, aunque la cola no exista aún
+             self._voz_gen = getattr(self, "_voz_gen", 0) + 1
+             if not hasattr(self, "_voz_q"):
+@@ -990,6 +1036,7 @@
+                 raise KeyError(turn_id)
+             done = t["state"] in ("done", "error")
+             t["cancelled"] = True
++            t["state"] = "cancelled"
+         self.stop_local_audio(); self.emit({"type": "audio.stop", "turn": turn_id})
+         self.emit({"type": "turn.cancelled", "turn": turn_id})
+         return {"cancelled": True, "already_done": done,
+@@ -1010,7 +1057,7 @@
+                 "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.":
+                     "Mouse stopped. Remove the STOP file on your Mac when you want to resume.",
+             }.get(reply, reply)
+-        self._wake_until = time.time() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
++        self._wake_until = time.monotonic() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
+         with self.lock:
+             t = self.turns[tid]; t["state"] = state; cancelled = t["cancelled"]
+             if reply is not None:
+@@ -1036,6 +1083,8 @@
+ 
+     def _run_turn(self, tid, text):
+         with self.lock:
++            if self.turns[tid].get("cancelled"):
++                return
+             self.turns[tid]["state"] = "consultando"
+         self.emit({"type": "state", "state": "consultando", "turn": tid})
+         kind, arg = intents.parse(text)
+@@ -1307,7 +1356,7 @@
+                     wav = self.rfile.read(n)
+                     app.emit({"type": "state", "state": "transcribiendo"})
+                     t0 = latencia.now_ms()
+-                    out = app.transcribe(wav); out["id"] = uuid.uuid4().hex
++                    out = app.transcribe(wav, interrupt=urllib.parse.parse_qs(u.query).get("interrupt") == ["1"]); out["id"] = uuid.uuid4().hex
+                     app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0,
+                                         "audio_duration_ms": out.get("duration_s", 0) * 1000}
+                     app.emit({"type": "state", "state": "listo"})
+@@ -1328,6 +1377,8 @@
+                         return self._send(200, out)
+                     except RuntimeError as exc:
+                         return self._send(503, {"error": str(exc)})
++                if u.path == "/api/voice/follow":
++                    return self._send(200, app.voice_follow())
+                 if u.path == "/voice/synthesize":
+                     audio, ctype = app.tts.synthesize(str(data.get("text", ""))[:1500], rate=app.prefs["rate"])
+                     return self._send(200, audio, ctype)
+--- a/desktop/documentos.py
++++ b/desktop/documentos.py
+@@ -26,13 +26,17 @@
+ 
+ 
+ def intent(text, has_document=False):
+-    value = re.sub(r'^(?:(?:oye|hey|please)\s+)?jarvis[, :]*', '', norm(text))
+-    value = re.sub(r'^(?:por favor|please)\s+', '', value)
+-    value = re.sub(r'^(?:puedes|podrias|can you|could you)\s+', '', value).rstrip(' .!?¿¡')
++    # Whisper often writes "Jarvis." or "¿Jarvis, ...": any punctuation after the name is accepted.
++    value = re.sub(r'^[\s¿¡]*(?:(?:oye|hey|please)[\s,]+)?jarvis\b[\s,.:;!?¿¡]*', '', norm(text))
++    value = re.sub(r'^[\s¿¡]*(?:por favor|please)[\s,]+', '', value)
++    value = re.sub(r'^[\s¿¡]*(?:puedes|podrias|can you|could you)\s+', '', value).lstrip(' ¿¡').rstrip(' .!?¿¡')
++    verb = (r'(?:redacta(?:me)?|escribe(?:me)?|crea(?:me)?|prepara(?:me)?|haz(?:me)?|genera(?:me)?'
++            r'|me (?:redactas|escribes|creas|preparas|haces|generas)'
++            r'|(?:redactar|escribir|crear|preparar|hacer|generar)(?:me)?|write|draft|create|prepare)')
+     match = re.fullmatch(r'(?:recuerda|remember) (?:para mis documentos|for my documents)\s*[:,]?\s+(.{3,300})', value)
+     if match:
+         return 'preference'
+-    if re.match(r'^(?:redacta(?:me)?|escribe(?:me)?|crea(?:me)?|prepara(?:me)?|haz(?:me)?|genera(?:me)?|write|draft|create|prepare)\b', value) and re.search(
++    if re.match(r'^' + verb + r'\b', value) and re.search(
+             r'\b(monografia|ensayo|informe|documento|carta|propuesta|resumen|monograph|essay|report|document|letter|proposal)\b', value):
+         return 'new'
+     if re.fullmatch(r'(?:abre|abrir|open|muestra|show)(?: el| the)? (?:ultimo documento|documento|last document|document)', value):
+@@ -186,6 +190,9 @@
+     original = companion._run_turn
+ 
+     def run(self, tid, text):
++        with self.lock:
++            if self.turns.get(tid, {}).get("cancelled"):
++                return
+         # Inspect only explicit document requests, never intercept normal conversation.
+         value = intent(text, has_document=True)
+         if value is None:
+--- a/desktop/audio/engines.py
++++ b/desktop/audio/engines.py
+@@ -159,9 +159,9 @@
+ 
+ 
+ _EN_WORDS = set("the you your is are and of to what how hello sir i it this that with for have has be will "
+-                "can do not we my me on in at today guess much money made".split())
++                "can do not we my me on in at today guess much money made thanks ready understood sure".split())
+ _ES_WORDS = set("el la los las de que y en un una es por para con no se lo como qué hola señor tu su "
+-                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más".split())
++                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más perfecto gracias listo entendido vale claro correcto".split())
+ 
+ 
+ def preferred_lang():
+@@ -170,7 +170,7 @@
+     return "es" if v.startswith("es") else "en"
+ 
+ 
+-def detect_lang(text):
++def detect_lang(text, fallback=None):
+     """Idioma de ESTE texto, para leerlo con la voz que le toca.
+ 
+     Un texto en español leído por una voz inglesa no se entiende: es lo que le pasaba al dueño.
+@@ -181,7 +181,7 @@
+     words = re.findall(r"[a-z']+", t)
+     en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
+     if es == en:                               # empate o ninguna señal: lo que el dueño configuró
+-        return preferred_lang()
++        return fallback if fallback in ("es", "en") else preferred_lang()
+     return "es" if es > en else "en"
+ 
+ 
+@@ -232,7 +232,8 @@
+             if self.voice in ("Juan", "Daniel"):
+                 return "Daniel"                          # sin listado de voces: Daniel, sin fallar
+             raise
+-        quiere = detect_lang(text)
++        quiere = detect_lang(text, getattr(self, "_last_lang", None))
++        self._last_lang = quiere
+         elegida = (es if quiere == "es" else en) or en or es
+         if not elegida:
+             raise EngineError("no hay una voz masculina instalada (instala Juan en Ajustes → "
+--- a/desktop/ui/app.js
++++ b/desktop/ui/app.js
+@@ -8,6 +8,7 @@
+   var isOwner = false, seq = 0, current = null, rec = null, audioEl = null, state = { prefs: {} };
+   var micPending = false, micGeneration = 0, resumeTimer = 0, transcribing = false, conversationPaused = false;
+   var warmStream = null, micDevice = "";
++  var sttQueue = [], textQueue = [], blockedTurns = [], lastPlaybackAt = -Infinity;
+   try { micDevice = localStorage.getItem("jarvis-mic-device") || ""; } catch (_) {}
+   var revealed = false, lastReply = "", lastPanel = null;
+   /* Silencio de fin de frase. Un solo sitio: desktop/audio/latencia.py lo repite y
+@@ -57,7 +58,7 @@
+   function resumeConversation() {
+     clearTimeout(resumeTimer);
+     resumeTimer = setTimeout(function () {
+-      if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
++      if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic) startMic();
+     }, 50);
+   }
+   addEventListener("jarvis-intro-done", function () { resumeConversation(); });
+@@ -106,6 +107,7 @@
+     });
+   }
+   function handle(e) {
++    if (e.turn && blockedTurns.indexOf(e.turn) !== -1) return;
+     if (e.type === "state") setState(e.state, e.detail || "");
+     else if (e.type === "health") renderHealth(e.health);
+     else if (e.type === "transcript.final" && e.turn === current) $("transcript").value = e.text;
+@@ -121,6 +123,7 @@
+     else if (e.type === "mic.on") { conversationPaused = false; resumeConversation(); setState("Microphone ready"); }
+     else if (e.type === "turn.done" || e.type === "turn.error" || e.type === "turn.cancelled") {
+       if (e.turn === current) { current = null; $("cancel").disabled = true; }
++      drainText();
+       if ($("convo").checked && isOwner && state.prefs.mic) {
+         resumeConversation();
+       }
+@@ -180,17 +183,17 @@
+       if (error && error.name === "NotAllowedError") {
+         setState("ready", "Touch the page once to allow voice playback");
+       } else {
+-        stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation();
++        stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); drainText(); resumeConversation();
+       }
+     });
+   }
+   function play(id, keepQ) {
+-    stopMic(true); clearTimeout(resumeTimer);
++    clearTimeout(resumeTimer);
+     if (!keepQ) playQ = [];
+     stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
+     var audio = audioEl;
+-    audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
+-    audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
++    audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); api("POST", "/api/voice/follow", {}).catch(function(){}); setState("ready"); drainText(); resumeConversation(); } };
++    audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); drainText(); resumeConversation(); };
+     setState("speaking");
+     voice.attach(audioEl, id);
+     audioEl.addEventListener("playing",function(){if(audio === audioEl && window.JarvisAmbience)window.JarvisAmbience.duck(true);});
+@@ -307,11 +310,10 @@
+   }
+   function startMic() {
+     if (window.JarvisIntroBusy) return;              // la introducción termina antes de escuchar
+-    if (!isOwner || rec || micPending || current || transcribing) return;
++    if (!isOwner || rec || micPending) return;
+     if (state.stt && state.stt.problem) { setState("listo", state.stt.problem); $("transcript").focus(); return; }
+     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setState("error", "este navegador no da acceso al micrófono"); return; }
+     if(window.JarvisStopIntro)window.JarvisStopIntro();
+-    stopAudio();                                   // never listen while Jarvis is speaking (no echo loop)
+     if (!state.prefs.mic) api("POST", "/api/prefs", { mic: true });
+     micPending = true; var ticket = ++micGeneration, openingStream = null, openingContext = null;
+     setState("opening", "Abriendo micrófono; espera a ESCUCHANDO");
+@@ -325,7 +327,8 @@
+         var Ctx = window.AudioContext || window.webkitAudioContext, ctx = openingContext = new Ctx();
+         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
+         var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000 });
+-        var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
++        var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate,
++          phrase: phrase, detector: det, duringOutput: false };
+         ctx.onstatechange = function () { captureState(capture); };
+         stream.getAudioTracks().forEach(function (track) {
+           track.onended = function () {
+@@ -344,10 +347,12 @@
+             var meter = $("mic-level"); if (meter) meter.value = level;
+             window.dispatchEvent(new CustomEvent("jarvis-mic-level", {detail:level}));
+           }
+-          var r = det.push(data, data.length / rec.rate * 1000);
+-          phrase.push(data, det.heard);
+-          if (r === "silence-end" || r === "max") { ack(); stopMic(false); }
+-          else if (r === "no-speech") { det = new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000 }); phrase.frames.length=0; phrase.samples=0; setState("listening", "No detecto una frase. Comprueba el nivel y el micrófono seleccionado."); }
++          var r = capture.detector.push(data, data.length / capture.rate * 1000);
++          capture.phrase.push(data, capture.detector.heard);
++          if (audioEl || playQ.length) lastPlaybackAt = performance.now();
++          if (capture.detector.heard && (audioEl || playQ.length || performance.now() - lastPlaybackAt < 350)) capture.duringOutput = true;
++          if (r === "silence-end" || r === "max") { if (capture.detector.heard) flushPhrase(capture); else resetPhrase(capture); }
++          else if (r === "no-speech") resetPhrase(capture);
+         };
+         src.connect(node); node.connect(ctx.destination);
+         $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
+@@ -366,35 +371,89 @@
+         setState("error", error && (error.name === "NotFoundError" || error.name === "OverconstrainedError") ? "No encuentro ese micrófono. Elige Predeterminado del sistema y pulsa Hablar." : "Micrófono no disponible. Comprueba el permiso y pulsa Hablar.");
+       });
+   }
++  function resetPhrase(capture) {
++    capture.phrase = new W.PhraseBuffer(capture.rate, 500);
++    capture.detector = new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000 });
++    capture.duringOutput = false;
++  }
++  function flushPhrase(capture) {
++    if (rec !== capture || !capture.detector.heard) return;
++    var chunks = capture.phrase.frames, duringOutput = capture.duringOutput;
++    resetPhrase(capture); // keep device, context and capture alive while STT/LLM run
++    var n = 0; chunks.forEach(function(c){ n += c.length; });
++    var all = new Float32Array(n), offset = 0;
++    chunks.forEach(function(c){ all.set(c, offset); offset += c.length; });
++    if (sttQueue.length >= 2) { setState("listening", "Tengo dos frases pendientes. Espera un momento y repite la última."); return; }
++    sttQueue.push({wav:W.encodeWav(W.downsample(all, capture.rate, W.OUT_RATE)),
++      ticket:micGeneration, interrupt:duringOutput});
++    if (!$("convo").checked) closeCapture(capture);
++    pumpTranscription();
++  }
++  function pumpTranscription() {
++    if (transcribing || !sttQueue.length) return;
++    var job = sttQueue.shift();
++    if (job.ticket !== micGeneration || !isOwner || conversationPaused || !state.prefs.mic) { pumpTranscription(); return; }
++    transcribing = true;
++    if (!audioEl && !current) setState("transcribing");
++    api("POST", "/voice/transcribe" + (job.interrupt ? "?interrupt=1" : ""), undefined, job.wav).then(function(t) {
++      if (job.ticket !== micGeneration || !isOwner || conversationPaused || !state.prefs.mic) return;
++      if (!t.text) { if (!current && !audioEl) setState("listening", t.reason === "no_wake_word" ? "Di «Jarvis» para hablarme" : ""); return; }
++      $("transcript").value = t.text; lastHeard = t.text; renderReply();
++      if ($("review").checked) { setState("listening", "Revisa el texto y pulsa Enviar"); return; }
++      if (t.interrupt_verified || (job.interrupt && (audioEl || playQ.length || current))) interruptWith(t.text);
++      else send(t.text, "voice");
++    }).catch(function(e) {
++      if (job.ticket === micGeneration) setState("error", e.message);
++    }).then(function() { transcribing = false; pumpTranscription(); resumeConversation(); });
++  }
++  function closeCapture(capture) {
++    if (rec !== capture) return;
++    rec = null;
++    try { capture.node.disconnect(); capture.src.disconnect(); } catch (_) {}
++    capture.ctx.onstatechange = null; capture.ctx.close();
++    releaseWarmMic(); capture.stream.getTracks().forEach(function(t){t.stop();});
++    micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
++  }
+   function stopMic(discard) {
+-    micGeneration++; micPending = false;
++    if (!discard && rec) { var active = rec; flushPhrase(active); if (!$("convo").checked) closeCapture(active); return; }
++    micGeneration++; micPending = false; sttQueue = []; textQueue = [];
+     var meter = $("mic-level"); if (meter) meter.value = 0;
+-    var r = rec; if (!r) { if (conversationPaused || !isOwner || !state.prefs.mic || !$("convo").checked) releaseWarmMic(); return; } rec = null;
+-    try { r.node.disconnect(); r.src.disconnect(); } catch (err) { /* already closed */ }
+-    if (!conversationPaused && isOwner && state.prefs.mic && $("convo").checked) {
+-      // Keep the granted device in conversation mode, but mute it between turns. No samples retained.
+-      r.stream.getTracks().forEach(function(t){t.enabled=false;});
+-    } else { releaseWarmMic(); r.stream.getTracks().forEach(function(t){t.stop();}); }
+-    r.ctx.onstatechange = null; r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
+-    if (discard) { setState("listo"); return; }
+-    var n = 0; r.chunks.forEach(function (c) { n += c.length; });
+-    var all = new Float32Array(n), o = 0; r.chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+-    var wav = W.encodeWav(W.downsample(all, r.rate, W.OUT_RATE));
+-    transcribing = true; var transcriptTicket = micGeneration; setState("transcribing");
+-    api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
+-      transcribing = false; if (transcriptTicket !== micGeneration) return; $("transcript").value = t.text;
+-      lastHeard = t.text; renderReply();
+-      if (!t.text) { setState("ready", t.reason === "no_wake_word" ? "Di «Jarvis» para hablarme" : "No distinguí palabras. Repite tu instrucción."); resumeConversation(); return; }
+-      if (!$("review").checked) send(t.text, "voice"); else setState("listo", "Review the transcript and press Send");
+-    }).catch(function (e) { transcribing = false; if (transcriptTicket !== micGeneration) return; setState("error", e.message); resumeConversation(); });
++    var capture = rec; rec = null;
++    if (!capture) { if (conversationPaused || !isOwner || !state.prefs.mic || !$("convo").checked) releaseWarmMic(); return; }
++    try { capture.node.disconnect(); capture.src.disconnect(); } catch (_) {}
++    capture.ctx.onstatechange = null; capture.ctx.close();
++    if (conversationPaused || !isOwner || !state.prefs.mic || !$("convo").checked) releaseWarmMic();
++    else capture.stream.getTracks().forEach(function(t){t.enabled=false;});
++    micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
++  }
++  function drainText() {
++    if (!isOwner || conversationPaused || !state.prefs.mic || current || audioEl || playQ.length || !textQueue.length) return;
++    var item = textQueue.shift(); send(item.text, item.source);
++  }
++  function interruptWith(text) {
++    var old = current || playTurn;
++    if (old) { blockedTurns.push(old); blockedTurns = blockedTurns.slice(-30); }
++    stopAudio();
++    // Keep listening; do not discard the microphone or unrelated pending transcripts.
++    var stopped = old ? api("POST", "/conversation/turns/" + old + "/cancel", {}) : api("POST", "/api/audio/stop", {});
++    stopped.then(function() {
++      if (current === old) current = null;
++      if (isOwner && !conversationPaused && state.prefs.mic) send(text, "voice");
++    }).catch(function(e) { setState("error", e.message); });
+   }
+ 
+   // ---------- turns ----------
+   function send(text, source) {
+-    text = String(text || "").trim(); if (!text || current) return;
+-    stopMic(true); clearTimeout(resumeTimer); setState("thinking");
++    text = String(text || "").trim(); if (!text) return;
++    if (current || audioEl || playQ.length) {
++      if (textQueue.length < 2) textQueue.push({text:text, source:source || "text"});
++      else setState("listening", "Tengo dos instrucciones pendientes. Espera un momento.");
++      return;
++    }
++    clearTimeout(resumeTimer); setState("thinking");
+     current = rid() + rid().slice(0, 4);
+     $("cancel").disabled = false; lastReply = ""; renderReply();
++    resumeConversation();
+     api("POST", "/conversation/turns", { request_id: current, text: text, source: source || "text" })
+       .catch(function (e) { setState("error", e.message); current = null; $("cancel").disabled = true; resumeConversation(); });
+   }
+--- /dev/null
++++ b/scripts/check_voice_session.py
+@@ -0,0 +1,58 @@
++"""Exercise the installed local voice app without microphones, network or real speech."""
++import importlib.util
++import sys
++import threading
++import time
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch, Mock
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / 'desktop'))
++spec = importlib.util.spec_from_file_location('voice_review_app', ROOT / 'desktop/app.py')
++app = importlib.util.module_from_spec(spec); sys.modules[spec.name] = app; spec.loader.exec_module(app)
++C = app.Companion
++obj = C.__new__(C); obj.cfg = {'VOICE_WAKE_WORD_ENABLED': 'true', 'VOICE_WAKE_FOLLOW_S': '40'}
++obj.lock = threading.RLock(); obj.last = {'text': 'Jarvis puede ayudarte con un informe.'}
++with patch.object(app.time, 'monotonic', return_value=100):
++    assert obj._wake_filter({'text': 'Yarvis. Hazme un informe'})['text'] == 'Jarvis. Hazme un informe'
++    assert obj._wake_filter({'text': 'Amplía la introducción'})['text']
++    assert obj._wake_filter({'text': 'Please, Jarvis, write an essay'})['text']
++    assert obj._wake_filter({'text': 'Por favor Jarvis, escribe un informe'})['text']
++    assert not obj._wake_filter({'text': 'Amplía la introducción'}, require_wake=True)['text']
++    assert obj._wake_filter({'text': 'Jarvis puede ayudarte con un informe.'}, require_wake=True)['reason'] == 'playback_echo'
++    assert not obj._wake_filter({'text': 'Jarvis.'})['text']
++    obj.voice_follow(); assert obj._wake_until == 140
++with patch.object(app.time, 'monotonic', return_value=141):
++    assert not obj._wake_filter({'text': 'una conversación ajena'})['text']
++obj.cfg['VOICE_WAKE_WORD_ENABLED'] = 'false'
++assert not obj._wake_filter({'text': 'sin nombre'}, require_wake=True)['text']
++assert obj._wake_filter({'text': 'sin nombre'})['text']
++
++# Parallel HTTP requests cannot start concurrent whisper.cpp processes.
++active = [0, 0]
++def stt(wav, **kw):
++    active[0] += 1; active[1] = max(active); time.sleep(.02); active[0] -= 1
++    return {'text': 'Jarvis, hola'}
++obj.home = ROOT; obj.retain = False; obj.stt = SimpleNamespace(transcribe=stt)
++obj._playback_native = lambda: False
++threads = [threading.Thread(target=obj.transcribe, args=(b'test',)) for _ in range(3)]
++for thread in threads: thread.start()
++for thread in threads: thread.join()
++assert active[1] == 1
++obj.turns = {'cancel-test': {'state': 'consultando', 'cancelled': False}}
++obj.stop_local_audio = Mock(); obj.emit = Mock()
++obj.cancel_turn('cancel-test')
++assert obj.turns['cancel-test']['state'] == 'cancelled'
++assert obj.turns['cancel-test']['cancelled']
++
++from audio import engines
++voice = engines.MacSay('auto-latino'); voice._pair = ('Juan', 'Daniel')
++assert voice.resolve_voice('Perfecto, gracias.') == 'Juan'
++assert voice.resolve_voice('123') == 'Juan'
++assert voice.resolve_voice('Sure, thanks.') == 'Daniel'
++assert voice.resolve_voice('123') == 'Daniel'
++import documentos
++for text in ('Jarvis. Hazme una monografía', '¿Jarvis, me haces un informe?', 'Jarvis, can you write an essay?'):
++    assert documentos.intent(text) == 'new', text
++print('Wake aliases, playback echo gate, follow-up clock, STT serialization, cancellation and bilingual voice: OK')
+--- /dev/null
++++ b/scripts/check_voice_continuity.cjs
+@@ -0,0 +1,102 @@
++/* Regression tests run the actual UI controller with fake devices and timers. */
++const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
++const path = require('node:path');
++const root = path.join(__dirname, '..');
++function harness(options = {}) {
++  const els = {}, timers = new Map(), requests = [], pending = [];
++  const listeners = {}, audios = [], contexts = [];
++  let serial = 0, captures = 0;
++  function element(id) {
++    return els[id] ||= { checked: false, value: '', classList: {add(){},remove(){}}, firstChild: {nodeValue:''},
++      setAttribute(){}, focus(){}, addEventListener(){}, children:[], appendChild(el){this.children.push(el)} };
++  }
++  const win = { crypto: require('node:crypto').webcrypto, JarvisWav:require('../desktop/ui/wav.js'),
++    JarvisMask:{mask:x=>x,hasSensitive:()=>false}, dispatchEvent(){}, isSecureContext:true };
++  const doc = { createElement:()=>({}), hidden:false, getElementById:element, querySelectorAll:()=>[], addEventListener(){}, activeElement:null };
++  const state = {prefs:{mic:true,review:false,rate:1},stt:{problem:''},tts:{problem:''},startup:{},server:{state:'ok'}};
++  const context = {window:win,document:doc,location:{search:''},console,Intl,Date,Uint8Array,Float32Array,Promise,Math,
++    CustomEvent: function(){}, performance:{now:()=>0},
++    sessionStorage:{getItem:()=>null,setItem(){}},localStorage:{getItem:key=>key==='jarvis-mic-device'?(options.savedDevice||null):null,setItem(){}},
++    setTimeout(fn){timers.set(++serial,fn);return serial},clearTimeout(id){timers.delete(id)},setInterval(){},clearInterval(){},
++    addEventListener(name,fn){(listeners[name] ||= []).push(fn);},requestAnimationFrame(){},cancelAnimationFrame(){},
++    navigator:{mediaDevices:{enumerateDevices: options.devices ? ()=>Promise.resolve(options.devices) : undefined, getUserMedia(){captures++;return new Promise(resolve=>pending.push(resolve));}}},
++    fetch(url,opt){requests.push([url,opt]);if(url.startsWith('/api/events'))return new Promise(()=>{});
++      if(url.startsWith('/voice/transcribe') && options.transcribe) return Promise.resolve(options.transcribe(url,opt)).then(data=>({ok:true,json:()=>Promise.resolve(data)}));
++      const data = url==='/api/state'?state:url==='/api/window/hello'?{owner:true}:{};
++      return Promise.resolve({ok:true,json:()=>Promise.resolve(data)});},
++    Audio: function(){audios.push(this);this.paused=false;this.currentTime=0;this.addEventListener=()=>{};this.removeEventListener=()=>{};
++      this.play=()=>options.play?options.play(this):Promise.resolve();this.pause=()=>{this.paused=true};}
++  };
++  win.AudioContext = function(){contexts.push(this);this.state=options.contextState || 'running';this.sampleRate=48000;
++    this.createMediaStreamSource=()=>{if(options.failCaptureSetup)throw new Error('setup failed');return {connect(){},disconnect(){}};};
++    this.createScriptProcessor=()=>({connect(){},disconnect(){}});this.close=()=>{this.state='closed';};
++    this.resume=()=>{if(options.resume)return options.resume(this);this.state='running';return Promise.resolve();};};
++  let src=fs.readFileSync(path.join(root,'desktop/ui/app.js'),'utf8');
++  src=src.replace(/\}\)\(\);\s*$/,`window.test = {startMic,stopMic,handle,setOwner,resumeConversation,
++    send,flushPhrase,interruptWith,queues:()=>({stt:sttQueue.length,text:textQueue.length}),audio:()=>audioEl,recording:()=>rec,setCurrent:x=>{current=x},setPaused:x=>{conversationPaused=x}};})();`);
++  vm.runInNewContext(src,context);
++  return {win,els,state,pending,requests,audios,contexts,gesture(){(listeners.pointerdown||[]).forEach(fn=>fn());},
++    captures:()=>captures,flush(){const jobs=[...timers.values()];timers.clear();jobs.forEach(fn=>fn())}};
++}
++function stream(){const track={readyState:"live",enabled:true,stop(){this.stopped=true;this.readyState="ended";}};return {track,getTracks:()=>[track],getAudioTracks:()=>[track]};}
++async function settle(){for(let i=0;i<15;i++)await Promise.resolve();}
++
++function phrase(h, overlap=false) {
++  const rec=h.win.test.recording(); rec.detector.heard=true;
++  rec.phrase.frames=[new Float32Array(24000).fill(.1)];rec.duringOutput=overlap;
++  h.win.test.flushPhrase(rec);return rec;
++}
++async function ready(options={}) {
++  const h=harness(options);await settle();h.flush();h.pending.shift()(stream());await settle();return h;
++}
++(async()=>{
++  const h=await ready({transcribe:()=>({text:'Jarvis, hazme una monografía del sol'})});
++  const rec=phrase(h);await settle();
++  assert.equal(h.win.test.recording(),rec,'same microphone/context survives transcription and model request');
++  assert.equal(h.captures(),1,'no device reacquisition between phrases');
++  assert.equal(h.requests.filter(r=>r[0]==='/conversation/turns').length,1);
++  h.win.test.handle({type:'audio.play',id:'answer',turn:'answer-turn'});
++  assert.equal(h.win.test.recording(),rec,'microphone stays active while TTS plays');
++  h.win.test.audio().onended();await settle();
++  assert(h.requests.some(r=>r[0]==='/api/voice/follow'),'follow-up clock renewed at audio end');
++
++  const q=await ready({transcribe:()=>({text:'Amplía la introducción'})});
++  q.win.test.setCurrent('busy-turn');phrase(q);await settle();
++  assert.equal(q.win.test.queues().text,1,'new phrase waits while previous query is processing');
++  assert.equal(q.requests.filter(r=>r[0]==='/conversation/turns').length,0);
++  q.win.test.handle({type:'turn.done',turn:'busy-turn'});await settle();
++  assert.equal(q.requests.filter(r=>r[0]==='/conversation/turns').length,1,'queued instruction submitted once after completion');
++
++  const echo=await ready({transcribe:()=>({text:'',reason:'playback_echo'})});
++  echo.win.test.handle({type:'audio.play',id:'echo',turn:'echo-turn'});phrase(echo,true);await settle();
++  assert(echo.requests.some(r=>r[0]==='/voice/transcribe?interrupt=1'),'overlapping speech requires wake-word verification');
++  assert.equal(echo.requests.filter(r=>r[0].includes('/cancel')).length,0,'filtered echo never cancels the answer');
++  assert(echo.win.test.audio(),'filtered echo leaves answer playing');
++
++  const interrupt=await ready({transcribe:()=>({text:'Jarvis, cambia de tema'})});
++  interrupt.win.test.setCurrent('old-turn');interrupt.win.test.handle({type:'audio.play',id:'old',turn:'old-turn'});
++  phrase(interrupt,true);await settle();
++  assert(interrupt.requests.some(r=>r[0]==='/conversation/turns/old-turn/cancel'),'wake-addressed interruption cancels old output');
++  assert.equal(interrupt.requests.filter(r=>r[0]==='/conversation/turns').length,1);
++  interrupt.win.test.handle({type:'audio.play',id:'late',turn:'old-turn'});
++  assert.equal(interrupt.win.test.audio(),null,'late audio from interrupted turn is suppressed');
++
++  let resolve;
++  const muted=await ready({transcribe:()=>new Promise(r=>{resolve=r})});phrase(muted);
++  muted.els['mic-off'].onclick();resolve({text:'Jarvis, escribe un informe'});await settle();
++  assert.equal(muted.win.test.recording(),null,'explicit mute closes capture');
++  assert.equal(muted.requests.filter(r=>r[0]==='/conversation/turns').length,0,'late transcript cannot override mute');
++  const once=await ready({transcribe:()=>({text:'Jarvis, escribe un informe'})});
++  once.els.convo.checked=false;phrase(once);await settle();
++  assert.equal(once.win.test.recording(),null,'single-shot mode closes capture after one phrase');
++  assert.equal(once.requests.filter(r=>r[0]==='/conversation/turns').length,1,'single-shot transcript is still submitted');
++
++  let finishStt, sttCalls=0;
++  const bounded=await ready({transcribe:()=>{sttCalls++;return new Promise(r=>{finishStt=r});}});
++  phrase(bounded);phrase(bounded);phrase(bounded);phrase(bounded);await settle();
++  assert.equal(sttCalls,1,'only one browser transcription request runs at a time');
++  assert.equal(bounded.win.test.queues().stt,2,'pending audio queue is bounded');
++  bounded.els['mic-off'].onclick();finishStt({text:'ignored'});await settle();
++  assert.equal(sttCalls,1,'muting discards queued audio before further transcription');
++  console.log('Continuous capture, queued follow-ups, playback wake gate, interruption and explicit mute: OK');
++})().catch(e=>{console.error(e);process.exitCode=1;});

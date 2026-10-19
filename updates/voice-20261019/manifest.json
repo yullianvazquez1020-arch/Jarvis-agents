@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "base": "panel-unico c750dd1 (owner upload 2026-10-19)",
+  "patch_sha256": "e18882a3ab49d3c51928838f64c6135474af8ccf8a263723feb63970358f3db9",
+  "files": [
+    {
+      "path": "desktop/app.py",
+      "before": "0846b51a507838b01049253c85848e46a81a196882df1724401e00a0692f9df6",
+      "after": "410c450f34118f1d634a04590d2fc33641bc3a17e6ff8e2e2f317aacad6e30d0"
+    },
+    {
+      "path": "desktop/documentos.py",
+      "before": "550387bcb74d41af71c2c37fb1cac231c3bd007fc763b08800902ded16665904",
+      "after": "7c05f0a6b38afc76884de4652a4e88adc8db61772ca3f3ff68696dc599b8f748"
+    },
+    {
+      "path": "desktop/audio/engines.py",
+      "before": "27e0b3696434dc76a1544daec1a3214bee497c2a2f21b40fe2c50888098987c0",
+      "after": "4be1d40f76b57f1d7ea9277bb4c45ed0bd62748a8b1e8de2cf291dc38e609ffa"
+    },
+    {
+      "path": "desktop/ui/app.js",
+      "before": "53246bd7b5e738c7a15d97acf41397a8fddf0e07eeb5c1cc7710aebc3b5c7eb9",
+      "after": "bda9faa5c131bb5f1a35bd084f7b14a71bdb08f984b1a2d6f4d84f7f4254e16d"
+    },
+    {
+      "path": "scripts/check_voice_session.py",
+      "before": null,
+      "after": "1ab8b26f30b53a8fb0227d4d4d91e3827605968e473755e5f9cf2d036730337a"
+    },
+    {
+      "path": "scripts/check_voice_continuity.cjs",
+      "before": null,
+      "after": "0a9e83ade2e38f30f9479fb4f9daa105d651c20cf6eedeb5f02017123d7e5b16"
+    }
+  ]
+}
