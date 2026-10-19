@@ -1,12 +1,12 @@
 {
   "format": 1,
   "base": "panel-unico c750dd1 (owner upload 2026-10-19)",
-  "patch_sha256": "e18882a3ab49d3c51928838f64c6135474af8ccf8a263723feb63970358f3db9",
+  "patch_sha256": "a1d60554206f9fd6cc69095f62c3bca129ca36a8e8beb3edce66f98c5a4a3229",
   "files": [
     {
       "path": "desktop/app.py",
       "before": "0846b51a507838b01049253c85848e46a81a196882df1724401e00a0692f9df6",
-      "after": "410c450f34118f1d634a04590d2fc33641bc3a17e6ff8e2e2f317aacad6e30d0"
+      "after": "5ddb3faa5b4c4f233a93777b48b31346e3fd497657bc5e3b79927493fbf751ed"
     },
     {
       "path": "desktop/documentos.py",
@@ -26,7 +26,7 @@
     {
       "path": "scripts/check_voice_session.py",
       "before": null,
-      "after": "1ab8b26f30b53a8fb0227d4d4d91e3827605968e473755e5f9cf2d036730337a"
+      "after": "427d64c6b335418cd134989ecfa1d9158dbbef3bcc9533f05a01c1617bc7fd9d"
     },
     {
       "path": "scripts/check_voice_continuity.cjs",
