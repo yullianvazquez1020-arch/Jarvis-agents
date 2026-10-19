@@ -63,7 +63,8 @@ UI_FILES = {"crystal-motion.js": "text/javascript; charset=utf-8", "crystal.css"
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8"}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8",
+            "aip.css": "text/css; charset=utf-8", "hud-uno.css": "text/css; charset=utf-8", "mercado-barra.css": "text/css; charset=utf-8", "mercado-barra.js": "text/javascript; charset=utf-8", "barge-in.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {p.relative_to(HERE / "ui" / "vendor").as_posix(): "text/javascript; charset=utf-8"
                 for p in sorted((HERE / "ui" / "vendor" / "three").rglob("*.js"))}   # todo three/**.js (MIT, local)
 # Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.
@@ -1163,7 +1164,11 @@ def make_handler(app, host, port):
             if not self._guard():
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
-                return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+                try:
+                    cuerpo = (HERE / "ui" / u.path[4:]).read_bytes()
+                except OSError:
+                    return self._send(404, {"error": "no existe"})   # registrado pero sin archivo: 404, no 500
+                return self._send(200, cuerpo, UI_FILES[u.path[4:]])
             if u.path.startswith("/ui/assets/") and u.path[11:] in ASSET_FILES:
                 if not app.avatar_ironman:
                     return self._send(404, {"error": "no existe"})
