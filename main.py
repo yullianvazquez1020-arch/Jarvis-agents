@@ -6365,9 +6365,20 @@ async def _model_call(history, tools, system, *, model=None, max_tokens=None):
 async def _ai_call(history):
     return await _model_call(history, TOOLS, system_prompt())
 
+# Voice turns (desktop panel and /voice) may use a faster model: VOICE_MODEL in Render, e.g. claude-haiku-5-5.
+# Empty (the default) keeps CLAUDE_MODEL, so nothing changes until the owner sets it. Telegram never uses it.
+_VOICE_TURN = contextvars.ContextVar("jarvis_voice_turn", default=False)
+
+def voice_model():
+    """Model for the current call: VOICE_MODEL only inside a voice turn, read at call time; else None (= MODEL)."""
+    if not _VOICE_TURN.get():
+        return None
+    name = os.getenv("VOICE_MODEL", "").strip()
+    return name if re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,80}", name) else None
+
 async def _ai_call_scoped(history, tools, extra_system):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await _model_call(history, tools, system_prompt() + extra_system)
+    return await _model_call(history, tools, system_prompt() + extra_system, model=voice_model())
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
@@ -6389,7 +6400,15 @@ async def _phase_a_remember_turn(session, user_text, reply):
 async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
-    storage write made by the tools of this turn (see _WRITE_BLOCK)."""
+    storage write made by the tools of this turn (see _WRITE_BLOCK). Voice turns may use VOICE_MODEL."""
+    token = _VOICE_TURN.set(read_only in ("voice", "escritorio"))
+    try:
+        return await _run_turn(session, message, allowed_tools=allowed_tools, extra_system=extra_system,
+                               read_only=read_only)
+    finally:
+        _VOICE_TURN.reset(token)
+
+async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
     clean, found = _redact_secrets(message)
     if not found:
         fact = str(clean or '').strip()
