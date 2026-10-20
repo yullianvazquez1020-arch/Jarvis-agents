@@ -65,7 +65,8 @@ UI_FILES = {"crystal-motion.js": "text/javascript; charset=utf-8", "crystal.css"
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
             "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8",
             "aip.css": "text/css; charset=utf-8", "hud-uno.css": "text/css; charset=utf-8", "mercado-barra.css": "text/css; charset=utf-8", "mercado-barra.js": "text/javascript; charset=utf-8", "barge-in.js": "text/javascript; charset=utf-8",
-            "vivo.js": "text/javascript; charset=utf-8"}
+            "vivo.js": "text/javascript; charset=utf-8",
+            "todo.css": "text/css; charset=utf-8", "todo.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {p.relative_to(HERE / "ui" / "vendor").as_posix(): "text/javascript; charset=utf-8"
                 for p in sorted((HERE / "ui" / "vendor" / "three").rglob("*.js"))}   # todo three/**.js (MIT, local)
 # Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.
@@ -1096,12 +1097,16 @@ def make_handler(app, host, port):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("X-Frame-Options", "DENY")
+            # SAMEORIGIN, no DENY: /todo muestra las cuatro paginas del panel en una sola pestana y
+            # necesita poder enmarcarse A SI MISMO. Sigue prohibido que CUALQUIER sitio externo
+            # enmarque el panel, que es de lo que protege esta cabecera (clickjacking). El panel
+            # ademas escucha en 127.0.0.1 y exige la cookie de sesion.
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; "
                              "img-src 'self' data: blob:; style-src 'self'; "
                              "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; "
                              "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; "
-                             "worker-src 'self' blob:; frame-ancestors 'none'")
+                             "worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'")
             for k, v in (headers or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -1152,10 +1157,10 @@ def make_handler(app, host, port):
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(200, (HERE / "ui" / "nucleo.html").read_bytes(), "text/html; charset=utf-8")   # sin Aincrad
-            if u.path in ("/", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
+            if u.path in ("/", "/todo", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "nucleo.html", "/torre": "nucleo.html", "/nucleo": "nucleo.html",   # la Torre de Aincrad se retiró: solo el núcleo
+                page = {"/": "index.html", "/todo": "todo.html", "/hud": "hud.html", "/avatar": "nucleo.html", "/torre": "nucleo.html", "/nucleo": "nucleo.html",   # la Torre de Aincrad se retiró: solo el núcleo
                        
                         "/mercado": "mercado.html", "/orbe": "orbe.html"}[u.path]
                 body = (HERE / "ui" / page).read_bytes()
