@@ -79,5 +79,39 @@ class NoInventa(unittest.TestCase):
         self.assertNotIn("__vivoEscribiendo", VIVO)
 
 
+class LaCurvaYLosPrecios(unittest.TestCase):
+    def test_las_tarjetas_ya_no_renacen_en_cada_refresco(self):
+        # Antes: host.innerHTML = "" en cada refresco, asi que el precio nacia de cero y no habia
+        # valor anterior con el que animar. Por eso saltaba.
+        cuerpo = MERCADO_JS[MERCADO_JS.index("function renderRings(products)"):]
+        cuerpo = cuerpo[:cuerpo.index("\n  }")]
+        self.assertNotIn('innerHTML = ""', cuerpo,
+                         "renderRings vuelve a borrar y recrear: el precio saltara otra vez")
+        self.assertIn("var tarjetas = {};", MERCADO_JS)
+        self.assertIn("tarjetas[m.product] || (tarjetas[m.product] = crearTarjeta(host, m))", MERCADO_JS)
+        self.assertIn("window.JarvisVivo.seguir(price)", MERCADO_JS)
+
+    def test_una_moneda_que_deja_de_venir_se_quita(self):
+        self.assertIn("if (!vistos[k]) { tarjetas[k].box.remove(); delete tarjetas[k]; }", MERCADO_JS)
+
+    def test_el_punto_de_ahora_marca_la_ultima_lectura_real(self):
+        self.assertIn("var ux = s.x(n - 1), uy = s.y(pts[n - 1].v);", MERCADO_JS)
+        self.assertIn("Math.sin(t / 420)", MERCADO_JS)
+
+    def test_el_destello_solo_sale_con_un_registro_nuevo_de_verdad(self):
+        # Si el servidor devuelve lo mismo, no se destella: seria fingir que paso algo.
+        self.assertIn("state.pts.length !== antes.length ||", MERCADO_JS)
+        self.assertIn("ultimoAntes.t !== ahoraUltimo.t || ultimoAntes.v !== ahoraUltimo.v", MERCADO_JS)
+        self.assertIn("state.puntoNuevo = performance.now();", MERCADO_JS)
+
+    def test_el_destello_se_apaga_solo(self):
+        self.assertIn("if (e >= 1) { state.puntoNuevo = 0; }", MERCADO_JS)
+
+    def test_se_respeta_a_quien_pidio_menos_movimiento(self):
+        # El latido y el anillo se apagan; el punto se sigue viendo, que es informacion.
+        self.assertIn("var late = reduce ? 0.5 :", MERCADO_JS)
+        self.assertIn("if (!reduce && state.puntoNuevo)", MERCADO_JS)
+
+
 if __name__ == "__main__":
     unittest.main()
