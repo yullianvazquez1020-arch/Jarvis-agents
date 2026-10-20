@@ -65,9 +65,42 @@ _PANEL = (
 )
 _NAV = re.compile(r"\b(dame|abre|abrir|muestrame|muestra|ensename|ensena|ver|pon|lee|leeme|panel|como estas|que tengo)\b")
 
+# Órdenes de pantalla por voz. Solo las que el ejecutor de la Mac (desktop/mac/agent_executor.py) ya acepta sin
+# adivinar nada: abrir una app o una web de SU lista, desplazar, mirar la pantalla y esperar.
+# A propósito NO se producen aquí "click", "double_click", "move" ni "type": todas necesitan coordenadas o texto
+# que por voz habría que inventar, y una coordenada inventada hace clic en el sitio equivocado. El clic llegará
+# cuando Jarvis lea la pantalla y sepa dónde está el elemento; hasta entonces no se promete.
+# Quien reciba esto (desktop/mouse_autonomo.py) y el ejecutor vuelven a validar STOP, denylist, app al frente,
+# ritmo y turno. Esta tabla no afloja ninguna de esas reglas: solo traduce la frase.
+MOUSE_APPS = {"safari": "Safari", "notas": "Notes", "notes": "Notes",
+              "outlook": "Microsoft Outlook", "slack": "Slack"}
+MOUSE_WEBS = {"github": "https://github.com", "git hub": "https://github.com"}
+MOUSE_SCROLL = 320
+MOUSE_WAIT_MAX = 10                                   # el ejecutor ya recorta a 10 s; aquí se recorta igual
+
+_ABRIR = r"(?:abre|abreme|abrir|abri|lanza|arranca|ve a|entra a|entra en)"
+_ALT = lambda d: "|".join(sorted((re.escape(k) for k in d), key=len, reverse=True))   # noqa: E731
+_MOUSE = (
+    (re.compile(_ABRIR + r"\s+(?:la\s+)?(?:pagina\s+(?:de\s+)?|web\s+(?:de\s+)?)?(" + _ALT(MOUSE_WEBS) + r")\b"),
+     lambda m: {"action": "open_url", "url": MOUSE_WEBS[m.group(1)]}),
+    (re.compile(_ABRIR + r"\s+(?:la\s+|el\s+)?(?:app\s+|aplicacion\s+|programa\s+)?(" + _ALT(MOUSE_APPS) + r")\b"),
+     lambda m: {"action": "open_app", "app": MOUSE_APPS[m.group(1)]}),
+    (re.compile(r"\b(?:baja|bajale|desplaza(?:te)?\s+(?:hacia\s+)?abajo|sigue\s+bajando)\b"),
+     lambda m: {"action": "scroll", "dy": -MOUSE_SCROLL}),
+    (re.compile(r"\b(?:sube|subele|desplaza(?:te)?\s+(?:hacia\s+)?arriba|sigue\s+subiendo)\b"),
+     lambda m: {"action": "scroll", "dy": MOUSE_SCROLL}),
+    (re.compile(r"\b(?:toma|tomame|hazme|haz|saca|sacame|dame)\s+(?:una\s+|un\s+)?(?:captura|pantallazo)"
+                r"(?:\s+de\s+(?:la\s+)?pantalla)?\b|\b(?:mira|revisa)\s+(?:la\s+)?pantalla\b|"
+                r"\bque\s+(?:hay|se\s+ve)\s+en\s+(?:la\s+)?pantalla\b"),
+     lambda m: {"action": "screenshot"}),
+    (re.compile(r"\bespera\s+(\d{1,3})\s+segundos?\b"),
+     lambda m: {"action": "wait", "seconds": min(MOUSE_WAIT_MAX, max(1, int(m.group(1))))}),
+)
+
 
 def parse(text):
-    """-> (kind, arg). kind: refuse | stop_mouse | stop_audio | mic_off | repeat | slower | faster | panel | server | empty."""
+    """-> (kind, arg). kind: refuse | stop_mouse | stop_audio | mic_off | repeat | slower | faster | panel |
+    mouse (arg = la orden para el ejecutor) | server | empty."""
     n = norm(text)
     if not n:
         return "empty", None
@@ -81,4 +114,9 @@ def parse(text):
         for name, rx in _PANEL:
             if rx.search(n):
                 return "panel", name
+    command = re.sub(r"^(?:por favor|please)\s+|\s+(?:por favor|please)$", "", n).strip()
+    for rx, orden in _MOUSE:                      # solo órdenes completas, no menciones dentro de conversación
+        m = rx.fullmatch(command)
+        if m:
+            return "mouse", orden(m)
     return "server", None
