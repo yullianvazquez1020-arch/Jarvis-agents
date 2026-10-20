@@ -64,7 +64,8 @@ UI_FILES = {"crystal-motion.js": "text/javascript; charset=utf-8", "crystal.css"
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
             "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8",
-            "aip.css": "text/css; charset=utf-8", "hud-uno.css": "text/css; charset=utf-8", "mercado-barra.css": "text/css; charset=utf-8", "mercado-barra.js": "text/javascript; charset=utf-8", "barge-in.js": "text/javascript; charset=utf-8"}
+            "aip.css": "text/css; charset=utf-8", "hud-uno.css": "text/css; charset=utf-8", "mercado-barra.css": "text/css; charset=utf-8", "mercado-barra.js": "text/javascript; charset=utf-8", "barge-in.js": "text/javascript; charset=utf-8",
+            "vivo.js": "text/javascript; charset=utf-8"}
 VENDOR_FILES = {p.relative_to(HERE / "ui" / "vendor").as_posix(): "text/javascript; charset=utf-8"
                 for p in sorted((HERE / "ui" / "vendor" / "three").rglob("*.js"))}   # todo three/**.js (MIT, local)
 # Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.

@@ -252,6 +252,30 @@
     var e = $("empty"); e.textContent = text; e.hidden = false;
     state.pts = []; ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
+  // Dice de cuando es el dato de VERDAD, no "actualizado" a secas. Si deja de llegar, se nota.
+  function pintarEdad() {
+    var el = $("when");
+    if (!el) return;
+    if (state.demo) {
+      el.textContent = "datos de ejemplo";
+      el.classList.remove("vivo-fresco", "vivo-viejo");
+      return;
+    }
+    if (!state.ultimoDato) return;
+    var seg = Math.max(0, Math.round((Date.now() - state.ultimoDato) / 1000));
+    el.textContent = seg < 5 ? "en vivo" : seg < 60 ? "hace " + seg + " s"
+                   : "hace " + Math.round(seg / 60) + " min";
+    var fresco = seg < 40;
+    el.classList.toggle("vivo-fresco", fresco);
+    el.classList.toggle("vivo-viejo", !fresco);
+  }
+
+  // Los numeros recorren el camino al nuevo valor en vez de saltar. Si vivo.js no esta, no pasa
+  // nada: los numeros siguen cambiando de golpe, como hasta ahora.
+  if (window.JarvisVivo) {
+    window.JarvisVivo.seguirTodo("#k-equity, #k-pnl, #k-dd, #k-ddnow, #k-pf, #k-win, #k-exp, #k-fees");
+  }
+
   function load() {
     fetch("/api/panels/practica", { credentials: "same-origin" }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, j: j }; });
@@ -262,7 +286,8 @@
       var first = !state.chart;
       state.chart = p.chart;
       state.pts = (p.chart.equity || []).filter(function (e) { return num(e.v) != null; });
-      $("when").textContent = state.demo ? "datos de ejemplo" : "actualizado " + whenFmt.format(new Date());
+      state.ultimoDato = Date.now();
+      pintarEdad();
       renderSummary(p.chart); renderRings(p.chart.products || []); renderTable();
       if (!state.pts.length) { showEmpty("La práctica todavía no ha corrido. La curva aparece después de la primera revisión."); return; }
       $("empty").hidden = true;
@@ -324,6 +349,20 @@
     }).catch(function () { b.textContent = "No disponible"; setTimeout(function () { b.textContent = "Pantalla completa"; }, 2000); });
   });
 
-  load(); setInterval(load, 60000);
+  // Estaba en 60 s: un minuto entero sin que nada cambiara, por eso parecia muerto. A 12 s se
+  // nota vivo y sigue siendo una peticion local. Con la pestana oculta no se pide nada: no tiene
+  // sentido gastar bateria y red pintando algo que nadie mira.
+  var VIVO_CADA = 12000;
+  var reloj = null;
+  function arrancarReloj() {
+    if (reloj) clearInterval(reloj);
+    reloj = setInterval(function () { if (!document.hidden) load(); }, VIVO_CADA);
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { load(); arrancarReloj(); }          // al volver, el dato de ya
+  });
+  load(); arrancarReloj();
+  // La edad del dato se cuenta sola, aunque no llegue nada nuevo: si se queda viejo, se ve.
+  setInterval(function () { if (!document.hidden) pintarEdad(); }, 1000);
   requestAnimationFrame(frame);
 })();
