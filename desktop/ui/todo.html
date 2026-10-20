@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<!-- Las cuatro pantallas de Jarvis en una sola pestana. Cada una sigue siendo su propia pagina:
+     no se duplica ni se reescribe nada, asi que lo que ya funcionaba sigue funcionando igual.
+     Se cargan cuando se abren por primera vez y se quedan vivas, para no perder su estado. -->
+<link rel="stylesheet" href="/ui/todo.css?v=1">
+</head>
+<body class="todo-page">
+  <header class="todo-barra">
+    <span class="todo-marca"><b>JARVIS</b> <span class="todo-sub">ADVANCED INTERFACE PROTOCOL</span></span>
+    <nav class="todo-tabs" id="tabs" role="tablist" aria-label="Jarvis views">
+      <button class="todo-tab" role="tab" data-vista="panel"   data-src="/"        aria-selected="true">Panel <kbd>1</kbd></button>
+      <button class="todo-tab" role="tab" data-vista="hud"     data-src="/hud"     aria-selected="false">HUD <kbd>2</kbd></button>
+      <button class="todo-tab" role="tab" data-vista="mercado" data-src="/mercado" aria-selected="false">Market <kbd>3</kbd></button>
+      <button class="todo-tab" role="tab" data-vista="core"    data-src="/avatar"  aria-selected="false">Core <kbd>4</kbd></button>
+    </nav>
+    <span class="todo-estado" id="estado">Voice lives in <b>Panel</b></span>
+  </header>
+  <main class="todo-lienzo" id="lienzo"></main>
+  <script src="/ui/todo.js?v=1"></script>
+</body>
+</html>
