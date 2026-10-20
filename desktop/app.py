@@ -86,7 +86,8 @@ RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
             "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
             "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
-            "JARVIS_AVATAR_IRONMAN": "0"}   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
+            "JARVIS_AVATAR_IRONMAN": "0",   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
+            "VOICE_MOUSE_ENABLED": "false"}  # órdenes de pantalla por voz: apagado hasta que el dueño lo encienda
 
 PULSE_S = 180                 # 4.0.5: one authenticated heartbeat every 3 minutes (status + alerts)
 SLOW_MS = 1500
@@ -119,6 +120,42 @@ DEMO_PANELS = {
     "practica": {"title": "DEMO — Práctica", "lines": ["Datos de ejemplo.", "Efectivo simulado: $1,000.00 (ejemplo)"],
                  "speak": "Panel de práctica de ejemplo.", "sensitive": False, "chart": None},
 }
+
+
+# Lo que se dice en voz alta cuando una orden de pantalla no pasa. El puente y el ejecutor devuelven motivos
+# técnicos (y uno de ellos trae un comando de Terminal): nunca se leen tal cual, porque Jarvis los diría en voz alta.
+MOUSE_NO = {
+    "STOP activo": "El mouse está parado. Borra el archivo STOP en la Mac y vuelvo a moverlo.",
+    "ya hay una orden pendiente": "Ya tengo una orden del mouse en cola; espera a que termine esa.",
+    "app": "Esa aplicación no está en la lista que puedo tocar.",
+    "url": "Esa página no está en la lista que puedo abrir.",
+    "denylist": "Eso entra en lo que nunca toco: bancos, pagos ni datos personales.",
+    "accion": "Esa orden no la sé hacer con el mouse.",
+    "agente": "Esa orden no quedó firmada, así que no la mandé.",
+}
+MOUSE_APAGADO = ("Las órdenes de pantalla están apagadas. Para encenderlas pon VOICE_MOUSE_ENABLED igual a true "
+                 "en la configuración del panel y reinícialo.")
+
+
+def _mouse_reply(orden, r):
+    """Lo que Jarvis dice tras encargar una orden de pantalla. Corto, en español y sin comandos."""
+    if not r.get("ok"):
+        motivo = str(r.get("motivo") or "")
+        if motivo.startswith("agente del mouse apagado"):
+            return "El agente del mouse no está encendido en la Mac, así que no moví nada."
+        return MOUSE_NO.get(motivo, "No moví nada: esa orden no pasó las reglas del mouse.")
+    kind = str(orden.get("action") or "")
+    if kind == "open_app":
+        return f"Abro {orden.get('app')}."
+    if kind == "open_url":
+        return "Abro " + str(orden.get("url") or "").replace("https://", "") + "."
+    if kind == "scroll":
+        return "Bajo la página." if int(orden.get("dy") or 0) < 0 else "Subo la página."
+    if kind == "screenshot":
+        return "Solicité una captura de pantalla; todavía no he confirmado el resultado."
+    if kind == "wait":
+        return f"Espero {int(orden.get('seconds') or 0)} segundos."
+    return "Orden enviada al mouse."
 
 
 def _crear_stop_mouse():
@@ -967,6 +1004,17 @@ class Companion:
                 p = self.panel(arg)
                 return self._finish(tid, "done", p.get("speak") or p["title"], sensitive=p.get("sensitive", False),
                                     panel_data=p)
+            if kind == "mouse":
+                # El dueño pide algo en su pantalla. Aquí solo se encarga: el puente y el ejecutor de la Mac
+                # revalidan STOP, denylist, app al frente, ritmo y turno antes de mover el puntero.
+                if not truthy(self.cfg.get("VOICE_MOUSE_ENABLED", "false")):
+                    return self._finish(tid, "done", MOUSE_APAGADO)
+                try:
+                    r = mouse_autonomo.encargar(arg)
+                except Exception as e:                           # el puente nunca debe tumbar el turno
+                    log.warning("mouse order failed: %s", type(e).__name__)
+                    r = {"ok": False, "motivo": ""}
+                return self._finish(tid, "done", _mouse_reply(arg, r))
             if kind == "empty":
                 return self._finish(tid, "done", "No te escuché.")
             if self.demo:
