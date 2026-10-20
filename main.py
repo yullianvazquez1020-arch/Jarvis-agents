@@ -251,6 +251,11 @@ AI_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 AI_READY = AI_KEY.lower() not in _AI_PLACEHOLDERS and not AI_KEY.lower().startswith(("test-", "fake-", "dummy-"))
 MODEL = os.getenv("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"   # documented API id (models overview)
 MODEL_FORMAT_OK = bool(re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", MODEL))
+# Modelo opcional SOLO para los turnos de voz del panel, donde la espera se oye. Vacio = el de siempre.
+# Si el nombre no tiene la forma de un id de modelo, se ignora: nunca se manda una cadena cualquiera a la API.
+VOICE_MODEL = os.getenv("VOICE_MODEL", "").strip()
+if VOICE_MODEL and not re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", VOICE_MODEL):
+    VOICE_MODEL = ""
 
 class AINotConfigured(RuntimeError):
     pass
@@ -6353,24 +6358,25 @@ def _tools_cached(tools):
     marcada["cache_control"] = {"type": "ephemeral"}
     return list(tools[:-1]) + [marcada]
 
-async def _create_con_cache(history, system, tools):
+async def _create_con_cache(history, system, tools, model=None):
+    model = model or MODEL
     try:
-        return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
                                             tools=_tools_cached(tools), messages=history)
     except (BadRequestError, TypeError) as e:
         if _cache_unsupported["si"] or not PROMPT_CACHE_ON or "cache" not in str(e).lower():
             raise
         _cache_unsupported["si"] = True                  # una sola vez por proceso
         logger.warning("la API rechazó la caché del prompt (%s); sigo sin ella", type(e).__name__)
-        return await client.messages.create(model=MODEL, max_tokens=AI_MAX_TOKENS, system=system,
+        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
                                             tools=tools, messages=history)
 
 async def _ai_call(history):
     return await _create_con_cache(history, system_prompt(), TOOLS)
 
-async def _ai_call_scoped(history, tools, extra_system):
+async def _ai_call_scoped(history, tools, extra_system, model=None):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await _create_con_cache(history, system_prompt() + extra_system, tools)
+    return await _create_con_cache(history, system_prompt() + extra_system, tools, model)
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
@@ -6389,7 +6395,7 @@ async def _phase_a_remember_turn(session, user_text, reply):
                     "lo piso. Revisa /cifrado.")
     return ""
 
-async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
+async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None, model=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
     storage write made by the tools of this turn (see _WRITE_BLOCK)."""
@@ -6456,7 +6462,7 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
         for _ in range(10):
             try:
                 r = await (_ai_call(history) if allowed_tools is None
-                           else _ai_call_scoped(history, scoped_tools, extra_system))
+                           else _ai_call_scoped(history, scoped_tools, extra_system, model))
             except BadRequestError as e:
                 _ai_state["last_error"] = f"BadRequest: {str(getattr(e, 'message', e))[:200]}"
                 if not repaired and not tools_executed and _is_history_error(e) and len(history) > 1:

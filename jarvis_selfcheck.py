@@ -345,7 +345,8 @@ def install(j):
                 pass
         return out
 
-    async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None):
+    async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None, **extra):
+        # **extra: lo que core.run acepte de mas (p.ej. model) pasa de largo.
         owner_full = allowed_tools is None and not read_only
         lesson_note = ""
         if owner_full and is_correction(message):
@@ -363,7 +364,7 @@ def install(j):
         token = _turn_numbers.set(set())
         try:
             reply = await original_run(session, message, allowed_tools=allowed_tools,
-                                       extra_system=extra_system, read_only=read_only)
+                                       extra_system=extra_system, read_only=read_only, **extra)
             reply = review(reply, session, user_text=message, count=not read_only)
         finally:
             _turn_numbers.reset(token)

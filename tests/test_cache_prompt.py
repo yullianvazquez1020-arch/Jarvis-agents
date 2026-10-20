@@ -79,7 +79,10 @@ class CachePrompt(unittest.TestCase):
 
     def test_no_cambia_el_modelo_ni_el_tope_de_respuesta(self):
         cuerpo = texto(funcion("_create_con_cache"))
-        self.assertIn("model=MODEL", cuerpo)
+        # El modelo entra por argumento (VOICE_MODEL en el canal del panel) y MODEL sigue siendo
+        # el valor por defecto: ningun canal cambia de modelo por accidente.
+        self.assertIn("model = model or MODEL", cuerpo)
+        self.assertEqual(cuerpo.count("model=model"), 2, "las dos llamadas tienen que usar el mismo modelo")
         self.assertIn("max_tokens=AI_MAX_TOKENS", cuerpo)
 
     def test_la_instruccion_sigue_llegando_entera_en_las_dos(self):

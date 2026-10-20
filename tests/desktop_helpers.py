@@ -62,9 +62,9 @@ class DesktopBase(unittest.TestCase):
     def ai(self, *responses):
         """Patch the scoped model call; returns the list of calls (history, tools)."""
         calls = []; seq = list(responses)
-        async def fake(history, tools, extra_system):
+        async def fake(history, tools, extra_system, model=None):
             calls.append({"history": json.loads(json.dumps(history, default=str)), "tools": [t["name"] for t in tools],
-                          "system": extra_system})
+                          "system": extra_system, "model": model})
             return seq.pop(0) if seq else ai_text("listo")
         self.stack.enter_context(patch.object(j, "AI_READY", True))
         self.stack.enter_context(patch.object(j, "_ai_call_scoped", new=fake))

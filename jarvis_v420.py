@@ -423,12 +423,14 @@ def install(core):
         return await core.client.messages.create(model=short, max_tokens=700, system=core.system_prompt(),
                                                  tools=core.TOOLS, messages=history)
 
-    async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None):
+    async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None, **extra):
+        # **extra: lo que core.run acepte de mas (p.ej. model) pasa de largo. Enumerar aqui los
+        # argumentos hacia que cada parametro nuevo de core.run reventara este canal.
         # Scoped channels keep the original authorization and write protections.
         # They must never enter the owner-only anomaly/history shortcuts below.
         if allowed_tools is not None or read_only:
             return await original_run(session, message, allowed_tools=allowed_tools,
-                                      extra_system=extra_system, read_only=read_only)
+                                      extra_system=extra_system, read_only=read_only, **extra)
         await __import__("asyncio").to_thread(core._require_leader)
         hit = local_answer(message)
         if hit:
@@ -440,7 +442,7 @@ def install(core):
         if delegated:
             note = await __import__("asyncio").to_thread(trip_anomaly, core, "delegación rara", delegated)
             return note
-        return await original_run(session, message, allowed_tools=allowed_tools, extra_system=extra_system, read_only=read_only)
+        return await original_run(session, message, allowed_tools=allowed_tools, extra_system=extra_system, read_only=read_only, **extra)
 
     async def tick(now, can_send):
         if original_tick:
