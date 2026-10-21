@@ -119,6 +119,10 @@ class Store:
     def set_pending(self, request_id):
         if self.pending_file.is_symlink():
             raise ValueError('Registro pendiente inválido')
+        # Se valida al ESCRIBIR con la misma regla que al leer. Sin esto, un id que pending()
+        # rechaza se quedaba guardado y dejaba el modulo trabado en TODAS las peticiones.
+        if request_id is not None and not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', str(request_id)):
+            raise ValueError('Identificador de turno inválido')
         _private_write(self.pending_file, json.dumps(request_id).encode())
 
     def latest(self):
@@ -190,6 +194,9 @@ def install(companion):
     original = companion._run_turn
 
     def run(self, tid, text):
+        with self.lock:
+            if self.turns.get(tid, {}).get("cancelled"):
+                return
         # Inspect only explicit document requests, never intercept normal conversation.
         value = intent(text, has_document=True)
         if value is None:
@@ -210,11 +217,14 @@ def install(companion):
                 store.set_pending(None)
                 return self._finish(tid, 'done', say('Quité el pendiente local. Los documentos guardados se conservan.', 'I cleared the pending request locally. Your saved documents are preserved.'))
             if value == 'open':
-                path = store.last_path()
+                try:
+                    path = store.last_path()
+                except ValueError:
+                    return self._finish(tid, 'done', say('Todavía no tienes un documento guardado. Pídeme que redacte uno.', "You do not have a saved document yet. Ask me to write one."))
                 opened = open_document(path)
                 return self._finish(tid, 'done', say('Abrí el último documento.', 'I opened your last document.') if opened else say('El documento está guardado, pero no pude abrirlo.', 'Your document is saved, but I could not open it.'))
             if self.demo or not self.client.url or not self._token():
-                return self._finish(tid, 'error', 'Necesito la conexión real con Jarvis para redactar el documento.')
+                return self._finish(tid, 'error', say('Necesito la conexión real con Jarvis para redactar el documento.', 'I need the live connection to Jarvis to write the document.'))
             with self.lock:
                 self.turns[tid]['state'] = 'consultando'
             self.emit({'type': 'state', 'state': 'consultando', 'turn': tid})
@@ -222,11 +232,11 @@ def install(companion):
             if value == 'recover':
                 request_id = store.pending()
                 if not request_id:
-                    return self._finish(tid, 'done', 'No hay un documento pendiente de recuperar.')
+                    return self._finish(tid, 'done', say('No hay un documento pendiente de recuperar.', 'There is no pending document to recover.'))
                 result = self.client._call('POST', '/desktop/v1/documents/get', {'request_id': request_id})
             else:
                 if store.pending():
-                    return self._finish(tid, 'error', 'Hay una redacción sin confirmar. Di: recupera el documento pendiente.')
+                    return self._finish(tid, 'error', say('Hay una redacción sin confirmar. Di: recupera el documento pendiente.', 'A draft is still unconfirmed. Say: recover the pending document.'))
                 body = {'request_id': tid, 'text': text, 'preferences': store.preferences(),
                         'previous': previous if value == 'revise' else None}
                 store.set_pending(tid)
@@ -234,7 +244,7 @@ def install(companion):
             if result.get('state') != 'done' or not result.get('document'):
                 if result.get('state') == 'error':
                     store.set_pending(None)
-                return self._finish(tid, 'error', result.get('reply') or 'La redacción sigue sin confirmar. Di: recupera el documento pendiente.')
+                return self._finish(tid, 'error', result.get('reply') or say('La redacción sigue sin confirmar. Di: recupera el documento pendiente.', 'The draft is still unconfirmed. Say: recover the pending document.'))
             with self.lock:
                 if self.turns[tid].get('cancelled'):
                     return

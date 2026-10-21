@@ -37,6 +37,11 @@ WHISPER_TIMEOUT = 90
 FFMPEG_TIMEOUT = 30
 REPLY_TEXT = "Recibí tu nota. Revisa el texto antes de procesarla."
 NAME_HINT = "Jarvis. Yullian Vázquez. ISLAFIX PRO LLC. Puerto Rico."   # PR11 rev (3): only real names
+# Idioma de entrada por defecto, de JARVIS_REPLY_LANGUAGE (igual que las respuestas). Con el modelo
+# "tiny" acertar el idioma importa más que con los grandes: en automático confunde el español y el
+# inglés en notas cortas, y sale una transcripción que no se parece a lo que se dijo.
+# Se resuelve AQUÍ, en el proceso padre: el trabajador corre aparte, sin estas variables de entorno.
+DEFAULT_STT_LANG = "es" if os.getenv("JARVIS_REPLY_LANGUAGE", "en-GB").strip().lower().startswith("es") else "en"
 MAX_DONE_VOICES = 200   # PR11 rev (4): processed/answered notes kept; pending ones are never dropped
 _voice_busy = {"n": 0}  # PR11 rev (5): the shared lock is held by a voice note, not by a video
 log = logging.getLogger(__name__)
@@ -179,8 +184,13 @@ async def transcribe_local(raw: bytes, language: str = "es") -> str:
     return (await transcribe_local_detect(raw, language))[0]
 
 
-async def transcribe_local_detect(raw: bytes, language: str = "auto") -> tuple:
-    """(texto, idioma detectado por Whisper o None). Con language='auto' Whisper detecta el idioma del turno."""
+async def transcribe_local_detect(raw: bytes, language: str = "") -> tuple:
+    """(texto, idioma detectado por Whisper o None).
+
+    Sin idioma, o con 'auto', usa DEFAULT_STT_LANG en vez de dejar que Whisper adivine: con el
+    modelo 'tiny' la detección automática falla en notas cortas. Un 'es' o 'en' explícito manda."""
+    if language in ("", "auto", None):
+        language = DEFAULT_STT_LANG
     if not raw or len(raw) > MAX_AUDIO:
         raise ValueError("audio vacío o mayor de 1.5 MB")
     with tempfile.TemporaryDirectory(prefix="jarvis-voz-") as tmp:

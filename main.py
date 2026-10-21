@@ -266,6 +266,11 @@ AI_KEY = _anthropic_key(os.getenv("ANTHROPIC_API_KEY", ""))
 AI_READY = bool(AI_KEY)
 MODEL = os.getenv("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"   # documented API id (models overview)
 MODEL_FORMAT_OK = bool(re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", MODEL))
+# Modelo opcional SOLO para los turnos de voz del panel, donde la espera se oye. Vacio = el de siempre.
+# Si el nombre no tiene la forma de un id de modelo, se ignora: nunca se manda una cadena cualquiera a la API.
+VOICE_MODEL = os.getenv("VOICE_MODEL", "").strip()
+if VOICE_MODEL and not re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", VOICE_MODEL):
+    VOICE_MODEL = ""
 
 class AINotConfigured(RuntimeError):
     pass
@@ -6186,7 +6191,7 @@ def system_prompt():
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT + PERSONALITY_PROMPT + _specialists.PROMPT +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT + LANGUAGE_RULE + _specialists.PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6362,8 +6367,6 @@ async def _model_call(history, tools, system, *, model=None, max_tokens=None):
                          cache_write_tokens=count('cache_creation_input_tokens'))
     return result
 
-async def _ai_call(history):
-    return await _model_call(history, TOOLS, system_prompt())
 
 # Voice turns (desktop panel and /voice) may use a faster model: VOICE_MODEL in Render, e.g. claude-haiku-5-5.
 # Empty (the default) keeps CLAUDE_MODEL, so nothing changes until the owner sets it. Telegram never uses it.
@@ -6375,10 +6378,60 @@ def voice_model():
         return None
     name = os.getenv("VOICE_MODEL", "").strip()
     return name if re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,80}", name) else None
+# 4.2.8 IDIOMA: una sola variable decide en qué idioma contesta Jarvis, por voz y por escrito.
+# El dueño (17 oct): «has que todo sea en inglés, yo soy full english». Antes el idioma estaba
+# escrito a mano en cuatro sitios distintos y no coincidían entre ellos.
+# JARVIS_REPLY_LANGUAGE=es-PR (o cualquier es-*) lo devuelve al español sin tocar código.
+REPLY_LANG = "es" if os.getenv("JARVIS_REPLY_LANGUAGE", "en-GB").strip().lower().replace("_", "-").startswith("es") else "en"
+SPEECH_STYLE = {
+    "en": ("For spoken conversation, use warm, direct British English, with calm confidence and natural "
+           "phrasing. Reply in English even when the question mixes in Spanish words or names."),
+    "es": ("For spoken conversation, use warm, direct Latin American Spanish, with calm confidence and "
+           "natural phrasing. Do not imitate an accent with misspellings."),
+}[REPLY_LANG]
+LANGUAGE_RULE = ("\nLANGUAGE: always answer in English, including when the tone file below is written in "
+                 "Spanish. Keep the owner's own names for things (ISLAFIX, /cobros, client names) as they are.\n"
+                 if REPLY_LANG == "en" else
+                 "\nIDIOMA: contesta siempre en español.\n")
 
-async def _ai_call_scoped(history, tools, extra_system):
+# 4.2.8 CACHÉ DEL PROMPT: las definiciones de herramientas (~3 400 tokens) son IDÉNTICAS en cada
+# llamada, y en el orden de la caché van antes que la instrucción del sistema. Por eso se cachean
+# ellas y no la instrucción: la primera línea de system_prompt() lleva la hora al minuto, así que
+# cambia cada sesenta segundos y no se podría reutilizar nunca.
+# Esto no cambia lo que el modelo ve: mismas herramientas, misma instrucción, mismo orden.
+# Medido en el latencia.log del dueño: el primer token tarda 4 807 ms de mediana (57 % del turno).
+# AI_PROMPT_CACHE=false lo apaga. Si la API rechaza la marca, se reintenta sin ella y se avisa una
+# vez: una respuesta tarde es mejor que un chat roto.
+PROMPT_CACHE_ON = os.getenv("AI_PROMPT_CACHE", "true").strip().lower() not in ("false", "0", "no")
+_cache_unsupported = {"si": False}        # se pone a True si la API la rechaza; no se reintenta más
+
+def _tools_cached(tools):
+    """Las mismas herramientas, con el punto de corte de la caché en la última."""
+    if not PROMPT_CACHE_ON or _cache_unsupported["si"] or not tools:
+        return tools
+    marcada = dict(tools[-1])
+    marcada["cache_control"] = {"type": "ephemeral"}
+    return list(tools[:-1]) + [marcada]
+
+async def _create_con_cache(history, system, tools, model=None):
+    model = model or MODEL
+    try:
+        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
+                                            tools=_tools_cached(tools), messages=history)
+    except (BadRequestError, TypeError) as e:
+        if _cache_unsupported["si"] or not PROMPT_CACHE_ON or "cache" not in str(e).lower():
+            raise
+        _cache_unsupported["si"] = True                  # una sola vez por proceso
+        logger.warning("la API rechazó la caché del prompt (%s); sigo sin ella", type(e).__name__)
+        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
+                                            tools=tools, messages=history)
+
+async def _ai_call(history):
+    return await _create_con_cache(history, system_prompt(), TOOLS)
+
+async def _ai_call_scoped(history, tools, extra_system, model=None):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await _model_call(history, tools, system_prompt() + extra_system, model=voice_model())
+    return await _create_con_cache(history, system_prompt() + extra_system, tools, model or voice_model())
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
@@ -6397,7 +6450,7 @@ async def _phase_a_remember_turn(session, user_text, reply):
                     "lo piso. Revisa /cifrado.")
     return ""
 
-async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
+async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None, model=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
     storage write made by the tools of this turn (see _WRITE_BLOCK). Voice turns may use VOICE_MODEL."""
@@ -6472,7 +6525,7 @@ async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_sys
         for _ in range(10):
             try:
                 r = await (_ai_call(history) if allowed_tools is None
-                           else _ai_call_scoped(history, scoped_tools, extra_system))
+                           else _ai_call_scoped(history, scoped_tools, extra_system, model))
             except BadRequestError as e:
                 _ai_state["last_error"] = f"BadRequest: {str(getattr(e, 'message', e))[:200]}"
                 if not repaired and not tools_executed and _is_history_error(e) and len(history) > 1:
@@ -6882,9 +6935,8 @@ async def _handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
                               extra_system="\nVOICE QUERY: read-only. Never change data, prepare or send actions, "
                               "or approve anything. If the request needs an action, explain it was not executed "
                               "and ask the owner to review and process the numbered dictation explicitly. "
-                              "For spoken conversation, use warm, direct Latin American Spanish, with calm "
-                              "confidence and natural phrasing. Do not imitate an accent with misspellings. "
-                              "Start with one complete spoken sentence under 180 characters that keeps any "
+                              + SPEECH_STYLE +
+                              " Start with one complete spoken sentence under 180 characters that keeps any "
                               "essential qualification. Then add details only when useful. Avoid headings, "
                               "tables, emoji, repeated greetings and theatrical filler. Never invent progress, "
                               "capabilities, income or promises to sound reassuring.")

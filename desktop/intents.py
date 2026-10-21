@@ -4,6 +4,10 @@ Interface orders ("silencio", "repite", "más despacio", "abre práctica") are r
 an approval, a code or a command is refused here too, so it never reaches Jarvis or any parser."""
 import re
 import unicodedata
+try:
+    from .account_navigation import parse_account, parse_application
+except ImportError:
+    from account_navigation import parse_account, parse_application
 
 PANELS = ("estado", "agenda", "cobros", "practica", "brief", "caja")
 
@@ -38,7 +42,7 @@ _LOCAL_EN = (
     ("slower", re.compile(r"\b(?:speak slower|talk slower|slow down|speak more slowly)\b")),
     ("faster", re.compile(r"\b(?:speak faster|talk faster|speed up)\b")),
     ("repeat", re.compile(r"^(?:please )?(?:repeat|repeat that|say that again|what did you say)(?: please)?$")),
-    ("health", re.compile(r"^(?:how are you|system status|jarvis status|diagnostics)$")),
+    ("health", re.compile(r"^(?:system status|jarvis status|diagnostics)$")),
 )
 
 _LOCAL = (
@@ -48,11 +52,19 @@ _LOCAL = (
     ("mic_on", re.compile(r"\b(enciende|prende|activa|abre) (el )?microfono\b")),            # 4.0.5 (3.4)
     ("discreet_off", re.compile(r"\b(desactiva|apaga|quita|sal del?) (el )?modo discreto\b")),
     ("discreet_on", re.compile(r"\b(modo discreto)\b")),
-    ("health", re.compile(r"^(como estas|como andas|estado del sistema|estado de jarvis|diagnostico)$")),
+    ("health", re.compile(r"^(estado del sistema|estado de jarvis|diagnostico)$")),
     ("business", re.compile(r"\b(negocios? externos?|proveedores externos?|enfoque de negocio)\b")),
     ("repeat", re.compile(r"^(repite|repitelo|repitemelo|otra vez|que dijiste|puedes repetir)( eso| por favor)?$")),
     ("slower", re.compile(r"\b(mas despacio|mas lento|habla (mas )?despacio|baja la velocidad)\b")),
     ("faster", re.compile(r"\b(mas rapido|habla (mas )?rapido|sube la velocidad)\b")),
+)
+
+_MOUSE_RAPIDO = (
+    ("mouse", re.compile(r"\b(open|abre|abrir) (safari)\b"), {"action": "open_app", "app": "Safari"}),
+    ("mouse", re.compile(r"\b(open|abre|abrir) (notes|notas)\b"), {"action": "open_app", "app": "Notes"}),
+    ("mouse", re.compile(r"\b(scroll|baja|desliza) (down|abajo)\b|^scroll down$"), {"action": "scroll", "dy": -5}),
+    ("mouse", re.compile(r"\b(scroll|sube|desliza) (up|arriba)\b|^scroll up$"), {"action": "scroll", "dy": 5}),
+    ("mouse", re.compile(r"\b(take a screenshot|captura (de )?pantalla)\b"), {"action": "screenshot"}),
 )
 
 _PANEL = (
@@ -100,23 +112,48 @@ _MOUSE = (
 
 def parse(text):
     """-> (kind, arg). kind: refuse | stop_mouse | stop_audio | mic_off | repeat | slower | faster | panel |
-    mouse (arg = la orden para el ejecutor) | server | empty."""
+    mouse (arg = la orden para el ejecutor) | account | application | server | empty.
+
+    Precedencia de la union: refuse primero (seguridad). Despues las ordenes de pantalla
+    COMPLETAS (tabla revisada del #172 + atajos del panel, siempre fullmatch: una mencion
+    dentro de una conversacion nunca acciona la pantalla). Recien despues la navegacion
+    de cuentas y de apps del panel, los atajos locales y los paneles. "abre github" y
+    "Abre Outlook" son ordenes de pantalla desde el #172; la cuenta se pide con la forma
+    explicita ("abre mi cuenta de github"), que parse_account sigue reconociendo."""
     n = norm(text)
     if not n:
         return "empty", None
     for rx, reply in _REFUSE:
         if rx.search(n):
             return "refuse", reply
-    for kind, rx in _LOCAL_EN + _LOCAL:
-        if rx.search(n):
-            return kind, None
-    if len(n.split()) <= 8 and _NAV.search(n):
-        for name, rx in _PANEL:
-            if rx.search(n):
-                return "panel", name
     command = re.sub(r"^(?:por favor|please)\s+|\s+(?:por favor|please)$", "", n).strip()
     for rx, orden in _MOUSE:                      # solo órdenes completas, no menciones dentro de conversación
         m = rx.fullmatch(command)
         if m:
             return "mouse", orden(m)
+    for kind, rx, arg in _MOUSE_RAPIDO:           # atajos del panel (inglés): también orden completa, nunca mención
+        if rx.fullmatch(command):
+            return kind, arg
+    account = parse_account(n)
+    if account:
+        return "account", account
+    application = parse_application(n)
+    if application:
+        return "application", application
+    for kind, rx in _LOCAL_EN + _LOCAL:
+        if rx.search(n):
+            # A request for faster replies is not a request to speed up speech.
+            # Keep the existing short commands, but let conversation reach the model.
+            if kind in ("slower", "faster") and not re.fullmatch(
+                    r"(?:please )?(?:mas despacio|mas lento|mas rapido|habla (?:mas )?(?:despacio|rapido)|"
+                    r"baja la velocidad|sube la velocidad|speak slower|talk slower|slow down|"
+                    r"speak more slowly|speak faster|talk faster|speed up)(?: por favor| please)?", n):
+                continue
+            if kind == "business" and n not in ("negocios externos", "negocio externo", "proveedores externos", "enfoque de negocio"):
+                continue
+            return kind, None
+    if len(n.split()) <= 8 and _NAV.search(n):
+        for name, rx in _PANEL:
+            if rx.search(n):
+                return "panel", name
     return "server", None

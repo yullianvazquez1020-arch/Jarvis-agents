@@ -302,13 +302,13 @@ class Turns(CompanionBase):
         self.pair(); self.jarvis.close()
         ev = self.turn("¿qué tengo pendiente?", "offline-001")
         reply = [e for e in ev if e["type"] == "reply.text"][0]["text"]
-        self.assertIn("sin conexión", reply); self.assertIn("turn.error", [e["type"] for e in ev])
+        self.assertIn("no connection", reply); self.assertIn("turn.error", [e["type"] for e in ev])
 
     def test_discreet_mode_never_reads_amounts(self):
         self.pair(); self.app.tts = FakeTTS(); self.app.owner = "win-a"
         self.app.set_prefs(discreet=True)
         self.turn("muéstrame los cobros", "discreet-01")
-        self.assertEqual(self.app.tts.texts[-1][0], "Te lo dejé en pantalla.")
+        self.assertEqual(self.app.tts.texts[-1][0], "I left it on screen, sir.")
 
     def test_unpaired_device_gets_no_private_data(self):
         ev = self.turn("¿cuánto me deben?", "unpaired-01")
@@ -333,7 +333,7 @@ class Demo(CompanionBase):
         _, p, _, _ = self.req("GET", "/api/panels/cobros")
         self.assertTrue(p["demo"]); self.assertIn("DEMO", p["title"])
         ev = self.turn("¿cómo voy?", "demo-00001")
-        self.assertIn("DEMO", [e for e in ev if e["type"] == "reply.text"][0]["text"])
+        self.assertIn("Demo mode", [e for e in ev if e["type"] == "reply.text"][0]["text"])
         self.assertEqual(self.jarvis.calls, [])
         self.assertTrue(self.req("GET", "/api/state")[1]["demo"])
 
@@ -421,7 +421,7 @@ class AudioOutput(unittest.TestCase):
         for bad in ("🎉", "**", "https", "ZZZZ", "YYYY"):
             self.assertNotIn(bad, spoken)
         args = (tmp / "args").read_text()
-        self.assertIn("-v Juan", args); self.assertIn("-r 144", args); self.assertNotIn("tienes", args)
+        self.assertIn("-v Daniel", args); self.assertIn("-r 136", args); self.assertNotIn("tienes", args)
 
     def test_local_voice_prefers_male_juan_and_caches(self):
         listing = type("Listing", (), {"stdout": "Monica es_ES # Hola\nPaulina es_MX # Hola\nJuan es_MX # Hola\n"})()
@@ -456,7 +456,7 @@ class AudioOutput(unittest.TestCase):
 
 class IntentTable(unittest.TestCase):
     def test_table_from_the_plan(self):
-        cases = {"Jarvis, ¿cómo estás?": ("health", None), "Léeme la agenda": ("panel", "agenda"),
+        cases = {"Jarvis, ¿cómo estás?": ("server", None), "Estado del sistema": ("health", None), "Léeme la agenda": ("panel", "agenda"),
                  "Muéstrame los cobros": ("panel", "cobros"), "Abre práctica": ("panel", "practica"),
                  "Repite": ("repeat", None), "Habla más despacio": ("slower", None), "Silencio": ("stop_audio", None),
                  "Apaga el micrófono": ("mic_off", None), "Confirma 123456": "refuse",
@@ -547,7 +547,7 @@ class Displays(CompanionBase):
         self.pair(); self.app.tts = FakeTTS(); self.app.owner = "win-a"; self.app.set_prefs(discreet=True)
         self.jarvis.alerts = [{"key": "bill:9", "kind": "cuenta", "text": "Cuenta vencida: Luz $120.50", "when": "x"}]
         self.app.pulse_once()
-        self.assertEqual(self.app.tts.texts[-1][0], "Te lo dejé en pantalla.")
+        self.assertEqual(self.app.tts.texts[-1][0], "I left it on screen, sir.")
 
     def test_hud_filters_cards_and_opens_detail_in_main_window(self):
         self.pair()
@@ -580,7 +580,7 @@ class Displays(CompanionBase):
 
     def test_local_health_answer_has_no_balances(self):
         self.pair(); self.app.pulse_once()
-        ev = self.turn("Jarvis, ¿cómo estás?", "health-0001")
+        ev = self.turn("Jarvis, estado del sistema", "health-0001")
         reply = [e for e in ev if e["type"] == "reply.text"][0]["text"]
         for word in ("Server", "Voice", "Microphone", "windows"):
             self.assertIn(word, reply)
@@ -612,13 +612,13 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc3">', body)              # Aincrad retirado: /torre muestra el núcleo
         self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
         self.assertNotIn(b"https://", body)
         self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
-        self.assertIn(b'href="/nucleo"', self.req("GET", "/")[3])
+        self.assertNotIn(b'href="/nucleo"', self.req("GET", "/")[3])   # una sola página: el núcleo ya está en /
         self.assertEqual(self.req("GET", "/ui/nucleo.js")[0], 200); self.assertEqual(self.req("GET", "/ui/nucleo.css")[0], 200)
         st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
         self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
@@ -634,13 +634,13 @@ class Displays(CompanionBase):
             self.assertEqual(self.req("GET", path, cookie=False)[0], 401, path)
         status, _, response, body = self.req("GET", "/torre")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # Aincrad retirado: /torre muestra el núcleo
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc3">', body)              # Aincrad retirado: /torre muestra el núcleo
         self.assertNotIn(b"aincrad", body.lower())
         self.assertNotIn(b"<script>", body)
         self.assertNotIn(b"style=", body)                                  # CSP: style-src 'self', sin estilos en línea
         self.assertNotIn(b"https://", body)
         self.assertIn("script-src 'self'", response.getheader("Content-Security-Policy"))
-        self.assertIn(b'href="/nucleo"', self.req("GET", "/")[3])
+        self.assertNotIn(b'href="/nucleo"', self.req("GET", "/")[3])   # una sola página: el núcleo ya está en /
         self.assertEqual(self.req("GET", "/ui/nucleo.js")[0], 200); self.assertEqual(self.req("GET", "/ui/nucleo.css")[0], 200)
         st, _, r, jpg = self.req("GET", "/ui/torre.jpg")
         self.assertEqual(st, 200); self.assertEqual(r.getheader("Content-Type"), "image/jpeg")
@@ -656,7 +656,7 @@ class Displays(CompanionBase):
         self.assertEqual(self.req("GET", "/ui/avatar.js", cookie=False)[0], 401)
         status, _, response, body = self.req("GET", "/avatar")
         self.assertEqual(status, 200)
-        self.assertIn(b'<script src="/ui/nucleo.js">', body)              # /avatar = núcleo; sin ciudad orbital ni 100 pisos
+        self.assertIn(b'<script src="/ui/nucleo.js?v=arc3">', body)              # /avatar = núcleo; sin ciudad orbital ni 100 pisos
         self.assertNotIn("ÓRBITA".encode(), body); self.assertNotIn(b"PISOS", body)
         self.assertNotIn(b'<script>', body)
         self.assertIn("script-src 'self'", response.getheader('Content-Security-Policy'))
@@ -815,11 +815,13 @@ class GalaxyTheme(CompanionBase):
 
     def test_home_is_the_nucleo_full_screen(self):
         body = self.req("GET", "/")[3]
-        self.assertIn(b'<canvas id="nucleo"', body); self.assertIn(b'<script src="/ui/nucleo.js"></script>', body)
+        self.assertIn(b'<div id="crystal-art"', body)
+        self.assertIn(b'/ui/crystal.js?v=1', body)
+        self.assertNotIn(b'/ui/nucleo-gl.js', body)
         self.assertIn(b'<script src="/ui/nucleo-home.js"></script>', body); self.assertIn(b'<script src="/ui/app.js"></script>', body)
         for banned in (b"negocios.js", b"atlas.js", b"torre", "ÓRBITA".encode(), b"PISOS", b"CIUDADELA", b"/avatar\""):
             self.assertNotIn(banned, body, banned)
-        for f in ("/ui/nucleo-home.js", "/ui/nucleo-home.css"):
+        for f in ("/ui/nucleo-home.js", "/ui/nucleo-home.css", "/ui/crystal.js", "/ui/crystal.css", "/ui/crystal-core.jpg"):
             self.assertEqual(self.req("GET", f, cookie=False)[0], 401); self.assertEqual(self.req("GET", f)[0], 200)
 
     def test_sky_script_is_local_and_reads_no_data(self):
@@ -828,7 +830,7 @@ class GalaxyTheme(CompanionBase):
         self.assertEqual(st, 200); self.assertIn("javascript", r.getheader("Content-Type"))
         for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"getUserMedia", b"eval("):
             self.assertNotIn(banned, js, banned)
-        for page in ("/", "/hud"):
+        for page in ("/hud",):
             body = self.req("GET", page)[3]
             self.assertIn(b'<script src="/ui/cielo.js"></script>', body)
             self.assertNotIn(b"<script>", body)
@@ -840,7 +842,7 @@ class GalaxyTheme(CompanionBase):
         self.assertEqual(st, 200)
         for banned in (b"fetch(", b"XMLHttpRequest", b"/api/", b"https://", b"eval("):
             self.assertNotIn(banned, js, banned)
-        for page in ("/", "/hud", "/mercado"):
+        for page in ("/hud", "/mercado"):
             self.assertIn(b'<script src="/ui/mecanismo.js"></script>', self.req("GET", page)[3], page)
         hud = self.req("GET", "/ui/hud.js")[3]
         for yellow in (b"#ffda78", b"#f5ce5e"):

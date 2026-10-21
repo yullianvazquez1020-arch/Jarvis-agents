@@ -18,9 +18,13 @@ class UnaSolaVoz(unittest.TestCase):
         self.assertNotIn('"say"', src)
 
     def test_ingles_por_defecto(self):
-        self.assertEqual(engines.detect_lang("Systems online"), "en")
-        self.assertEqual(engines.detect_lang("ok"), "en")
-        self.assertEqual(engines.detect_lang("¿Cómo estás?"), "es")
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"JARVIS_REPLY_LANGUAGE": ""}):   # sin preferencia: inglés
+            self.assertEqual(engines.detect_lang("Systems online"), "en")
+            self.assertEqual(engines.detect_lang("ok"), "en")
+            self.assertEqual(engines.detect_lang("¿Cómo estás?"), "es")
+        self.assertIn("ENGLISH", (ROOT / "jarvis_desktop_api.py").read_text("utf-8"))
 
     def test_frases_para_hablar_enseguida(self):
         self.assertEqual(app.speech_chunks("Good evening, sir. All systems are online. Ready."),
@@ -28,7 +32,7 @@ class UnaSolaVoz(unittest.TestCase):
         self.assertEqual(app.speech_chunks("Hola"), ["Hola"])
 
     def test_calidad_y_ritmo(self):
-        self.assertEqual(engines.DEFAULT_WPM, 170); self.assertEqual(engines.DANIEL_WPM, 170)
+        self.assertEqual(engines.DEFAULT_WPM, 160); self.assertEqual(engines.DANIEL_WPM, 160)
         self.assertIn("LEI16@44100", inspect.getsource(engines.MacSay.synthesize))
 
     def test_stop_during_first_synthesis_prevents_playback(self):

@@ -7,7 +7,17 @@
   var windowId = rid();
   var isOwner = false, seq = 0, current = null, rec = null, audioEl = null, state = { prefs: {} };
   var micPending = false, micGeneration = 0, resumeTimer = 0, transcribing = false, conversationPaused = false;
+  var warmStream = null, micDevice = "";
+  try { micDevice = localStorage.getItem("jarvis-mic-device") || ""; } catch (_) {}
   var revealed = false, lastReply = "", lastPanel = null;
+  /* Silencio de fin de frase. Un solo sitio: desktop/audio/latencia.py lo repite y
+     tests/test_voz_ingles_primero.py comprueba que los dos digan lo mismo. */
+  var VAD_SILENCE_MS = 350;
+  var lastNoise = 0;                               // ruido del cuarto medido en el turno anterior
+  function vadDetector(noise) {                    // ignora clics, golpes y ruidos cortos
+    return new W.Detector({ silenceMs: VAD_SILENCE_MS, maxMs: 30000, adaptive: true, minStartMs: 200,
+                            minSpeechMs: 320, calibrateMs: 300, noise: noise || 0 });
+  }
   var PANEL_NAMES = { agenda: 1, cobros: 1, practica: 1, estado: 1, brief: 1, caja: 1 };
   var HUD_NAMES = { cobros: 1, vencidos: 1, agenda: 1, balances: 1, stock: 1, mensajes: 1, practica: 1 };
   var clockFmt = new Intl.DateTimeFormat("en-PR", { timeZone: "America/Puerto_Rico", hour: "2-digit", minute: "2-digit",
@@ -48,21 +58,28 @@
             i.real_trading_active ? "bad" : "ok");
   }
   function tick() { $("st-clock").textContent = clockFmt.format(new Date()); }
-  function setState(s, detail) { s = ({listo:"ready", hablando:"speaking", escuchando:"listening", consultando:"thinking", transcribiendo:"transcribing"})[s] || s; $("state").textContent = s + (detail ? " — " + detail : ""); }
+  function setState(s, detail) { s = ({listo:"ready", hablando:"speaking", escuchando:"listening", consultando:"thinking", transcribiendo:"transcribing"})[s] || s; var labels={ready:"LISTO",speaking:"HABLANDO",listening:"ESCUCHANDO",thinking:"CONSULTANDO",transcribing:"TRANSCRIBIENDO",opening:"ABRIENDO MICRÓFONO"}; $("state").textContent = (labels[s] || s) + (detail ? " — " + detail : ""); }
   function resumeConversation() {
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(function () {
       if ($("convo").checked && !conversationPaused && isOwner && state.prefs.mic && !current && !transcribing && !audioEl && !playQ.length) startMic();
-    }, 150);
+    }, 50);
   }
+  addEventListener("jarvis-intro-done", function () { resumeConversation(); });
+  function releaseWarmMic() {
+    if (warmStream) { warmStream.getTracks().forEach(function(t){t.stop();}); warmStream=null; }
+  }
+  addEventListener("pagehide", function(){conversationPaused=true;stopMic(true);releaseWarmMic();});
   function pauseConversation() { conversationPaused = true; clearTimeout(resumeTimer); stopMic(true); }
   function setOwner(own) {
-    if (!own) { clearTimeout(resumeTimer); stopMic(true); stopAudio(); }
+    var regained = own && !isOwner;
+    if (!own) { clearTimeout(resumeTimer); stopMic(true); releaseWarmMic(); stopAudio(); }
     isOwner = own;
     window.JarvisAudioOwner=own;
     window.dispatchEvent(new CustomEvent("jarvis-audio-owner",{detail:own}));
     $("chip-role").textContent = own ? "This window: voice and audio" : "This window: display only";
-    $("owner-note").hidden = own; $("talk").disabled = !own;
+    $("owner-note").hidden = own; $("claim").hidden = own; $("talk").disabled = !own;
+    if (regained) resumeConversation();
   }
   function micUi(on) {
     $("mic-dot").textContent = on ? "● microphone listening" : "● microphone off";
@@ -109,7 +126,7 @@
     else if (e.type === "mic.on") { conversationPaused = false; resumeConversation(); setState("Microphone ready"); }
     else if (e.type === "turn.done" || e.type === "turn.error" || e.type === "turn.cancelled") {
       if (e.turn === current) { current = null; $("cancel").disabled = true; }
-      if (e.type === "turn.done" && $("convo").checked && isOwner && state.prefs.mic) {
+      if ($("convo").checked && isOwner && state.prefs.mic) {
         resumeConversation();
       }
     }
@@ -123,7 +140,10 @@
   }
 
   // ---------- reply and detail (masked in discreet mode until "Mostrar") ----------
+  var lastHeard = "";
   function renderReply() {
+    var heard = document.getElementById("crystal-heard");
+    if (heard) heard.textContent = show(lastHeard || "Esperando voz");
     $("reply").textContent = show(lastReply);
     $("reveal").hidden = !(discreet() && M.hasSensitive(lastReply + (lastPanel ? (lastPanel.lines || []).join(" ") : "")));
     $("reveal").textContent = revealed ? "Ocultar" : "Mostrar";
@@ -159,25 +179,43 @@
   // ---------- audio out ----------
   // Una sola voz a la vez: frases del mismo turno en cola; un turno nuevo corta el anterior.
   var playQ = [], playTurn = null;
+  function attemptPlayback(audio) {
+    audio.play().catch(function (error) {
+      if (audio !== audioEl) return; // an old promise cannot stop a newer reply
+      if (error && error.name === "NotAllowedError") {
+        setState("ready", "Touch the page once to allow voice playback");
+      } else {
+        stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation();
+      }
+    });
+  }
+  // Lo minimo que necesita barge-in.js para interrumpir: el stream ya concedido, parar el
+  // audio y abrir el microfono de verdad. No expone nada que la pagina no haga ya.
+  window.JarvisMicAPI = { warmStream: function () { return warmStream; },
+                          startMic: function () { startMic(); },
+                          stopAudio: function () { stopAudio(); } };
   function play(id, keepQ) {
     stopMic(true); clearTimeout(resumeTimer);
+    if (window.JarvisBargeIn) window.JarvisBargeIn.watch();   // sigue escuchando MIENTRAS habla
     if (!keepQ) playQ = [];
     stopAudio(true); audioEl = new Audio("/voice/audio/" + id);
-    audioEl.onended = function () { if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
-    audioEl.onerror = function () { stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
+    var audio = audioEl;
+    audioEl.onended = function () { if (audio !== audioEl) return; if (playQ.length) play(playQ.shift(), true); else { stopAudio(); setState("ready"); resumeConversation(); } };
+    audioEl.onerror = function () { if (audio !== audioEl) return; stopAudio(); setState("ready", "Audio unavailable; reply remains on screen."); resumeConversation(); };
     setState("speaking");
     voice.attach(audioEl, id);
-    audioEl.addEventListener("playing",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(true);});
-    audioEl.addEventListener("ended",function(){if(window.JarvisAmbience)window.JarvisAmbience.duck(false);});
-    audioEl.play().catch(function () { setState("listo", "Touch the page once to allow audio"); });
+    audioEl.addEventListener("playing",function(){if(audio === audioEl && window.JarvisAmbience)window.JarvisAmbience.duck(true);});
+    attemptPlayback(audio);
   }
   addEventListener("pointerdown", function () {
-    if (audioEl && audioEl.paused && audioEl.currentTime===0) audioEl.play().catch(function(){});
+    if (audioEl && audioEl.paused && audioEl.currentTime===0) attemptPlayback(audioEl);
+    if (rec && rec.ctx.state === "suspended") resumeCapture(rec);
   });
   function stopAudio(keepQ) {
+    if (window.JarvisBargeIn) window.JarvisBargeIn.stop();
     if (!keepQ) playQ = [];
     if(window.JarvisAmbience)window.JarvisAmbience.duck(false);
-    if (audioEl) { voice.detach(audioEl); audioEl.pause(); audioEl.src = ""; audioEl = null; }
+    if (audioEl) { var old = audioEl; audioEl = null; old.onended = null; old.onerror = null; voice.detach(old); old.pause(); old.src = ""; }
   }
 
   // ---------- boca del avatar: envolvente y reloj del audio que suena aquí (ventana /avatar) ----------
@@ -255,69 +293,160 @@
   window.JarvisVoiceSync = { log: voice.log };
 
   // ---------- microphone ----------
+  function captureState(capture) {
+    if (rec !== capture) return;
+    var ready = capture.ctx.state === "running";
+    micUi(ready);
+    setState(ready ? "listening" : "ready", ready ? "" : "Microphone audio paused; touch the page to resume");
+  }
+  function resumeCapture(capture) {
+    capture.ctx.resume().then(function () { captureState(capture); }).catch(function () {
+      if (rec !== capture) return;
+      conversationPaused = true; stopMic(true); releaseWarmMic();
+      setState("error", "Microphone audio could not start. Press Talk to retry.");
+    });
+  }
+  var ackCtx = null;
+  function ack() {                                  // "tic" inmediato al terminar de hablar (<10 ms tras el VAD), antes de STT/IA
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext; ackCtx = ackCtx || new Ctx(); ackCtx.resume();
+      var o = ackCtx.createOscillator(), g = ackCtx.createGain(), t0 = ackCtx.currentTime;
+      o.frequency.setValueAtTime(1320, t0); o.frequency.exponentialRampToValueAtTime(880, t0 + 0.07);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09);
+      o.connect(g); g.connect(ackCtx.destination); o.start(t0); o.stop(t0 + 0.1);
+      window.JarvisAckAt = performance.now();
+    } catch (err) { /* sin audio: seguimos */ }
+  }
   function startMic() {
+    if (window.JarvisIntroBusy) return;              // la introducción termina antes de escuchar
     if (!isOwner || rec || micPending || current || transcribing) return;
     if (state.stt && state.stt.problem) { setState("listo", state.stt.problem); $("transcript").focus(); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setState("error", "este navegador no da acceso al micrófono"); return; }
     if(window.JarvisStopIntro)window.JarvisStopIntro();
     stopAudio();                                   // never listen while Jarvis is speaking (no echo loop)
     if (!state.prefs.mic) api("POST", "/api/prefs", { mic: true });
-    micPending = true; var ticket = ++micGeneration;
-    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+    micPending = true; var ticket = ++micGeneration, openingStream = null, openingContext = null;
+    setState("opening", "Abriendo micrófono; espera a ESCUCHANDO");
+    var reusable = warmStream && warmStream.getAudioTracks().every(function(t){return t.readyState === "live";});
+    if (!reusable) releaseWarmMic();
+    (reusable ? Promise.resolve(warmStream) : navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, deviceId: micDevice ? {exact:micDevice} : undefined } }))
       .then(function (stream) {
         if (ticket !== micGeneration || !isOwner) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
-        micPending = false;
-        var Ctx = window.AudioContext || window.webkitAudioContext, ctx = new Ctx();
+        micPending = false; openingStream = stream; warmStream = stream; refreshMicrophones();
+        stream.getAudioTracks().forEach(function(t){t.enabled=true;});
+        var Ctx = window.AudioContext || window.webkitAudioContext, ctx = openingContext = new Ctx();
         var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(1024, 1, 1);
-        var capture = new W.CaptureBuffer(ctx.sampleRate, 300), det = new W.Detector({ silenceMs: 600, maxMs: 30000 });
-        rec = { stream: stream, ctx: ctx, node: node, src: src, capture: capture, rate: ctx.sampleRate };
+        var phrase = new W.PhraseBuffer(ctx.sampleRate, 500), chunks = phrase.frames, det = vadDetector(lastNoise);
+        var capture = rec = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, rate: ctx.sampleRate };
+        ctx.onstatechange = function () { captureState(capture); };
+        stream.getAudioTracks().forEach(function (track) {
+          track.onended = function () {
+            if (rec !== capture) return;
+            releaseWarmMic(); stopMic(true); setState("ready", "Microphone disconnected; reconnecting"); resumeConversation();
+          };
+        });
+        var lastLevelAt = 0;
         node.onaudioprocess = function (ev) {
-          if (!rec) return;
+          if (rec !== capture) return;
           var data = new Float32Array(ev.inputBuffer.getChannelData(0));
+          if (performance.now() - lastLevelAt > 80) {
+            lastLevelAt = performance.now(); var energy = 0;
+            for (var i=0;i<data.length;i++) energy += data[i]*data[i];
+            var level = Math.min(1,Math.sqrt(energy/data.length)*8);
+            var meter = $("mic-level"); if (meter) meter.value = level;
+            window.dispatchEvent(new CustomEvent("jarvis-mic-level", {detail:level}));
+          }
           var r = det.push(data, data.length / rec.rate * 1000);
-          capture.push(data, r === "speech");
-          if (r === "silence-end" || r === "max") stopMic(false);
-          else if (r === "no-speech") { stopMic(true); setState("ready", "waiting for speech"); resumeConversation(); }
+          phrase.push(data, det.heard);
+          if (r === "silence-end" || r === "max") { lastNoise = det.noise; ack(); stopMic(false); }
+          else if (r === "no-speech") { lastNoise = det.noise; det = vadDetector(lastNoise); phrase.frames.length=0; phrase.samples=0; setState("listening", "No detecto una frase. Comprueba el nivel y el micrófono seleccionado."); }
         };
         src.connect(node); node.connect(ctx.destination);
-        micUi(true); $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
-        setState("listening");
+        $("talk").classList.add("recording"); $("talk").firstChild.nodeValue = "Stop ";
+        captureState(capture);
+        if (ctx.state === "suspended") resumeCapture(capture);
       })
-      .catch(function () { if (ticket !== micGeneration) return; micPending = false; conversationPaused = true; setState("error", "Microphone unavailable. Check permission, then press Talk."); });
+      .catch(function (error) {
+        if (ticket !== micGeneration) return;
+        conversationPaused = true;
+        if (rec && rec.stream === openingStream) stopMic(true);
+        else {
+          if (openingStream) openingStream.getTracks().forEach(function (t) { t.stop(); });
+          if (openingContext) openingContext.close();
+        }
+        releaseWarmMic(); micPending = false; conversationPaused = true;
+        setState("error", error && (error.name === "NotFoundError" || error.name === "OverconstrainedError") ? "No encuentro ese micrófono. Elige Predeterminado del sistema y pulsa Hablar." : "Micrófono no disponible. Comprueba el permiso y pulsa Hablar.");
+      });
   }
   function stopMic(discard) {
     micGeneration++; micPending = false;
-    var r = rec; if (!r) return; rec = null;
+    var meter = $("mic-level"); if (meter) meter.value = 0;
+    var r = rec; if (!r) { if (conversationPaused || !isOwner || !state.prefs.mic || !$("convo").checked) releaseWarmMic(); return; } rec = null;
     try { r.node.disconnect(); r.src.disconnect(); } catch (err) { /* already closed */ }
-    r.stream.getTracks().forEach(function (t) { t.stop(); });   // the indicator goes off immediately
-    r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
+    if (!conversationPaused && isOwner && state.prefs.mic && $("convo").checked) {
+      // Keep the granted device in conversation mode, but mute it between turns. No samples retained.
+      r.stream.getTracks().forEach(function(t){t.enabled=false;});
+    } else { releaseWarmMic(); r.stream.getTracks().forEach(function(t){t.stop();}); }
+    r.ctx.onstatechange = null; r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
     if (discard) { setState("listo"); return; }
     var all = r.capture.audio();
     var wav = W.encodeWav(W.downsample(all, r.rate, W.OUT_RATE));
     transcribing = true; var transcriptTicket = micGeneration; setState("transcribing");
     api("POST", "/voice/transcribe", undefined, wav).then(function (t) {
       transcribing = false; if (transcriptTicket !== micGeneration) return; $("transcript").value = t.text;
-      if (!t.text) { setState("ready", "No speech detected"); resumeConversation(); return; }
+      lastHeard = t.text; renderReply();
+      if (!t.text) { setState("ready", t.reason === "no_wake_word" ? "Di «Jarvis» para hablarme" : "No distinguí palabras. Repite tu instrucción."); resumeConversation(); return; }
       if (!$("review").checked) send(t.text, "voice"); else setState("listo", "Review the transcript and press Send");
-    }).catch(function (e) { transcribing = false; setState("error", e.message); });
+    }).catch(function (e) { transcribing = false; if (transcriptTicket !== micGeneration) return; setState("error", e.message); resumeConversation(); });
   }
 
   // ---------- turns ----------
   function send(text, source) {
     text = String(text || "").trim(); if (!text || current) return;
-    stopMic(true); clearTimeout(resumeTimer);
+    stopMic(true); clearTimeout(resumeTimer); setState("thinking");
     current = rid() + rid().slice(0, 4);
     $("cancel").disabled = false; lastReply = ""; renderReply();
     api("POST", "/conversation/turns", { request_id: current, text: text, source: source || "text" })
-      .catch(function (e) { setState("error", e.message); current = null; $("cancel").disabled = true; });
+      .catch(function (e) { setState("error", e.message); current = null; $("cancel").disabled = true; resumeConversation(); });
   }
+
+  // Device labels are populated only after the browser grants microphone permission.
+  var microphoneListTicket = 0;
+  function refreshMicrophones() {
+    var select = $("mic-source");
+    if (!select || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    var ticket = ++microphoneListTicket;
+    navigator.mediaDevices.enumerateDevices().then(function(devices) {
+      if (ticket !== microphoneListTicket) return;
+      select.textContent = "";
+      var base = document.createElement("option"); base.value = ""; base.textContent = "Predeterminado del sistema"; select.appendChild(base);
+      devices.filter(function(d){return d.kind === "audioinput" && d.deviceId;}).forEach(function(d,i){
+        var option = document.createElement("option"); option.value = d.deviceId;
+        option.textContent = d.label || ("Micrófono " + (i+1)); select.appendChild(option);
+      });
+      if (micDevice && !devices.some(function(d){return d.kind === "audioinput" && d.deviceId === micDevice;})) {
+        var missing = document.createElement("option"); missing.value = micDevice;
+        missing.textContent = "Micrófono guardado no disponible — cambia la selección";
+        select.appendChild(missing);
+      }
+      select.value = micDevice;
+    }).catch(function(){});
+  }
+  if ($("mic-source")) $("mic-source").onchange = function() {
+    micDevice = this.value; try { localStorage.setItem("jarvis-mic-device",micDevice); } catch (_) {}
+    stopMic(true); releaseWarmMic(); conversationPaused = false; startMic();
+  };
+
+  refreshMicrophones();
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
+    navigator.mediaDevices.addEventListener("devicechange", refreshMicrophones);
 
   // ---------- wiring ----------
   function showCode(code) { $("pair-code").hidden = false; $("pair-code").textContent = code;
     $("pair-msg").textContent = "En tu chat privado de Telegram con Jarvis escribe: /emparejar " + code; }
 
-  $("talk").onclick = function () { conversationPaused = false; rec ? stopMic(false) : startMic(); };
-  try { $("convo").checked = localStorage.getItem("jarvis-conversation") !== "off"; } catch (_) { $("convo").checked = true; }
+  $("talk").onclick = function () { if (window.JarvisStopIntro) window.JarvisStopIntro(); conversationPaused = false; rec ? stopMic(false) : startMic(); };
+  try { $("convo").checked = (localStorage.getItem("jarvis-conversation") || (localStorage.getItem("jarvis-convo") === "0" ? "off" : "on")) !== "off"; } catch (_) { $("convo").checked = true; }
   $("convo").onchange = function () {
     try { localStorage.setItem("jarvis-conversation", this.checked ? "on" : "off"); } catch (_) {}
     if (this.checked) { conversationPaused = false; resumeConversation(); } else pauseConversation();
@@ -328,7 +457,11 @@
   $("repeat").onclick = function () { send("repite", "text"); };
   $("stop").onclick = function () { pauseConversation(); stopAudio(); api("POST", "/api/audio/stop", {}); };
   $("mic-off").onclick = function () { pauseConversation(); state.prefs.mic = false; api("POST", "/api/prefs", { mic: false }); };
-  $("claim").onclick = function () { api("POST", "/api/audio/claim", { window: windowId }).then(function () { setOwner(true); }); };
+  $("claim").onclick = function () {
+    api("POST", "/api/audio/claim", { window: windowId }).then(function () {
+      setOwner(true); conversationPaused = false; startMic();
+    }).catch(function(e){setState("error", e.message);});
+  };
   $("review").onchange = function () { api("POST", "/api/prefs", { review: this.checked }); };
   $("discreet").onchange = function () { revealed = false; api("POST", "/api/prefs", { discreet: this.checked }); };
   $("rate").onchange = function () { api("POST", "/api/prefs", { rate: parseFloat(this.value) }); };
@@ -349,6 +482,15 @@
     }
   });
 
+  function mouseStatus() {                          // estado del mouse en la misma página (solo lectura)
+    api("GET", "/api/mouse-autonomo").then(function (m) {
+      $("st-mouse").textContent = m.stop ? "STOP active" : (m.sesion ? "ready (" + m.agente + ")" : "waiting");
+      var ax = m.accesibilidad || {}, el = $("st-ax");
+      el.textContent = ax.concedido === true ? "granted ✓" : ax.concedido === false ? "Not granted: Settings > Privacy > Accessibility > python3.9" : "Unknown (check mouse service)";
+      el.style.color = ax.concedido === true ? "#6f6" : ax.concedido === false ? "#f66" : "";
+    }).catch(function () { $("st-mouse").textContent = "Unavailable"; });
+  }
+  mouseStatus(); setInterval(mouseStatus, 10000);
   tick(); setInterval(tick, 15000);
   api("POST", "/api/window/hello", { window: windowId }).then(function (r) { setOwner(r.owner); })
     .then(loadState).then(function () {

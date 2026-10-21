@@ -1,0 +1,52 @@
+/* Barra de trading. Mismo sistema de color que mercado.css: azul y negro, SIN violeta.
+   Verde/rojo son estado, no identidad: por eso cada número lleva signo y flecha, y el color
+   nunca es el único aviso (verde y rojo son justo el par que peor distingue un daltónico). */
+:root{
+  --gain:#34c98a;        /* ganancia · 9.9:1 sobre negro, ΔE 9.4 frente al rojo en deuteranopia */
+  --loss:var(--sell);    /* pérdida · el rojo que ya usaba el marcador de venta */
+  --tb-line:rgba(255,255,255,.08);
+}
+
+/* Tira de arriba: una sola fila, celdas separadas por una línea, como un teletipo. */
+.tb-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));
+  margin:10px 0 0;border:1px solid var(--rule);border-radius:10px;background:var(--panel);overflow:hidden}
+.tb-cell{padding:8px 14px;border-right:1px solid var(--tb-line);min-width:0}
+.tb-cell:last-child{border-right:0}
+.tb-k{display:block;font:10px/1.4 var(--f-ui);letter-spacing:.18em;color:var(--ink-2)}
+.tb-v{display:block;font:600 16px/1.3 var(--f-data);color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* El número grande del día. */
+.tb-hero{margin:10px 0 0;padding:14px 18px;border:1px solid var(--rule);border-radius:12px;background:var(--panel)}
+.tb-h{margin:0 0 6px;font:11px/1.4 var(--f-ui);letter-spacing:.22em;color:var(--ink-2);font-weight:500}
+.tb-big{margin:0;font:600 clamp(26px,3vw,40px)/1.1 var(--f-data);color:var(--ink);display:flex;
+  align-items:baseline;gap:12px;flex-wrap:wrap}
+.tb-big small{font:400 12px/1 var(--f-ui);color:var(--ink-2);letter-spacing:.1em}
+.tb-delta{font-size:.5em;font-weight:600}
+.tb-bests{display:flex;gap:28px;margin:10px 0 0;flex-wrap:wrap}
+.tb-bests div{display:flex;gap:10px;align-items:baseline}
+.tb-bests dt{font:11px/1.4 var(--f-ui);color:var(--ink-2);margin:0}
+.tb-bests dd{margin:0;font:13px/1.4 var(--f-data);color:var(--ink)}
+.tb-note{margin:10px 0 0;font:11px/1.5 var(--f-ui);color:var(--ink-3);max-width:70ch}
+
+/* Las tarjetas. */
+.tb-cards{display:grid;gap:10px;margin:10px 0 0;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}
+.tb-card{padding:12px 14px;border:1px solid var(--rule);border-radius:12px;background:var(--panel);min-width:0}
+.tb-card h3{margin:0 0 8px;font:10px/1.4 var(--f-ui);letter-spacing:.18em;color:var(--ink-2);font-weight:500}
+.tb-num{margin:0;font:600 clamp(20px,1.8vw,28px)/1.15 var(--f-data);color:var(--ink)}
+.tb-sub{margin:6px 0 0;font:11px/1.5 var(--f-ui);color:var(--ink-3)}
+.tb-spark{display:block;width:100%;height:56px}
+
+/* Estado: el color acompaña al signo, nunca va solo. */
+.up{color:var(--gain)}
+.down{color:var(--loss)}
+
+/* Dos medidores que el JavaScript sigue escribiendo pero que ya no se enseñan aquí:
+   factor de ganancia y resultado por operación. Siguen en la tabla de abajo. */
+.tb-oculto{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media (max-width:700px){
+  .tb-cell{padding:7px 10px}
+  .tb-bests{gap:16px}
+}

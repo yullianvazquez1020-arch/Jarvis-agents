@@ -39,7 +39,8 @@ class Voz(unittest.TestCase):
 class Arranque(unittest.TestCase):
     def test_encendido_original_y_archivo_propio(self):
         import app
-        self.assertEqual(app.startup_sound({})[0].name, "encendido.wav")            # original, síntesis propia
+        self.assertEqual(app.startup_sound({})[0].name, "encendido.wav")
+        self.assertEqual(app.startup_sound({"JARVIS_ARRANQUE": "rock"})[0].name, "arranque-rock.wav")            # original, síntesis propia
         self.assertIsNone(app.startup_sound({"JARVIS_STARTUP_SOUND": "off"}))
         self.assertFalse((ROOT / "desktop/ui/audio/arranque.wav").exists())
         own = pathlib.Path(tempfile.mkdtemp()) / "mio.mp3"; own.write_bytes(b"ID3fake")

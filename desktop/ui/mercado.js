@@ -114,7 +114,10 @@
       ctx.fillText("Inicio " + money0.format(start), M.l + g.pw, ys - 4);
     }
     // revelado inicial de la curva
-    var grow = reduce ? 1 : Math.min(1, (t - state.born) / 1400), last = Math.max(1, Math.floor((n - 1) * grow));
+    var grow = reduce ? 1 : Math.min(1, (t - state.born) / 1400);
+    // Con UN solo registro, Math.max(1, …) daba last = 1 y el bucle leía pts[1], que no existe.
+    // Fallo viejo que no se veía porque el lienzo quedaba fuera de pantalla; la barra lo destapó.
+    var last = Math.min(n - 1, Math.max(1, Math.floor((n - 1) * grow)));
     // área
     var grad = ctx.createLinearGradient(0, M.t, 0, M.t + g.ph);
     grad.addColorStop(0, "rgba(47,143,230,0.22)"); grad.addColorStop(1, "rgba(47,143,230,0)");
@@ -126,6 +129,29 @@
     ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.shadowColor = "rgba(124,200,255,0.7)"; ctx.shadowBlur = 16; ctx.strokeStyle = "rgba(124,200,255,0.35)"; ctx.lineWidth = 4; path(); ctx.stroke();
     ctx.shadowBlur = 0; ctx.strokeStyle = C.series; ctx.lineWidth = 2; path(); ctx.stroke(); ctx.restore();
+    // El punto de "ahora": marca la ULTIMA LECTURA REAL, la que acaba de llegar. No inventa
+    // ningun dato; solo senala donde termina lo medido. Late para que se vea que esto esta vivo
+    // aunque la curva lleve un rato sin moverse, que es lo normal con 240 registros en 10 dias.
+    if (grow >= 1) {
+      var ux = s.x(n - 1), uy = s.y(pts[n - 1].v);
+      var late = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(t / 420);
+      ctx.save();
+      // Un anillo que se abre cuando acaba de ENTRAR un registro nuevo, y solo entonces.
+      if (!reduce && state.puntoNuevo) {
+        var e = (t - state.puntoNuevo) / 1600;
+        if (e >= 1) { state.puntoNuevo = 0; }
+        else {
+          ctx.beginPath(); ctx.arc(ux, uy, 4 + e * 22, 0, 6.2832);
+          ctx.strokeStyle = "rgba(124,200,255," + (0.5 * (1 - e)).toFixed(3) + ")";
+          ctx.lineWidth = 2; ctx.stroke();
+        }
+      }
+      ctx.beginPath(); ctx.arc(ux, uy, 3 + late * 2.2, 0, 6.2832);
+      ctx.fillStyle = "rgba(124,200,255," + (0.35 + 0.45 * late).toFixed(3) + ")"; ctx.fill();
+      ctx.beginPath(); ctx.arc(ux, uy, 2.4, 0, 6.2832);
+      ctx.fillStyle = "#eaf6ff"; ctx.fill();
+      ctx.restore();
+    }
     // barrido de escaneo
     if (!reduce && grow >= 1) {
       var sx = M.l + ((t / 7000) % 1) * g.pw, beam = ctx.createLinearGradient(sx - 60, 0, sx, 0);
@@ -218,24 +244,51 @@
     c.fillStyle = C.ink3; c.font = Math.round(S * 0.09) + "px " + C.data; c.fillText("RSI", cx, cy + S * 0.16);
   }
   var ringNodes = [];
+  // Las tarjetas se actualizan EN SU SITIO. Antes se borraban y se volvian a crear en cada
+  // refresco (host.innerHTML = ""), asi que los numeros nacian de cero: no habia valor anterior
+  // con el que animar, y el precio saltaba. Los precios de BTC/ETH/SOL si se mueven de verdad,
+  // asi que son lo unico de esta pagina que merece moverse a cada rato.
+  var tarjetas = {};      // producto -> nodos
+
+  function textoPrecio(m) {
+    return m.price == null ? "precio: —" : "precio: " + money.format(m.price) +
+      (m.change_24h_pct == null ? "" : " · " + signed(m.change_24h_pct, function (v) { return v.toFixed(2); }) + "% 24 h");
+  }
+  function textoTendencia(m) {
+    return m.trend ? (m.trend === "alcista" ? "▲ tendencia alcista" : m.trend === "bajista" ? "▼ tendencia bajista" : "◆ lateral") : "sin lectura";
+  }
+
+  function crearTarjeta(host, m) {
+    var box = document.createElement("article"); box.className = "ring";
+    var cv = document.createElement("canvas");
+    cv.setAttribute("role", "img");
+    var meta = document.createElement("div"); meta.className = "meta";
+    var name = document.createElement("div"); name.className = "name"; name.textContent = m.product.split("-")[0];
+    var trend = document.createElement("div");
+    var price = document.createElement("div");
+    meta.appendChild(name); meta.appendChild(trend); meta.appendChild(price);
+    var chip = document.createElement("span"); chip.className = "chip";
+    chip.textContent = "POSICIÓN SIMULADA ABIERTA"; chip.hidden = true; meta.appendChild(chip);
+    box.appendChild(cv); box.appendChild(meta); host.appendChild(box);
+    if (window.JarvisVivo) window.JarvisVivo.seguir(price);   // el precio se mueve, no salta
+    return { box: box, cv: cv, trend: trend, price: price, chip: chip };
+  }
+
   function renderRings(products) {
-    var host = $("rings"); host.innerHTML = ""; ringNodes = [];
+    var host = $("rings"), vistos = {};
+    ringNodes = [];
     products.forEach(function (m) {
-      var box = document.createElement("article"); box.className = "ring";
-      var cv = document.createElement("canvas");
-      cv.setAttribute("role", "img");
-      cv.setAttribute("aria-label", m.product + ": RSI " + (m.rsi == null ? "sin dato" : Math.round(m.rsi)));
-      var meta = document.createElement("div"); meta.className = "meta";
-      var name = document.createElement("div"); name.className = "name"; name.textContent = m.product.split("-")[0];
-      var trend = document.createElement("div");
-      trend.textContent = m.trend ? (m.trend === "alcista" ? "▲ tendencia alcista" : m.trend === "bajista" ? "▼ tendencia bajista" : "◆ lateral") : "sin lectura";
-      var price = document.createElement("div");
-      price.textContent = m.price == null ? "precio: —" : "precio: " + money.format(m.price) +
-        (m.change_24h_pct == null ? "" : " · " + signed(m.change_24h_pct, function (v) { return v.toFixed(2); }) + "% 24 h");
-      meta.appendChild(name); meta.appendChild(trend); meta.appendChild(price);
-      if (m.open) { var chip = document.createElement("span"); chip.className = "chip"; chip.textContent = "POSICIÓN SIMULADA ABIERTA"; meta.appendChild(chip); }
-      box.appendChild(cv); box.appendChild(meta); host.appendChild(box);
-      ringNodes.push({ cv: cv, rsi: num(m.rsi) });
+      vistos[m.product] = true;
+      var t = tarjetas[m.product] || (tarjetas[m.product] = crearTarjeta(host, m));
+      host.appendChild(t.box);                                 // conserva el orden del servidor
+      t.cv.setAttribute("aria-label", m.product + ": RSI " + (m.rsi == null ? "sin dato" : Math.round(m.rsi)));
+      t.trend.textContent = textoTendencia(m);
+      t.price.textContent = textoPrecio(m);
+      t.chip.hidden = !m.open;
+      ringNodes.push({ cv: t.cv, rsi: num(m.rsi) });
+    });
+    Object.keys(tarjetas).forEach(function (k) {               // un producto que ya no viene se va
+      if (!vistos[k]) { tarjetas[k].box.remove(); delete tarjetas[k]; }
     });
   }
 
@@ -252,6 +305,32 @@
     var e = $("empty"); e.textContent = text; e.hidden = false;
     state.pts = []; ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
+  // Dice de cuando es el dato de VERDAD, no "actualizado" a secas. Si deja de llegar, se nota.
+  function pintarEdad() {
+    var el = $("when");
+    if (!el) return;
+    if (state.demo) {
+      el.textContent = "datos de ejemplo";
+      el.classList.remove("vivo-fresco", "vivo-viejo");
+      return;
+    }
+    if (!state.ultimoDato) return;
+    var seg = Math.max(0, Math.round((Date.now() - state.ultimoDato) / 1000));
+    el.textContent = seg < 5 ? "en vivo" : seg < 60 ? "hace " + seg + " s"
+                   : "hace " + Math.round(seg / 60) + " min";
+    var fresco = seg < 40;
+    el.classList.toggle("vivo-fresco", fresco);
+    el.classList.toggle("vivo-viejo", !fresco);
+  }
+
+  // Los numeros recorren el camino al nuevo valor en vez de saltar. Si vivo.js no esta, no pasa
+  // nada: los numeros siguen cambiando de golpe, como hasta ahora.
+  if (window.JarvisVivo) {
+    window.JarvisVivo.seguirTodo("#k-equity, #k-pnl, #k-dd, #k-ddnow, #k-pf, #k-win, #k-exp, #k-fees");
+  }
+
+  window.__estado = state;   // solo para poder medir desde las pruebas
+
   function load() {
     fetch("/api/panels/practica", { credentials: "same-origin" }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, j: j }; });
@@ -261,8 +340,19 @@
       if (!p.chart) { showEmpty("La gráfica solo muestra la práctica con dinero simulado, y no hay datos todavía."); return; }
       var first = !state.chart;
       state.chart = p.chart;
+      window.JarvisMercado = { chart: p.chart };            // la barra de arriba lee de aquí
+      var antes = state.pts || [], ultimoAntes = antes.length ? antes[antes.length - 1] : null;
       state.pts = (p.chart.equity || []).filter(function (e) { return num(e.v) != null; });
-      $("when").textContent = state.demo ? "datos de ejemplo" : "actualizado " + whenFmt.format(new Date());
+      var ahoraUltimo = state.pts.length ? state.pts[state.pts.length - 1] : null;
+      // Solo cuenta como registro nuevo si hay MAS puntos o si el ultimo cambio. Si el servidor
+      // devuelve lo mismo, no se destella: seria fingir que paso algo.
+      if (ahoraUltimo && antes.length && (state.pts.length !== antes.length ||
+          (ultimoAntes && (ultimoAntes.t !== ahoraUltimo.t || ultimoAntes.v !== ahoraUltimo.v)))) {
+        state.puntoNuevo = performance.now();
+      }
+      if (window.JarvisBarra) window.JarvisBarra.pintar(p.chart);   // la barra: también cuando no hay curva
+      state.ultimoDato = Date.now();
+      pintarEdad();
       renderSummary(p.chart); renderRings(p.chart.products || []); renderTable();
       if (!state.pts.length) { showEmpty("La práctica todavía no ha corrido. La curva aparece después de la primera revisión."); return; }
       $("empty").hidden = true;
@@ -324,6 +414,20 @@
     }).catch(function () { b.textContent = "No disponible"; setTimeout(function () { b.textContent = "Pantalla completa"; }, 2000); });
   });
 
-  load(); setInterval(load, 60000);
+  // Estaba en 60 s: un minuto entero sin que nada cambiara, por eso parecia muerto. A 12 s se
+  // nota vivo y sigue siendo una peticion local. Con la pestana oculta no se pide nada: no tiene
+  // sentido gastar bateria y red pintando algo que nadie mira.
+  var VIVO_CADA = 12000;
+  var reloj = null;
+  function arrancarReloj() {
+    if (reloj) clearInterval(reloj);
+    reloj = setInterval(function () { if (!document.hidden) load(); }, VIVO_CADA);
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { load(); arrancarReloj(); }          // al volver, el dato de ya
+  });
+  load(); arrancarReloj();
+  // La edad del dato se cuenta sola, aunque no llegue nada nuevo: si se queda viejo, se ve.
+  setInterval(function () { if (!document.hidden) pintarEdad(); }, 1000);
   requestAnimationFrame(frame);
 })();

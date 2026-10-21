@@ -141,9 +141,21 @@ class Route(unittest.TestCase):
         status, _ = self.get("/avatar/ironman", self.login())
         self.assertEqual(status, 404)
 
-    def test_vendor_hidden_while_off(self):
+    def test_three_served_for_core_while_off(self):   # el núcleo WebGL necesita three.js aunque el avatar esté apagado
         status, _ = self.get("/ui/vendor/three/three.module.js", self.login())
-        self.assertEqual(status, 404)
+        self.assertEqual(status, 200)
+        status, _ = self.get("/ui/vendor/three/three.module.js")      # sin sesión, nada
+        self.assertNotEqual(status, 200)
+
+    def test_every_three_module_served_as_js_while_off(self):   # postprocessing/* incluido (antes 404 JSON → 2D viejo)
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent / "desktop" / "ui" / "vendor"
+        files = sorted((root / "three").rglob("*.js"))
+        self.assertGreater(len(files), 10)
+        cookie = self.login()
+        for f in files:
+            status, _ = self.get("/ui/vendor/" + f.relative_to(root).as_posix(), cookie)
+            self.assertEqual(status, 200, f)
 
     def test_state_reports_the_flag(self):
         status, body = self.get("/api/state", self.login())
@@ -201,3 +213,20 @@ class RouteOn(Route):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JarvisCombinadoV2(unittest.TestCase):
+    def test_voice_mouse_and_status(self):
+        import sys as _s
+        from pathlib import Path as P
+        root = P(__file__).resolve().parent.parent
+        _s.path.insert(0, str(root / "desktop"))
+        import intents, mouse_autonomo
+        self.assertEqual(intents.parse("open safari"), ("mouse", {"action": "open_app", "app": "Safari"}))
+        self.assertEqual(intents.parse("scroll down")[0], "mouse")
+        self.assertIn("concedido", mouse_autonomo.accesibilidad())
+        js = (root / "desktop" / "ui" / "app.js").read_text("utf-8")
+        for k in ("function ack()", "resumeConversation()", "jarvis-convo", "silenceMs: VAD_SILENCE_MS", "var VAD_SILENCE_MS = 350", "st-ax"):
+            self.assertIn(k, js)
+        gl = (root / "desktop" / "ui" / "nucleo-gl.js").read_text("utf-8")
+        self.assertIn("const HB = 66 / 60", gl)

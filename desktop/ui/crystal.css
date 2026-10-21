@@ -1,0 +1,30 @@
+/* Procedural animated core; no fabricated telemetry. */
+body.nucleo-home{background:#030a12;color:#dce7ee;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+#crystal-art{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 44%,#123042 0%,#071521 38%,#02070d 78%);z-index:0;pointer-events:none}
+.crystal-brand{position:fixed;left:3.6vw;top:3.4vh;font-size:clamp(24px,2.2vw,42px);letter-spacing:.34em;font-weight:300;color:#e4eaf0;z-index:1}
+.crystal-brand span{display:block;font-size:10px;letter-spacing:.4em;margin-top:12px}
+.crystal-cards{position:fixed;top:17vh;width:22vw;max-height:57vh;overflow:auto;z-index:2;display:flex;flex-direction:column;gap:24px}
+.crystal-cards.left{left:3.5vw}.crystal-cards.right{right:3.5vw}
+.crystal-cards section{border:1px solid #728e9c99;border-radius:10px;background:linear-gradient(125deg,#05101bed,#10212b9c);padding:22px 25px;box-shadow:inset 0 0 30px #9bdfff05}
+.crystal-cards h2{font-size:12px;font-weight:500;letter-spacing:.28em;padding-bottom:20px;border-bottom:1px solid #9bb6c32b;margin:0 0 18px}
+.crystal-cards p{font-size:14px;line-height:1.65;overflow-wrap:anywhere;margin:8px 0}.crystal-cards small{font-size:11px;color:#8fa7b8;display:block;margin-top:18px;line-height:1.6}
+.crystal-cards button{display:block;background:transparent;border:0;color:#e6edf1;text-align:left;margin:6px 0;padding:8px 0;cursor:pointer;font-size:15px}
+.crystal-cards button:hover{color:#83dbff}.crystal-cards button:focus-visible{outline:2px solid #83dbff;outline-offset:4px}
+#crystal-state{color:#a7dfff}#crystal-reply{max-height:15vh;overflow:auto;color:#c6d4dd}
+.nucleo-estado{bottom:18vh;font-size:12px;letter-spacing:.22em;color:#e2f1fc;text-shadow:0 0 14px #6dc5ff;background:#03101c99;padding:10px 20px;left:35%;right:35%;border-radius:20px;line-height:1.4}
+.paneles{top:4vh;right:3.5vw;border:1px solid #718797;color:#e3eef5;background:#07121bab;border-radius:18px;padding:8px 22px}
+body.nucleo-home .foot{position:fixed;bottom:3vh;left:15%;right:15%;width:auto;justify-content:center;flex-wrap:wrap;gap:8px;border:1px solid #8bafbf55;border-radius:24px;padding:12px;background:#020910e8;box-shadow:0 4px 24px #0008}
+.foot button{border-radius:16px;border-color:#91adbd70}.foot .talk{background:#173045;color:#fff}.foot .check{font-size:11px}.foot .mic{font-size:11px}
+body.ver-paneles .crystal-cards,body.ver-paneles .crystal-brand{display:none}body.ver-paneles .layout{margin-bottom:180px}body.ver-paneles .nucleo-estado{display:none}
+@media(max-width:1000px){.crystal-cards{width:25vw;top:18vh;gap:12px}.crystal-cards.left{left:2vw}.crystal-cards.right{right:2vw}.crystal-cards section{padding:14px}.crystal-cards h2{font-size:10px}.crystal-cards p,.crystal-cards button{font-size:12px}body.nucleo-home .foot{left:3%;right:3%;bottom:2vh}.nucleo-estado{bottom:22vh;left:30%;right:30%}}
+@media(max-width:650px){.crystal-cards{top:18vh;width:43vw;max-height:48vh}.crystal-cards.left{left:4vw}.crystal-cards.right{right:4vw}.crystal-brand{left:5vw}#crystal-art{opacity:.5}.nucleo-estado{bottom:26vh;left:8%;right:8%}.foot .check,.foot #repeat{display:none}}
+
+#crystal-art:after{content:"";position:absolute;left:42%;top:24%;width:16%;height:25%;border-radius:50%;background:radial-gradient(ellipse,#a8e8ff44,transparent 70%);opacity:0;transition:opacity .15s;pointer-events:none}
+body[data-voice="ESCUCHANDO"] #crystal-art:after{opacity:.8}body[data-voice="HABLANDO"] #crystal-art:after{animation:crystal-breathe 1.8s ease-in-out infinite}
+@keyframes crystal-breathe{0%,100%{opacity:.3;transform:scale(.95)}50%{opacity:.9;transform:scale(1.08)}}
+@media(prefers-reduced-motion:reduce){body[data-voice="HABLANDO"] #crystal-art:after{animation:none;opacity:.6}}
+
+#crystal-motion{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+#crystal-heard{color:#9fddff;font-size:13px;max-height:12vh;overflow:auto}
+
+.mic-source{font-size:11px;color:#b6ccdc}.mic-source select{max-width:180px;background:#071521;color:#dce7ee;border:1px solid #587285;border-radius:6px;padding:5px}#mic-level{width:65px;height:12px}#claim[hidden]{display:none}

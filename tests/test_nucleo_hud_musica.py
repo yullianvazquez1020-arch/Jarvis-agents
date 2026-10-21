@@ -14,19 +14,27 @@ UI = ROOT / "desktop/ui"
 class NucleoHUD(unittest.TestCase):
     def test_webgl_con_respaldo(self):
         gl = (UI / "nucleo-gl.js").read_text("utf-8")
-        for need in ("UnrealBloomPass", "EffectComposer", "TubeGeometry", "MeshStandardMaterial", "hex(", "texture2D(tDiffuse,vUv+off)"):
+        for need in ("UnrealBloomPass", "EffectComposer", "TubeGeometry", "MeshPhysicalMaterial", "PMREMGenerator", "rays", "hazeMat", "boltEnv", "hex(", "texture2D(tDiffuse,vUv+off)"):
             self.assertIn(need, gl)
         self.assertIn("N.gl = true", gl); self.assertIn("webglOk", gl)
         self.assertIn("nucleo-gl.js", app.UI_FILES)
         for page in ("index.html", "nucleo.html"):
-            self.assertIn('<script type="module" src="/ui/nucleo-gl.js"></script>', (UI / page).read_text("utf-8"))
+            self.assertIn('<script type="module" src="/ui/nucleo-gl.js?v=arc3"></script>', (UI / page).read_text("utf-8"))
 
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")
         self.assertNotIn("requestAnimationFrame(", gl)              # el bucle es el de nucleo.js
-        self.assertIn("Math.min(2", n); self.assertIn("DPR_MAX = 2", gl)
-        self.assertIn("w >> 1", gl); self.assertIn("function adapt", gl)
+        self.assertIn("Math.min(2", n); self.assertIn("DPR_MAX = 2", gl); self.assertIn("p95 > 18", gl)
+        self.assertIn("bloomRes", gl); self.assertIn("ACESFilmicToneMapping", gl); self.assertIn("coc", gl); self.assertIn("function adapt", gl)
         self.assertIn('classList.contains("nucleo-home")', (UI / "cielo.js").read_text("utf-8"))
+
+    def test_hud_procedural_sin_asignar_por_fotograma(self):
+        gl = (UI / "nucleo-gl.js").read_text("utf-8")
+        self.assertIn("hudMat", gl); self.assertIn("fwidth", gl); self.assertIn("uLv", gl)
+        paso = gl[gl.index("N.paso = function"):]
+        for bad in ("new THREE.", "dispose(", ".clone()", "TubeGeometry"):
+            self.assertNotIn(bad, paso)                                # nada se crea ni libera en el bucle
+        self.assertNotIn("rig.remove(", gl); self.assertNotIn("Math.random()", paso); self.assertIn("Math.exp(-dt", paso); self.assertIn("fps=1", gl); self.assertIn("uPh", gl); self.assertNotIn("*sp", gl); self.assertIn("p95 > 18", gl); self.assertNotIn("setTimeout", gl); self.assertNotIn("getElementById(\"estado\")", paso)
 
 
 class Musica(unittest.TestCase):

@@ -1,0 +1,21 @@
+#hud-negocio{position:fixed;inset:0;pointer-events:none;font:500 13px/1.35 "Helvetica Neue",Arial,sans-serif;color:#bfeaff;z-index:5}
+#hud-negocio .col{position:absolute;top:6vh;bottom:9vh;width:clamp(260px,22vw,420px);display:flex;flex-direction:column;gap:1.2vh;overflow:auto;pointer-events:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#285e78 transparent}
+#hud-negocio .izq{left:2vw}#hud-negocio .der{right:2vw}
+#hud-negocio .pn{position:relative;flex:0 0 auto;min-height:0;overflow:hidden;padding:10px 12px;border:1px solid rgba(80,200,255,.35);background:linear-gradient(135deg,rgba(4,30,52,.62),rgba(1,10,20,.42));clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));transition:border-color .3s,box-shadow .3s}
+#hud-negocio .pn.foco{border-color:#7fe6ff;box-shadow:inset 0 0 24px rgba(60,190,255,.45)}
+#hud-negocio .pn.foco .t{color:#fff;text-shadow:0 0 10px #4cd2ff}
+#hud-negocio .t{display:flex;justify-content:space-between;gap:8px;font-weight:700;letter-spacing:.18em;font-size:12px;color:#8fdcff;white-space:nowrap}
+#hud-negocio .t span:first-child{overflow:hidden;text-overflow:ellipsis}
+#hud-negocio .e{font-size:11px;letter-spacing:.06em;color:#5fb8e0;white-space:normal;overflow-wrap:anywhere;text-transform:uppercase}
+#hud-negocio .e.sd{color:#ffb35c}
+#hud-negocio .bar{height:6px;margin:7px 0 4px;background:rgba(80,200,255,.12);position:relative}
+#hud-negocio .bar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#1f8fff,#7fe6ff);box-shadow:0 0 8px #3cb4ff}
+#hud-negocio .l{font-size:12px;color:#a9dcf5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hud-negocio .h{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#hud-negocio .h.ok{color:#7fe6ff}#hud-negocio .h.no{color:#5a8aa5}
+#hud-negocio canvas{display:block;width:100%;height:64px;margin-top:5px}
+#hud-negocio .ej{position:absolute;top:1.2vh;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.3em;color:#ffb35c;white-space:nowrap}
+
+#hud-negocio .l,#hud-negocio .h{white-space:normal;overflow-wrap:anywhere}
+#hud-negocio .col{padding-bottom:8px}
+@media(max-width:800px){#hud-negocio .col{top:12vh;bottom:13vh;width:28vw;min-width:130px}#hud-negocio .izq{left:1vw}#hud-negocio .der{right:1vw}#hud-negocio .pn{padding:8px}#hud-negocio .t{letter-spacing:.04em;font-size:10px}}
+@media(prefers-reduced-motion:reduce){#hud-negocio .pn{transition:none}}

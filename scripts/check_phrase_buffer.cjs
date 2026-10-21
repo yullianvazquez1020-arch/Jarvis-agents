@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict'),W=require('../desktop/ui/wav.js');
+const b=new W.PhraseBuffer(16000,500);
+for(let i=0;i<700;i++)b.push(new Float32Array(160),false);
+assert.equal(b.samples,8000,'seven seconds of waiting retains only 500 ms');
+const beginning=new Float32Array(160).fill(.2);b.push(beginning,true);
+for(let i=0;i<100;i++)b.push(new Float32Array(160).fill(.1),true);
+assert.equal(b.samples,24160,'all spoken audio survives');
+assert.equal(b.frames[50],beginning,'first detected syllable survives');
+for(let i=0;i<35;i++)b.push(new Float32Array(160),true);
+assert.equal(b.samples,29760,'pauses after speech are preserved');
+console.log('Phrase buffer: bounded lead-in and complete speech passed');

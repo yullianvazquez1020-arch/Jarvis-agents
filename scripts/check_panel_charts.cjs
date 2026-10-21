@@ -1,0 +1,18 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+let resize=0,transform;
+const ctx=new Proxy({setTransform(...a){transform=a}}, {get:(o,k)=>o[k]||(()=>{})});
+const cv={clientWidth:300,clientHeight:64,getContext:()=>ctx};
+let width=0,height=0;
+Object.defineProperties(cv,{width:{get:()=>width,set:v=>{width=v;resize++}},height:{get:()=>height,set:v=>{height=v;resize++}}});
+const window={devicePixelRatio:2,addEventListener(){}},document={readyState:'loading',addEventListener(){}};
+let src=fs.readFileSync(require('path').join(__dirname,'../desktop/ui/paneles.js'),'utf8');
+src=src.replace('window.JarvisPaneles = {','window.chartTest = chart; window.JarvisPaneles = {');
+vm.runInNewContext(src,{window,document});
+window.chartTest(cv,[1,2,3],.5,false);
+assert.equal(width,600);assert.equal(height,128);
+window.chartTest(cv,[1,2,3],1,false);
+assert.equal(resize,2,'animation must reuse canvas backing store');
+window.devicePixelRatio=1.5;cv.clientWidth=400;
+window.chartTest(cv,[1,2,3],1,true);
+assert.equal(width,600);assert.equal(height,96);assert.equal(transform[0],1.5);
+console.log('Chart density, resize and backing-store reuse passed');

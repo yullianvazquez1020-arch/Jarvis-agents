@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Jarvis · Mercado</title>
   <link rel="stylesheet" href="/ui/mercado.css">
+  <link rel="stylesheet" href="/ui/mercado-barra.css?v=1">
 </head>
 <body>
 <canvas class="sky" id="sky" aria-hidden="true"></canvas>
@@ -24,13 +25,54 @@
     </nav>
   </header>
 
-  <section class="kpis" aria-label="Resumen de la práctica">
-    <div class="kpi hero"><span class="k">Capital simulado</span><span class="v" id="k-equity">—</span><span class="d" id="k-pnl">—</span></div>
-    <div class="kpi"><span class="k">Caída máxima</span><span class="v" id="k-dd">—</span><span class="d" id="k-ddnow">—</span></div>
-    <div class="kpi"><span class="k">Factor de ganancia</span><span class="v" id="k-pf">—</span><span class="d">ganado ÷ perdido</span></div>
-    <div class="kpi"><span class="k">Ganadoras</span><span class="v" id="k-win">—</span><span class="d" id="k-n">—</span></div>
-    <div class="kpi"><span class="k">Por operación</span><span class="v" id="k-exp">—</span><span class="d" id="k-fees">—</span></div>
+  <!-- BARRA DE TRADING. Todos los numeros salen de /api/panels/practica: dinero simulado y
+       precios publicos de Coinbase. Lo que no hay, dice "—"; aqui no se inventa ningun dato. -->
+  <section class="tb-strip" aria-label="Resumen de la practica">
+    <div class="tb-cell"><span class="tb-k">CAPITAL SIMULADO</span><span class="tb-v" id="tb-cap">—</span></div>
+    <div class="tb-cell"><span class="tb-k">HOY</span><span class="tb-v" id="tb-hoy">—</span></div>
+    <div class="tb-cell"><span class="tb-k">ACUMULADO</span><span class="tb-v" id="tb-acum">—</span></div>
+    <div class="tb-cell"><span class="tb-k">OPERACIONES</span><span class="tb-v" id="tb-ops">—</span></div>
+    <div class="tb-cell"><span class="tb-k">ACIERTO</span><span class="tb-v" id="tb-win">—</span></div>
+    <div class="tb-cell"><span class="tb-k">COMISIONES</span><span class="tb-v" id="tb-fees">—</span></div>
   </section>
+
+  <section class="tb-hero" aria-label="Tu practica hoy">
+    <h2 class="tb-h">TU PRÁCTICA HOY</h2>
+    <p class="tb-big"><span id="tb-equity">—</span> <span class="tb-delta" id="tb-delta">—</span> <small>hoy</small></p>
+    <dl class="tb-bests">
+      <div><dt>Mejor hoy</dt><dd id="tb-best">—</dd></div>
+      <div><dt>Peor hoy</dt><dd id="tb-worst">—</dd></div>
+    </dl>
+    <p class="tb-note">Dinero simulado. Precios públicos de Coinbase (cambio de 24 h).
+      El dato de hoy se mide contra el capital al empezar el día. Nunca toca dinero real.</p>
+  </section>
+
+  <section class="tb-cards" aria-label="Indicadores de la practica">
+    <article class="tb-card">
+      <h3>P&amp;L ACUMULADO · PRÁCTICA</h3>
+      <p class="tb-num" id="tb-pnl">—</p>
+      <p class="tb-sub" id="tb-dias">—</p>
+    </article>
+    <article class="tb-card">
+      <h3>CAPITAL · ÚLTIMOS REGISTROS</h3>
+      <canvas id="tb-spark" class="tb-spark" role="img" aria-label="Curva del capital simulado"></canvas>
+      <p class="tb-sub" id="tb-spark-note">—</p>
+    </article>
+    <article class="tb-card">
+      <h3>MERCADO 24 H · LO QUE VIGILA</h3>
+      <p class="tb-num" id="tb-breadth">—</p>
+      <p class="tb-sub" id="tb-breadth-note">—</p>
+    </article>
+    <article class="tb-card">
+      <h3>CAÍDA MÁXIMA</h3>
+      <p class="tb-num" id="tb-dd">—</p>
+      <p class="tb-sub" id="tb-ddnow">—</p>
+    </article>
+  </section>
+
+  <!-- mercado.js escribe estos con frases largas (ya probadas); la barra usa los suyos y
+       estos quedan para la tabla y los lectores de pantalla. Ninguno se borra. -->
+  <p class="tb-oculto"><span id="k-equity">—</span><span id="k-pnl">—</span><span id="k-dd">—</span><span id="k-ddnow">—</span><span id="k-pf">—</span><span id="k-win">—</span><span id="k-n">—</span><span id="k-exp">—</span><span id="k-fees">—</span></p>
 
   <section class="stage" aria-label="Curva de capital de la práctica">
     <div class="stage-head">
@@ -61,6 +103,8 @@
     <span id="sample"></span></footer>
 </main>
 <script src="/ui/mecanismo.js"></script>
+<script src="/ui/vivo.js?v=1"></script>
 <script src="/ui/mercado.js"></script>
+<script src="/ui/mercado-barra.js?v=1"></script>
 </body>
 </html>

@@ -6,106 +6,151 @@
   <title>Jarvis</title>
   <link rel="stylesheet" href="/ui/app.css">
   <link rel="stylesheet" href="/ui/nucleo-home.css">
+  <link rel="stylesheet" href="/ui/crystal.css?v=1">
+  <!-- aip.css va el ULTIMO: es el que funde todo en un solo panel alrededor del cristal. -->
+  <link rel="stylesheet" href="/ui/aip.css?v=1">
 </head>
-<body class="nucleo-home">
-  <canvas id="nucleo" aria-label="JARVIS core: blue reactor responding to speech"></canvas>
-  <div id="estado" class="nucleo-estado">ONLINE</div>
-  <button id="paneles" class="paneles" type="button" aria-pressed="false">Panels</button>
-  <header class="top" aria-label="Status">
-    <div class="brand"><span id="dot" class="dot" title="Servidor"></span>JARVIS</div>
-    <dl class="status">
-      <div><dt>PR time</dt><dd id="st-clock">--:--</dd></div>
-      <div><dt>Version</dt><dd id="st-version">—</dd></div>
-      <div><dt>Data</dt><dd id="st-storage">—</dd></div>
-      <div><dt>AI</dt><dd id="st-ai">—</dd></div>
-      <div><dt>Crypto</dt><dd id="st-mode">—</dd></div>
-      <div><dt>Coinbase</dt><dd id="st-cb">—</dd></div>
-      <div><dt>Live trading</dt><dd id="st-real">—</dd></div>
-      <div><dt>Microphone</dt><dd id="st-mic">off</dd></div>
-    </dl>
-    <div class="chips">
-      <span id="chip-role" class="chip">…</span>
-      <span id="chip-demo" class="chip warn" hidden>DEMO · sample data</span>
-      <a class="chip link" href="/nucleo" target="_blank" rel="noopener">Core</a>
-      <a class="chip link" href="/mercado" target="_blank" rel="noopener">Market (practice)</a>
-      <a class="chip link" href="/hud" target="_blank" rel="noopener">Open HUD (second monitor)</a>
+<body class="nucleo-home aip-on">
+  <div id="crystal-art" aria-hidden="true"></div>
+  <canvas id="crystal-motion" aria-hidden="true"></canvas>
+
+  <!-- UN SOLO PANEL. El cristal queda en el hueco del centro, visible y animado.
+       Ningun identificador cambia de nombre: app.js, crystal.js y nucleo-home.js
+       buscan los 55 que ya existian, y tests/test_panel_unico.py lo comprueba. -->
+  <div class="aip" aria-label="Advanced Interface Protocol">
+
+    <header class="aip-top" aria-label="Status">
+      <div class="brand"><span id="dot" class="dot" title="Server"></span>JARVIS
+        <span class="aip-name">ADVANCED INTERFACE PROTOCOL</span></div>
+      <dl class="status">
+        <div><dt>PR time</dt><dd id="st-clock">--:--</dd></div>
+        <div><dt>Version</dt><dd id="st-version">—</dd></div>
+        <div><dt>Data</dt><dd id="st-storage">—</dd></div>
+        <div><dt>AI</dt><dd id="st-ai">—</dd></div>
+        <div><dt>Crypto</dt><dd id="st-mode">—</dd></div>
+        <div><dt>Coinbase</dt><dd id="st-cb">—</dd></div>
+        <div><dt>Live trading</dt><dd id="st-real">—</dd></div>
+        <div><dt>Microphone</dt><dd id="st-mic">off</dd></div>
+        <div><dt>Mouse</dt><dd id="st-mouse">—</dd></div>
+        <div><dt>Accessibility</dt><dd id="st-ax" title="python3.9 from the com.jarvis.mouse-autonomo LaunchAgent">—</dd></div>
+      </dl>
+      <div class="chips">
+        <span id="chip-role" class="chip">…</span>
+        <span id="chip-demo" class="chip warn" hidden>DEMO · sample data</span>
+        <a class="chip link" href="/mercado" target="_blank" rel="noopener">Market (practice)</a>
+        <a class="chip link" href="/hud" target="_blank" rel="noopener">Open HUD (2nd monitor)</a>
+        <button id="paneles" class="paneles chip" type="button" aria-pressed="false">Detail</button>
+      </div>
+    </header>
+
+    <div class="aip-left" aria-label="Business">
+      <section class="aip-card">
+        <h2>BUSINESS</h2>
+        <nav class="tabs" aria-label="Panels">
+          <button type="button" data-panel="brief">Brief ISLAFIX</button>
+          <button type="button" data-panel="caja">Cash</button>
+          <button type="button" data-panel="agenda">Schedule</button>
+          <button type="button" data-panel="cobros">Receivables</button>
+          <button type="button" data-panel="practica">Practice</button>
+          <button type="button" data-panel="estado">Status</button>
+        </nav>
+        <button id="crystal-business">ISLAFIX PRO · summary</button>
+      </section>
+
+      <section class="aip-card aip-detail" aria-label="Details">
+        <h2 id="panel-title">Details</h2>
+        <div id="panel-badge" class="badge" hidden></div>
+        <div id="panel-asof" class="small"></div>
+        <ul id="panel-lines" class="lines"></ul>
+      </section>
+
+      <section class="aip-card">
+        <h2>CONTENT</h2>
+        <button data-launch="Abre YouTube Studio">YouTube Studio ↗</button>
+        <button data-launch="Abre CapCut">CapCut ↗</button>
+        <button data-launch="Abre ChatGPT">ChatGPT ↗</button>
+        <small>Opens the page only · session not verified</small>
+      </section>
     </div>
-  </header>
 
-  <main class="layout">
-    <section class="voice" aria-label="Conversation">
-      <div id="state" class="state" role="status" aria-live="polite">Ready</div>
-      <div id="reply" class="reply" aria-live="polite">Speak or type below.</div>
-      <div class="row">
-        <span id="reply-meta" class="small"></span>
-        <button id="reveal" type="button" class="ghost" hidden>Show</button>
-      </div>
+    <div class="aip-core" aria-hidden="true">
+      <div id="estado" class="nucleo-estado">STARTING</div>
+    </div>
 
-      <label class="label" for="transcript">Transcript (you can edit it)</label>
-      <textarea id="transcript" rows="2" maxlength="1000" placeholder="Speak or type here…"></textarea>
-      <div class="row">
-        <button id="send" type="button">Send <kbd>Enter</kbd></button>
-        <button id="cancel" type="button" class="ghost" disabled>Cancel</button>
-        <label class="check"><input id="review" type="checkbox"> Review before sending</label>
-      </div>
-      <div id="owner-note" class="note" hidden>
-        This window is display-only. <button id="claim" type="button" class="link">Use this window for voice</button>
-      </div>
-      <div id="processing" class="small"></div>
-    </section>
+    <div class="aip-right" aria-label="Assistant">
+      <section class="aip-card aip-assistant">
+        <h2>ASSISTANT</h2>
+        <p id="crystal-state" role="status">Starting up</p>
+        <div id="state" class="state" role="status" aria-live="polite">Ready</div>
+        <small>LAST HEARD</small>
+        <p id="crystal-heard">Waiting for your voice</p>
+        <small>REPLY</small>
+        <p id="crystal-reply">Press Talk or type your instruction.</p>
+        <div id="reply" class="reply" aria-live="polite">Speak or type below.</div>
+        <div class="row">
+          <span id="reply-meta" class="small"></span>
+          <button id="reveal" type="button" class="ghost" hidden>Show</button>
+        </div>
+        <label class="label" for="transcript">Transcript (you can edit it)</label>
+        <textarea id="transcript" rows="2" maxlength="1000" placeholder="Speak or type here…"></textarea>
+        <div class="row">
+          <button id="send" type="button">Send <kbd>Enter</kbd></button>
+          <button id="cancel" type="button" class="ghost" disabled>Cancel</button>
+          <label class="check"><input id="review" type="checkbox"> Review before sending</label>
+        </div>
+        <div id="owner-note" class="note" hidden>
+          This window only shows the panel. Use “Take voice here” below.
+        </div>
+        <div id="processing" class="small"></div>
+      </section>
 
-    <section class="work" aria-label="Details">
-      <nav class="tabs" aria-label="Panels">
-        <button type="button" data-panel="brief">Brief ISLAFIX</button>
-        <button type="button" data-panel="caja">Cash</button>
-        <button type="button" data-panel="agenda">Schedule</button>
-        <button type="button" data-panel="cobros">Receivables</button>
-        <button type="button" data-panel="practica">Practice</button>
-        <button type="button" data-panel="estado">Status</button>
-      </nav>
-      <h2 id="panel-title">Details</h2>
-      <div id="panel-badge" class="badge" hidden></div>
-      <div id="panel-asof" class="small"></div>
-      <ul id="panel-lines" class="lines"></ul>
+      <section class="aip-card">
+        <h2>LOCAL CONTROL</h2>
+        <p>Mouse: <span id="crystal-mouse">not checked</span></p>
+        <p>Accessibility: <span id="crystal-ax">not checked</span></p>
+        <small>Updated by the executor.</small>
+      </section>
 
-      <div id="pair" class="pair" hidden>
-        <h3>Connect to your Jarvis</h3>
+      <section class="aip-card aip-alerts" aria-label="Alerts">
+        <div class="alerts-head">ALERTS
+          <button id="alert-silence" type="button" class="ghost">Silence</button>
+          <button id="alert-repeat" type="button" class="ghost">Repeat</button>
+        </div>
+        <ol id="alert-list" class="alert-list"><li class="small">No alerts.</li></ol>
+      </section>
+
+      <section class="aip-card" id="pair" hidden>
+        <h2>CONNECT TO YOUR JARVIS</h2>
         <p>This computer is not paired yet.</p>
         <button id="pair-start" type="button">Pair</button>
         <p id="pair-code" class="code" hidden></p>
         <p id="pair-msg" class="small"></p>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <aside class="alerts" aria-label="Alerts">
-      <div class="alerts-head">ALERTS
-        <button id="alert-silence" type="button" class="ghost">Silence</button>
-        <button id="alert-repeat" type="button" class="ghost">Repeat</button>
-      </div>
-      <ol id="alert-list" class="alert-list"><li class="small">No alerts.</li></ol>
-    </aside>
-  </main>
-
-  <footer class="foot">
-    <button id="talk" class="talk" type="button">Talk <kbd>Space</kbd></button>
-    <span id="mic-dot" class="mic" aria-live="polite">● microphone off</span>
-    <button id="mic-off" type="button" class="ghost">Turn microphone off</button>
-    <button id="stop" type="button" class="ghost">Stop audio <kbd>Esc</kbd></button>
-    <button id="repeat" type="button" class="ghost">Repeat</button>
-    <label class="check"><input id="discreet" type="checkbox"> Discreet mode</label>
-    <label class="check">Speed <input id="rate" type="range" min="0.7" max="1.4" step="0.05"></label>
-    <label class="check"><input id="convo" type="checkbox"> Conversation</label>
-  </footer>
+    <footer class="aip-bottom foot">
+      <button id="claim" type="button" hidden>Take voice here</button>
+      <button id="talk" class="talk" type="button">Talk <kbd>Space</kbd></button>
+      <label class="mic-source">Microphone <select id="mic-source" aria-label="Input microphone"><option value="">System default</option></select></label>
+      <meter id="mic-level" min="0" max="1" value="0" aria-label="Live microphone level"></meter>
+      <span id="mic-dot" class="mic" aria-live="polite">● microphone off</span>
+      <button id="mic-off" type="button" class="ghost">Mic off</button>
+      <button id="stop" type="button" class="ghost">Stop audio <kbd>Esc</kbd></button>
+      <button id="repeat" type="button" class="ghost">Repeat</button>
+      <label class="check"><input id="discreet" type="checkbox"> Discreet mode</label>
+      <label class="check">Speed <input id="rate" type="range" min="0.7" max="1.4" step="0.05"></label>
+      <label class="check"><input id="convo" type="checkbox" checked> Conversation</label>
+    </footer>
+  </div>
 
   <script src="/ui/mask.js"></script>
   <script src="/ui/wav.js"></script>
   <script src="/ui/lipsync.js"></script>
+  <script src="/ui/arranque.js"></script>
   <script src="/ui/app.js"></script>
-<script src="/ui/startup.js"></script>
-<script src="/ui/cielo.js"></script>
-<script src="/ui/mecanismo.js"></script>
-<script src="/ui/nucleo.js"></script>
-<script type="module" src="/ui/nucleo-gl.js"></script>
-<script src="/ui/nucleo-home.js"></script>
-<script src="/ui/arranque.js"></script></body>
+  <script src="/ui/barge-in.js?v=1"></script>
+  <script src="/ui/nucleo-home.js"></script>
+  <script src="/ui/crystal.js?v=1"></script>
+  <script src="/ui/crystal-motion.js?v=1"></script>
+</body>
 </html>

@@ -39,19 +39,21 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import account_navigation
 import intents                                    # noqa: E402
 import documentos                                # noqa: E402
 from hand_mouse import HandMouse                  # noqa: E402
-from audio import engines                         # noqa: E402
+from audio import engines, latencia, una_voz      # noqa: E402
 from audio.wav import AudioError, check_wav       # noqa: E402
 import negocios                                  # noqa: E402
+import paneles                                   # noqa: E402
 import mouse_autonomo                            # noqa: E402
 import ciclo                                     # noqa: E402
 from jarvis_client import JarvisClient, ServerError, TokenStore, check_url, safe_events, PANELS  # noqa: E402
 
 VERSION = "desktop-1"
 log = logging.getLogger("jarvis.desktop")
-UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/css; charset=utf-8", "reactor.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
+UI_FILES = {"crystal-motion.js": "text/javascript; charset=utf-8", "crystal.css": "text/css; charset=utf-8", "crystal.js": "text/javascript; charset=utf-8", "crystal-core.jpg": "image/jpeg", "gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/css; charset=utf-8", "reactor.js": "text/javascript; charset=utf-8", "startup.js": "text/javascript; charset=utf-8", "hand-mouse.js": "text/javascript; charset=utf-8", "hand-worker.js": "text/javascript; charset=utf-8", "atlas.js": "text/javascript; charset=utf-8", "avatar.css": "text/css; charset=utf-8", "avatar.js": "text/javascript; charset=utf-8", "hands.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8", "app.js": "text/javascript; charset=utf-8",
             "hud.js": "text/javascript; charset=utf-8", "mask.js": "text/javascript; charset=utf-8",
             "wav.js": "text/javascript; charset=utf-8", "lipsync.js": "text/javascript; charset=utf-8",
             "torre.css": "text/css; charset=utf-8", "torre.js": "text/javascript; charset=utf-8",   # display Torre
@@ -62,18 +64,12 @@ UI_FILES = {"gestures.js": "text/javascript; charset=utf-8", "hud.css": "text/cs
             "mecanismo.js": "text/javascript; charset=utf-8",                                     # núcleo y emblema azul
             "hudx.js": "text/javascript; charset=utf-8",
             "ironman.css": "text/css; charset=utf-8", "ironman.js": "text/javascript; charset=utf-8",  # holograma + torre
-            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8"}
-VENDOR_FILES = {"three/three.module.js": "text/javascript; charset=utf-8",
-                "three/three.core.js": "text/javascript; charset=utf-8",
-                "three/controls/OrbitControls.js": "text/javascript; charset=utf-8",
-                **{f"three/{d}/{n}.js": "text/javascript; charset=utf-8" for d, names in (
-                    ("postprocessing", ("EffectComposer", "RenderPass", "ShaderPass", "MaskPass", "Pass",
-                                        "UnrealBloomPass", "BokehPass", "OutputPass")),
-                    ("shaders", ("CopyShader", "LuminosityHighPassShader", "BokehShader", "OutputShader",
-                                 "GTAOShader", "PoissonDenoiseShader", "AfterimageShader")),
-                    ("postprocessing", ("GTAOPass", "AfterimagePass")), ("math", ("SimplexNoise",)),
-                    ("loaders", ("HDRLoader",)))
-                   for n in names}}
+            "aincrad.js": "text/javascript; charset=utf-8", "nucleo.js": "text/javascript; charset=utf-8", "nucleo-gl.js": "text/javascript; charset=utf-8", "nucleo.css": "text/css; charset=utf-8", "nucleo-home.js": "text/javascript; charset=utf-8", "nucleo-home.css": "text/css; charset=utf-8", "nucleo-modo.js": "text/javascript; charset=utf-8", "arranque.js": "text/javascript; charset=utf-8", "torre-aincrad.js": "text/javascript; charset=utf-8", "torre-aincrad.css": "text/css; charset=utf-8", "torre-cine.js": "text/javascript; charset=utf-8", "paneles.js": "text/javascript; charset=utf-8", "paneles.css": "text/css; charset=utf-8",
+            "aip.css": "text/css; charset=utf-8", "hud-uno.css": "text/css; charset=utf-8", "mercado-barra.css": "text/css; charset=utf-8", "mercado-barra.js": "text/javascript; charset=utf-8", "barge-in.js": "text/javascript; charset=utf-8",
+            "vivo.js": "text/javascript; charset=utf-8",
+            "todo.css": "text/css; charset=utf-8", "todo.js": "text/javascript; charset=utf-8"}
+VENDOR_FILES = {p.relative_to(HERE / "ui" / "vendor").as_posix(): "text/javascript; charset=utf-8"
+                for p in sorted((HERE / "ui" / "vendor" / "three").rglob("*.js"))}   # todo three/**.js (MIT, local)
 # Texturas CC0 (ambientCG) y HDRI CC0 (Poly Haven) de la torre cine: lista cerrada, misma bandera que vendor.
 ASSET_FILES = {**{f"piedra-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad", "ao")},
                **{f"roca-{n}.jpg": "image/jpeg" for n in ("color", "normal", "rugosidad")},
@@ -84,8 +80,8 @@ SESSION_TTL = 12 * 3600
 WINDOW_STALE = 30
 RATE_MIN, RATE_MAX = 0.7, 1.4
 DEFAULTS = {"VOICE_BIND_HOST": "127.0.0.1", "VOICE_PORT": "8765", "VOICE_STT_BACKEND": "none",
-            "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
-            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
+            "VOICE_TTS_BACKEND": "auto", "JARVIS_REPLY_LANGUAGE": "en-GB", "VOICE_STT_LANGUAGE": "en", "VOICE_WAKE_WORD_ENABLED": "false", "VOICE_RETAIN_AUDIO": "false",
+            "VOICE_AUTO_CAMERA": "false", "VOICE_STARTUP_AUDIO": "false", "VOICE_STARTUP_GREETING": "true", "JARVIS_FONDO": "true", "VOICE_SERVER_PLAYBACK": "auto", "VOICE_DEMO": "false", "VOICE_ALLOW_LAN": "false", "VOICE_HOME": str(Path.home() / ".jarvis-desktop"),
             "JARVIS_AVATAR_IRONMAN": "0",   # holograma + Torre de Aincrad en /avatar/ironman: apagado por defecto (revisado)
             "VOICE_MOUSE_ENABLED": "false"}  # órdenes de pantalla por voz: apagado hasta que el dueño lo encienda
 
@@ -290,7 +286,7 @@ def load_config(path=None):
                     k, v = line.split("=", 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
-                               "VOICE_STT_THREADS", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
+                               "VOICE_STT_THREADS", "VOICE_STT_FAST", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
                                "VOICE_CICLO", "VOICE_CICLO_DIR", "VOICE_PIPER_LENGTH_SCALE"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
@@ -321,7 +317,7 @@ def local_player(which=shutil.which):
 
 
 SOUND_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4"}
-GREETING = "Good morning, sir. All systems are online."
+GREETING = "Buenas, señor. Todo listo."
 
 
 def startup_sound(cfg):
@@ -334,8 +330,44 @@ def startup_sound(cfg):
         p = Path(own).expanduser()
         if p.is_file() and p.suffix.lower() in SOUND_TYPES and p.stat().st_size <= 20 * 2 ** 20:
             return p, SOUND_TYPES[p.suffix.lower()]
+    if str(cfg.get("JARVIS_ARRANQUE", "") or "").strip().lower() == "rock":
+        rock = HERE / "ui" / "audio" / "arranque-rock.wav"  # intro rock original (scripts/gen_arranque_rock.py)
+        if rock.is_file():
+            return rock, "audio/wav"
     default = HERE / "ui" / "audio" / "encendido.wav"
     return (default, "audio/wav") if default.is_file() else None
+
+
+def native_intro(app, cfg):
+    """Al iniciar el servicio: música por los altavoces, saludo corto encima y la música se corta al terminar."""
+    proc, player = None, local_player()
+    generation = getattr(app, "_voz_gen", 0)
+    app._intro_until = time.monotonic() + 15
+    snd = startup_sound(cfg)
+    if snd and player and player[0] == "afplay":
+        try:
+            proc = subprocess.Popen(["afplay", "-v", "0.35", str(snd[0])],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            proc = None
+    app._intro_process = proc
+    start = time.time()
+    time.sleep(3.0 if proc else 0.5)
+    if generation != getattr(app, "_voz_gen", 0):
+        app._intro_until = 0
+        return
+    try:
+        audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
+        app._play_local(audio)
+        until = time.time() + _wav_secs(audio) + 1.0
+    except Exception:
+        until = time.time() + 1.0
+    while time.time() < min(until, start + 15.0) and proc and proc.poll() is None:
+        time.sleep(0.2)
+    if proc and proc.poll() is None:
+        proc.terminate()
+    app._intro_until = 0
+    app._intro_process = None
 
 
 def core_mode(server_state, last_alert_at, now):
@@ -616,6 +648,20 @@ class Companion:
                 self.cond.wait(max(0.1, end - time.time()))
                 self._seen(window)
 
+    def paneles_negocio(self):
+        """Cobros reales del servidor solo si está emparejado; nunca DEMO. Cripto: precio público en caché."""
+        cobros = None
+        if not self.demo and self.client.url and self._token():
+            try:
+                p = self.panel("cobros"); cobros = {"lineas": p.get("lines") or [], "as_of": p.get("as_of")}
+            except Exception:   # servidor caído: el panel dice sin datos
+                cobros = None
+        try:
+            cr = negocios.mercado()
+        except Exception:
+            cr = None
+        return paneles.resumen(servidor_cobros=cobros, cripto=cr)
+
     def voz_view(self):
         with self.lock:
             v = self.voz
@@ -673,7 +719,8 @@ class Companion:
                     "paired": bool(self._token()), "server_version": self.server_version,
                     "startup": {"camera": truthy(self.cfg.get("VOICE_AUTO_CAMERA", "false")), "audio": truthy(self.cfg.get("VOICE_STARTUP_AUDIO", "false")),
                                 "greeting": truthy(self.cfg.get("VOICE_STARTUP_GREETING", "true")),
-                                "sound": startup_sound(self.cfg) is not None},
+                                "sound": startup_sound(self.cfg) is not None,
+                                "fondo": truthy(self.cfg.get("JARVIS_FONDO", "true")) and (HERE / "ui" / "audio" / "fondo.wav").is_file()},
                     "stt": {"engine": self.stt.name, "problem": self.stt.problem()},
                     "tts": {"engine": self.tts.name, "problem": self.tts.problem()},
                     "processing": "Todo el audio se procesa en esta Mac" if self.stt.name != "none" else
@@ -774,8 +821,58 @@ class Companion:
                 **({"chart": clean_chart(p.get("chart"))} if name == "practica" else {})}
 
     # --- speech ---
-    def transcribe(self, wav):
-        return self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+    WAKE_RE = re.compile(r"^\W*(?:(?:oye|hey|ey|please|por\s+favor)\W+)?(?P<w>jarvis|yarvis|harvis|jarbis|yarbis|harbis|harbys|jarvi)\b", re.I)
+
+    def transcribe(self, wav, interrupt=False):
+        # Only one whisper.cpp process at a time, including requests from another tab.
+        with self.lock:
+            if not hasattr(self, '_stt_lock'):
+                self._stt_lock = threading.Lock()
+        with self._stt_lock:
+            out = self.stt.transcribe(wav, retain_dir=(self.home / "audio") if self.retain else None)
+        native_speech = ((self._playback_native() and time.time() < getattr(self, "speaking_until", 0))
+                         or time.monotonic() < getattr(self, "_intro_until", 0))
+        filtered = self._wake_filter(out, require_wake=interrupt or native_speech)
+        if native_speech and filtered.get("text"):
+            filtered = dict(filtered, interrupt_verified=True)
+        return filtered
+
+    def _wake_filter(self, out, require_wake=False):
+        """During playback require the name even inside the follow-up window."""
+        text = str(out.get('text') or '').strip()
+        if not text:
+            return out
+        enabled = truthy(self.cfg.get('VOICE_WAKE_WORD_ENABLED', 'false'))
+        m = self.WAKE_RE.match(text)
+        if require_wake:
+            # AEC is browser/hardware dependent. Suppress a transcript copied from our own reply.
+            def words(value):
+                return ' '.join(re.findall(r'[^\W_]+', str(value).casefold(), re.UNICODE))
+            heard = words(text)
+            reply = words(getattr(self, 'last', {}).get('text', ''))
+            if len(heard) >= 8 and heard in reply:
+                return dict(out, text='', reason='playback_echo')
+        if not enabled and not require_wake:
+            return out
+        if m or (not require_wake and time.monotonic() < getattr(self, '_wake_until', 0.0)):
+            self._wake_until = time.monotonic() + self._wake_follow()
+            if m:
+                rest = text[m.end():].strip(' ,.:;!?¿¡')
+                if not rest:
+                    return dict(out, text='', reason='wake_word_only')
+                out = dict(out, text='Jarvis' + text[m.end('w'):])
+            return out
+        return dict(out, text='', reason='no_wake_word')
+
+    def voice_follow(self):
+        self._wake_until = time.monotonic() + self._wake_follow()
+        return {'ok': True}
+
+    def _wake_follow(self):
+        try:
+            return max(0.0, min(300.0, float(self.cfg.get("VOICE_WAKE_FOLLOW_S", "40"))))
+        except (TypeError, ValueError):
+            return 40.0
 
     def speak(self, text, turn_id=None, sensitive=False):
         """Synthesize and tell the audio window to play it. Text stays on screen if voice fails."""
@@ -783,16 +880,20 @@ class Companion:
         with self.lock:
             discreet = self.prefs["discreet"]; rate = self.prefs["rate"]; owner = self.owner
         if discreet and (sensitive or re.search(r"\d", text or "")):
-            text = "Te lo dejé en pantalla."
+            text = "I left it on screen, sir."
         if (not owner and not self._playback_native()) or self.tts.problem():
             return None                                      # sin ventana dueña: en auto suena por los altavoces
         gen0 = getattr(self, "_voz_gen", 0)                  # generación tomada ANTES de sintetizar: un stop posterior la invalida
         native = self._playback_native()
         parts = speech_chunks(text)                          # baja latencia: la 1.ª frase suena mientras se sintetiza el resto
         first, total = None, 0.0
+        t_tts = latencia.now_ms()
         for i, part in enumerate(parts):
             try:
                 audio, ctype = self.tts.synthesize(part, rate=rate)
+                if i == 0 and turn_id:
+                    lat = self._lat(turn_id); lat["tts_first_audio_ms"] = latencia.now_ms() - t_tts
+                    latencia.write(turn_id, lat)
             except engines.EngineError as e:
                 if i == 0:
                     self.emit({"type": "state", "state": "error", "detail": f"voz: {e}"}); return None
@@ -816,7 +917,57 @@ class Companion:
                 self.emit({"type": "audio.play", "id": aid, "turn": turn_id or first, "seq": i})
             total += _wav_secs(audio)
         self.speaking_until = time.time() + (total or 3)
+        if native:
+            self._wake_until = time.monotonic() + (total or 3) + self._wake_follow()
         return first
+
+    def _lat(self, tid):
+        with self.lock:
+            t = self.turns.get(tid)
+            return t.setdefault("lat", {}) if t is not None else {}
+
+    def prewarm_stt(self):
+        """Precalienta whisper.cpp al arrancar el panel.
+
+        Por qué: el log de latencia del dueño (33 turnos reales) dice que los primeros cuatro
+        turnos tardan 6 669 ms en transcribir y los 29 siguientes 2 098 ms. Tres veces más al
+        empezar, porque el modelo y el binario llegan al caché del sistema con el primer turno.
+        Esto los trae antes, con un tono corto generado aquí: 0,4 s de audio, sin micrófono.
+
+        No toca el micrófono, no graba nada, no sale de la Mac, y si falla no pasa nada: el
+        primer turno real vuelve a pagar el arranque y ya está. El resultado se descarta."""
+        import math
+        if self.stt.problem():
+            return
+
+        def run():
+            try:
+                from audio import wav as _wav
+            except ImportError:
+                from desktop.audio import wav as _wav
+            muestras = [int(1500 * math.sin(2 * math.pi * 220 * i / _wav.RATE))
+                        for i in range(int(_wav.RATE * 0.4))]
+            try:
+                with self.lock:
+                    if not hasattr(self, "_stt_lock"):
+                        self._stt_lock = threading.Lock()
+                with self._stt_lock:
+                    self.stt.transcribe(_wav.make_wav(muestras))     # se descarta a propósito
+            except Exception:
+                return                                            # el primer turno pagará el arranque
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def prewarm_tts(self):
+        """Precalienta say/Piper al arrancar (y deja el saludo en caché): la primera respuesta no paga el arranque."""
+        def run():
+            for line in (GREETING, "Yes, sir."):
+                try:
+                    self.tts.synthesize(line, rate=self.prefs["rate"])
+                except Exception:
+                    return
+        if not self.tts.problem():
+            threading.Thread(target=run, daemon=True).start()
 
     def _playback_mode(self):
         return str(self.cfg.get("VOICE_SERVER_PLAYBACK", "auto")).strip().lower()
@@ -863,8 +1014,10 @@ class Companion:
                 with self._voz_lock:                     # comprobar y lanzar de forma atómica frente a stop_local_audio
                     if gen != self._voz_gen:
                         continue
+                    una_voz.claim()                      # una sola voz en la Mac: corta otra voz de Jarvis (voz_loop, etc.)
                     proc = subprocess.Popen(player + [str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     self._voz_proc = proc
+                    una_voz.register(getattr(proc, "pid", 0))
                 try:
                     proc.wait(timeout=120)
                 except subprocess.TimeoutExpired:
@@ -876,6 +1029,14 @@ class Companion:
 
     def stop_local_audio(self):
         """/api/audio/stop, cancelar, Escape, silenciar: corta el reproductor nativo y vacía la cola."""
+        self.speaking_until = 0
+        self._intro_until = 0
+        intro = getattr(self, "_intro_process", None)
+        if intro and intro.poll() is None:
+            try:
+                intro.terminate()
+            except OSError:
+                pass
         with _VOZ_INIT_LOCK:                             # siempre invalida la generación, aunque la cola no exista aún
             self._voz_gen = getattr(self, "_voz_gen", 0) + 1
             if not hasattr(self, "_voz_q"):
@@ -904,7 +1065,8 @@ class Companion:
             if any(x["state"] in ("accepted", "consultando") for x in self.turns.values()):
                 raise ValueError("ya hay una consulta en curso")
             self.turns[request_id] = {"text": text, "state": "accepted", "cancelled": False, "source": source,
-                                      "at": time.time()}
+                                      "at": time.time(), "lat": dict(getattr(self, "_lat_pending", None) or {})}
+            self._lat_pending = None
             for old in sorted(self.turns, key=lambda k: self.turns[k]["at"])[:-100]:
                 self.turns.pop(old, None)
         self.emit({"type": "transcript.final", "turn": request_id, "text": text})
@@ -918,6 +1080,7 @@ class Companion:
                 raise KeyError(turn_id)
             done = t["state"] in ("done", "error")
             t["cancelled"] = True
+            t["state"] = "cancelled"
         self.stop_local_audio(); self.emit({"type": "audio.stop", "turn": turn_id})
         self.emit({"type": "turn.cancelled", "turn": turn_id})
         return {"cancelled": True, "already_done": done,
@@ -938,6 +1101,7 @@ class Companion:
                 "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.":
                     "Mouse stopped. Remove the STOP file on your Mac when you want to resume.",
             }.get(reply, reply)
+        self._wake_until = time.monotonic() + self._wake_follow()     # tras responder: seguir sin repetir «Jarvis»
         with self.lock:
             t = self.turns[tid]; t["state"] = state; cancelled = t["cancelled"]
             if reply is not None:
@@ -963,41 +1127,47 @@ class Companion:
 
     def _run_turn(self, tid, text):
         with self.lock:
+            if self.turns[tid].get("cancelled"):
+                return
             self.turns[tid]["state"] = "consultando"
         self.emit({"type": "state", "state": "consultando", "turn": tid})
         kind, arg = intents.parse(text)
         try:
             if kind == "stop_mouse":                                # parada remota del mouse: crea STOP
                 _crear_stop_mouse(); self.emit({"type": "audio.stop"})
-                return self._finish(tid, "done", "Paré el mouse. Para volver a encenderlo borra ~/.jarvis-control/STOP en la Mac.")
+                return self._finish(tid, "done", "Mouse stopped, sir. To turn it back on, delete ~/.jarvis-control/STOP on the Mac.")
+            if kind == "application":
+                result = account_navigation.open_application(arg)
+                return self._finish(tid, "done" if result["ok"] else "error", result["message"])
+            if kind == "account":
+                result = account_navigation.open_account(arg)
+                return self._finish(tid, "done" if result["ok"] else "error", result["message"])
             if kind == "stop_audio":
                 self.stop_local_audio(); self.emit({"type": "audio.stop"}); return self._finish(tid, "done")
             if kind == "mic_off":
                 self.set_prefs(mic=False); self.emit({"type": "mic.off"})
-                return self._finish(tid, "done", "Apagué el micrófono.")
+                return self._finish(tid, "done", "Microphone off, sir.")
             if kind == "mic_on":                                   # 4.0.5 (3.4)
                 self.set_prefs(mic=True); self.emit({"type": "mic.on"})
-                return self._finish(tid, "done", "Micrófono encendido. Pulsa Hablar o la barra espaciadora.")
+                return self._finish(tid, "done", "Microphone on. Press Talk or the space bar.")
             if kind in ("discreet_on", "discreet_off"):
                 self.set_prefs(discreet=kind == "discreet_on")
-                return self._finish(tid, "done", "Modo discreto activado: no leeré montos ni códigos." if kind == "discreet_on"
-                                    else "Modo discreto desactivado.")
+                return self._finish(tid, "done", "Discreet mode on: I won't read amounts or codes aloud." if kind == "discreet_on"
+                                    else "Discreet mode off.")
             if kind == "health":
                 return self._finish(tid, "done", self.local_health_text())
-            if kind == "business":
-                return self._finish(tid, "done",
-                    "Enfoque: negocios externos. Te leo caja, cobros, agenda y el resumen comercial. "
-                    "No compro, no llamo, no publico y no muevo dinero.")
+            # Business conversation uses the paired server and current records,
+            # not a fixed speech listing unrelated limitations.
             if kind == "repeat":
                 with self.lock:
                     aid, last = self.last["audio"], self.last["text"]
                 if aid and aid in self.audio:
                     self.emit({"type": "audio.play", "id": aid, "turn": tid}); return self._finish(tid, "done")
-                return self._finish(tid, "done", last or "Todavía no he dicho nada.")
+                return self._finish(tid, "done", last or "I haven't said anything yet, sir.")
             if kind in ("slower", "faster"):
                 self.set_prefs(rate=self.prefs["rate"] + (-0.15 if kind == "slower" else 0.15))
-                return self._finish(tid, "done", "Listo, hablaré más despacio." if kind == "slower"
-                                    else "Listo, hablaré más rápido.")
+                return self._finish(tid, "done", "Very well, I'll speak more slowly." if kind == "slower"
+                                    else "Very well, I'll speak a little faster.")
             if kind == "refuse":
                 return self._finish(tid, "done", arg)
             if kind == "panel":
@@ -1016,31 +1186,33 @@ class Companion:
                     r = {"ok": False, "motivo": ""}
                 return self._finish(tid, "done", _mouse_reply(arg, r))
             if kind == "empty":
-                return self._finish(tid, "done", "No te escuché.")
+                return self._finish(tid, "done", "I didn't catch that, sir.")
             if self.demo:
-                return self._finish(tid, "done", "DEMO: no estoy conectado a tu Jarvis, así que no consulto tus "
-                                                 "datos. Prueba «abre la agenda» para ver un panel de ejemplo.")
+                return self._finish(tid, "done", "Demo mode: I'm not connected to your Jarvis, so I can't read your "
+                                                 "data. Try \"open the agenda\" to see a sample panel.")
             if not self.client.url or not self._token():
-                return self._finish(tid, "error", "Sin conexión real con Jarvis. Configura y empareja este equipo; no se ejecutó ninguna acción.")
-            r = self.client.turn(tid, text)
+                return self._finish(tid, "error", "No live connection to Jarvis. Please pair this computer; nothing was executed.")
+            t_llm = latencia.now_ms()
+            r = self.client.turn(tid, text)          # respuesta del servidor (sin streaming: = primer token)
+            self._lat(tid)["llm_first_token_ms"] = latencia.now_ms() - t_llm
             state = r.get("state")
             if state == "uncertain":
-                return self._finish(tid, "error", r.get("reply") or "No sé si Jarvis contestó; pregúntame otra vez.")
+                return self._finish(tid, "error", r.get("reply") or "I'm not sure Jarvis answered; please ask me again.")
             if state == "running":
-                return self._finish(tid, "error", "Jarvis todavía está trabajando en esa consulta; intenta en un momento.")
+                return self._finish(tid, "error", "Jarvis is still working on that; try again in a moment.")
             self._finish(tid, "done" if state == "done" else "error", str(r.get("reply") or "")[:4000],
                          sensitive=bool(r.get("sensitive")), events=safe_events(r.get("events")),
                          llm=bool(r.get("llm_used")))
         except ServerError as e:
             if e.status == 401:
                 self._auth_lost(e.detail)
-            msg = ("No pude hablar con Jarvis (sin conexión). Tu pregunta no se repetirá sola; inténtalo otra vez."
-                   if e.status == 0 else f"Jarvis respondió con un error: {e.detail}")
+            msg = ("I couldn't reach Jarvis, sir, no connection. Please try again."
+                   if e.status == 0 else f"Jarvis returned an error: {e.detail}")
             self.emit({"type": "state", "state": "sin conexión" if e.status == 0 else "error"})
             self._finish(tid, "error", msg)
         except Exception as e:                                   # never leave a turn stuck
             log.warning("turn failed: %s", type(e).__name__)
-            self._finish(tid, "error", "Algo falló en el panel local; inténtalo otra vez.")
+            self._finish(tid, "error", "Something failed in the local panel; please try again.")
 
 
 documentos.install(Companion)
@@ -1071,12 +1243,16 @@ def make_handler(app, host, port):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("X-Frame-Options", "DENY")
+            # SAMEORIGIN, no DENY: /todo muestra las cuatro paginas del panel en una sola pestana y
+            # necesita poder enmarcarse A SI MISMO. Sigue prohibido que CUALQUIER sitio externo
+            # enmarque el panel, que es de lo que protege esta cabecera (clickjacking). El panel
+            # ademas escucha en 127.0.0.1 y exige la cookie de sesion.
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self' blob:; "
                              "img-src 'self' data: blob:; style-src 'self'; "
                              "script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; "
                              "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com; "
-                             "worker-src 'self' blob:; frame-ancestors 'none'")
+                             "worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'")
             for k, v in (headers or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -1127,10 +1303,10 @@ def make_handler(app, host, port):
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
                 return self._send(200, (HERE / "ui" / "nucleo.html").read_bytes(), "text/html; charset=utf-8")   # sin Aincrad
-            if u.path in ("/", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
+            if u.path in ("/", "/todo", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):   # /hud = second monitor (4.0.5, 3.2)
                 if not app.session_ok(self._cookie()):
                     return self._send(401, INDEX_401, "text/html; charset=utf-8")
-                page = {"/": "index.html", "/hud": "hud.html", "/avatar": "nucleo.html", "/torre": "nucleo.html", "/nucleo": "nucleo.html",   # la Torre de Aincrad se retiró: solo el núcleo
+                page = {"/": "index.html", "/todo": "todo.html", "/hud": "hud.html", "/avatar": "nucleo.html", "/torre": "nucleo.html", "/nucleo": "nucleo.html",   # la Torre de Aincrad se retiró: solo el núcleo
                        
                         "/mercado": "mercado.html", "/orbe": "orbe.html"}[u.path]
                 body = (HERE / "ui" / page).read_bytes()
@@ -1140,14 +1316,18 @@ def make_handler(app, host, port):
             if not self._guard():
                 return
             if u.path.startswith("/ui/") and u.path[4:] in UI_FILES:
-                return self._send(200, (HERE / "ui" / u.path[4:]).read_bytes(), UI_FILES[u.path[4:]])
+                try:
+                    cuerpo = (HERE / "ui" / u.path[4:]).read_bytes()
+                except OSError:
+                    return self._send(404, {"error": "no existe"})   # registrado pero sin archivo: 404, no 500
+                return self._send(200, cuerpo, UI_FILES[u.path[4:]])
             if u.path.startswith("/ui/assets/") and u.path[11:] in ASSET_FILES:
                 if not app.avatar_ironman:
                     return self._send(404, {"error": "no existe"})
                 return self._send(200, (HERE / "ui" / "assets" / u.path[11:]).read_bytes(), ASSET_FILES[u.path[11:]])
             if u.path.startswith("/ui/vendor/") and u.path[11:] in VENDOR_FILES:
-                if not app.avatar_ironman:
-                    return self._send(404, {"error": "no existe"})
+                if not app.avatar_ironman and not u.path[11:].startswith("three/"):   # three.js (MIT, local) lo usa el núcleo WebGL siempre;
+                    return self._send(404, {"error": "no existe"})                    # antes daba 404 sin JARVIS_AVATAR_IRONMAN → caía al 2D viejo
                 return self._send(200, (HERE / "ui" / "vendor" / u.path[11:]).read_bytes(), VENDOR_FILES[u.path[11:]])
             if u.path == "/api/hand-mouse/status":
                 return self._send(200, app.hand_mouse.status())
@@ -1160,6 +1340,11 @@ def make_handler(app, host, port):
                 if not amb.is_file():
                     return self._send(404, {"error": "sin música"})
                 return self._send(200, amb.read_bytes(), "audio/wav")
+            if u.path == "/api/fondo-music":                  # fondo ambiental original (gen_fondo.py); JARVIS_FONDO=off lo apaga
+                fondo = HERE / "ui" / "audio" / "fondo.wav"
+                if not truthy(app.cfg.get("JARVIS_FONDO", "true")) or not fondo.is_file():
+                    return self._send(404, {"error": "fondo apagado"})
+                return self._send(200, fondo.read_bytes(), "audio/wav")
             if u.path == "/api/startup-sound":                # sonido de arranque (original o archivo propio local)
                 found = startup_sound(app.cfg)
                 if not found:
@@ -1170,6 +1355,12 @@ def make_handler(app, host, port):
                 return self._send(200, c.estado_view() if c else {"activo": False})
             if u.path == "/api/negocios":                     # torre de Aincrad: cifras DEMO, sin red
                 return self._send(200, negocios.torre())
+            if u.path == "/api/paneles-negocio":             # paneles del núcleo: solo datos reales locales
+                return self._send(200, app.paneles_negocio())
+            m = re.fullmatch(r"/api/evidencia/(\d{1,12}\.png)", u.path)
+            if m:
+                img = paneles.captura(paneles.control_dir(), m.group(1))
+                return self._send(200, img, "image/png") if img else self._send(404, {"error": "no existe"})
             if u.path == "/api/cripto":                       # precios públicos, sin claves ni trading
                 return self._send(200, negocios.mercado())
             if u.path == "/api/hud":
@@ -1222,7 +1413,10 @@ def make_handler(app, host, port):
                         return self._send(415, {"error": "se espera audio/wav"})
                     wav = self.rfile.read(n)
                     app.emit({"type": "state", "state": "transcribiendo"})
-                    out = app.transcribe(wav); out["id"] = uuid.uuid4().hex
+                    t0 = latencia.now_ms()
+                    out = app.transcribe(wav, interrupt=urllib.parse.parse_qs(u.query).get("interrupt") == ["1"]); out["id"] = uuid.uuid4().hex
+                    app._lat_pending = {"vad_ms": latencia.VAD_SILENCE_MS, "stt_ms": latencia.now_ms() - t0,
+                                        "audio_duration_ms": out.get("duration_s", 0) * 1000}
                     app.emit({"type": "state", "state": "listo"})
                     return self._send(200, out)
                 data = self._json()
@@ -1241,6 +1435,8 @@ def make_handler(app, host, port):
                         return self._send(200, out)
                     except RuntimeError as exc:
                         return self._send(503, {"error": str(exc)})
+                if u.path == "/api/voice/follow":
+                    return self._send(200, app.voice_follow())
                 if u.path == "/voice/synthesize":
                     audio, ctype = app.tts.synthesize(str(data.get("text", ""))[:1500], rate=app.prefs["rate"])
                     return self._send(200, audio, ctype)
@@ -1310,6 +1506,8 @@ def serve(cfg, open_browser=True):
     host = check_bind(cfg["VOICE_BIND_HOST"], truthy(cfg["VOICE_ALLOW_LAN"]))
     port = int(cfg["VOICE_PORT"])
     app = Companion(cfg)
+    app.prewarm_tts()                                  # TTS listo antes de la primera respuesta
+    app.prewarm_stt()                                  # y Whisper: el primer turno tardaba 3x más
     httpd = Server((host, port), http.server.BaseHTTPRequestHandler)
     real_port = httpd.server_address[1]                  # differs from port only when port is 0 (tests)
     httpd.RequestHandlerClass = make_handler(app, host, real_port)
@@ -1385,29 +1583,16 @@ def _wav_secs(audio):
         return 0.0
 
 
-def speech_chunks(text, first_max=140):
-    """Primera frase sola (empieza a sonar enseguida); el resto en un segundo bloque."""
+def speech_chunks(text, first_max=140, first_words=6):
+    """Speak whole sentences; only split unusually long sentences at word boundaries.
+
+    Keep legacy arguments for callers, but never force a six-word prosody break.
+    """
+    import textwrap
     t = str(text or "").strip()
-    m = re.search(r"[.!?…](\s+)", t)
-    if not m or m.end() >= len(t) or m.start() > first_max:
-        return [t]
-    return [t[:m.start() + 1], t[m.end():]]
-
-
-def _announce_focus(cfg):
-    """One calm Latin-American greeting when the panel starts. Never on --check or --bench."""
-    if cfg.get("VOICE_TTS_BACKEND") != "macos_say" or not shutil.which("say"):
-        return
-    voice = (cfg.get("VOICE_TTS_VOICE") or "Juan").strip()
-    if voice in ("", "auto-latino", "Monica", "Jorge"):
-        voice = "Juan"
-    line = ("Para servirle. Sistemas en línea. El enfoque son sus negocios externos. "
-            "No compro, no llamo y no publico.")
-    try:
-        subprocess.Popen(["say", "-v", voice, "-r", "142", line],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        return
+    sentences = re.split(r"(?<=[.!?…])\s+", t, maxsplit=1)
+    return [part for sentence in sentences for part in
+            textwrap.wrap(sentence, width=450, break_long_words=False, break_on_hyphens=False)] or [""]
 
 
 def main(argv=None):
@@ -1428,8 +1613,10 @@ def main(argv=None):
             raise SystemExit("--hand-mouse solo se permite localmente en macOS, fuera de DEMO.")
         cfg["_HAND_MOUSE_ENABLED"] = True
     if truthy(cfg["VOICE_WAKE_WORD_ENABLED"]):
-        print("Aviso: la palabra de activación aún no está implementada (fase 2); se ignora.")
+        print("Palabra de activación: activa. Empieza con «Jarvis»; después puedes seguir hablando sin repetirlo.")
     app, httpd, port = serve(cfg)
+    if truthy(cfg.get("VOICE_STARTUP_GREETING", "true")) and not truthy(cfg.get("VOICE_DEMO", "false")):
+        threading.Thread(target=native_intro, args=(app, cfg), daemon=True).start()   # música + saludo
     if truthy(cfg.get("VOICE_CICLO", "true")):
         app.ciclo.arrancar()                             # ciclo autónomo local, siempre encendido
     host = cfg["VOICE_BIND_HOST"]

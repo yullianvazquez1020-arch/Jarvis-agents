@@ -1209,6 +1209,24 @@ def _run_actions(path: Path, *, dry: bool, libre: bool, pointer=None, automatic:
     return worst
 
 
+def write_ax_status() -> None:
+    """Deja en ~/.jarvis-control/accesibilidad.json si ESTE proceso (python3.9 del LaunchAgent) tiene Accesibilidad.
+    Solo lectura de macOS (AXIsProcessTrusted); no pide ni concede nada."""
+    trusted = None
+    try:
+        import ctypes
+        lib = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        lib.AXIsProcessTrusted.restype = ctypes.c_bool
+        trusted = bool(lib.AXIsProcessTrusted())
+    except Exception:  # noqa: BLE001 - fuera de macOS: desconocido
+        trusted = None
+    try:
+        (control_dir() / "accesibilidad.json").write_text(json.dumps(
+            {"trusted": trusted, "python": sys.executable, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def run_autonomo(pointer, *, ciclos: int | None = None, pausa: float = 1.0) -> int:
     """Bucle 24/7: lee órdenes nuevas de ~/.jarvis-control/autonomo/entrada.jsonl, las pasa por la misma
     revisión (STOP, denylist, ritmo, turno, lista segura) y las archiva. Con STOP no ejecuta nada."""
@@ -1222,6 +1240,8 @@ def run_autonomo(pointer, *, ciclos: int | None = None, pausa: float = 1.0) -> i
     while ciclos is None or vuelta < ciclos:
         vuelta += 1
         heartbeat()
+        if vuelta == 1 or vuelta % 30 == 0:
+            write_ax_status()
         if not stopped():
             # Lotes pendientes primero (de un reinicio o reencolados por ritmo), del más viejo al más nuevo.
             with queue_lock():

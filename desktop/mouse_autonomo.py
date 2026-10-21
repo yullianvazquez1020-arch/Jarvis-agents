@@ -38,7 +38,7 @@ def estado():
     s = auto.read_session()
     return {"disponible": True, "stop": bool(ae.stopped()), "sesion": bool(s), "launchd": agente_vivo(),
             "agente": s["agent"] if s else None, "vence": s["expires"] if s else None,
-            "apps": sorted(ae.ALLOW_APPS),
+            "apps": sorted(ae.ALLOW_APPS), "accesibilidad": accesibilidad(),
             "parada": "esquina superior izquierda · Ctrl+C · ~/.jarvis-control/STOP",
             "nota": "La sesión solo la abre el dueño en su Terminal (python3 desktop/mac/autonomo.py). "
                     "El puntero se mueve en Notes, Safari, Outlook y Slack. En Outlook y Slack nunca envía, responde, borra ni cambia ajustes. Mail y Mensajes no."}
@@ -107,3 +107,32 @@ def encargar(action):
         tmp.write_text(json.dumps(action), encoding="utf-8")
         os.replace(tmp, path)
     return {"ok": True, "orden": action["action"]}
+
+
+def accesibilidad():
+    """Lo que el ejecutor (LaunchAgent, python3.9) escribió de sí mismo: AXIsProcessTrusted(). Sin archivo = desconocido."""
+    try:
+        d = json.loads((ae.control_dir() / "accesibilidad.json").read_text(encoding="utf-8"))
+        return {"concedido": bool(d.get("trusted")), "python": str(d.get("python") or ""), "visto": str(d.get("at") or "")}
+    except (OSError, ValueError, AttributeError):
+        return {"concedido": None, "python": PY39, "visto": ""}
+
+
+PY39 = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9"
+
+
+def encargar_voz(action):
+    """Orden por voz al ejecutor 24/7 (--autonomo): carril "jarvis" = supervisado, el ejecutor pide /confirmar
+    y aplica STOP, lista segura, ritmo y topes. Aquí solo se filtra lo obvio antes de encolar."""
+    if ae.stopped():
+        return {"ok": False, "motivo": "STOP activo"}
+    action = dict(action or {}); action["agent"] = "jarvis"
+    kind = str(action.get("action") or "")
+    if kind not in INVESTIGACION or ae.denial(action):
+        return {"ok": False, "motivo": "accion"}
+    if kind == "open_app" and ae.norm(action.get("app") or "") not in ae.ALLOW_APPS:
+        return {"ok": False, "motivo": "app"}
+    folder = ae.control_dir() / "autonomo"; folder.mkdir(parents=True, exist_ok=True)
+    with _ORDEN_LOCK, open(folder / "entrada.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(action) + "\n")
+    return {"ok": True, "orden": kind}

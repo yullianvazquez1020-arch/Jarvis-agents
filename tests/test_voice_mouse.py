@@ -57,7 +57,7 @@ NO_MOUSE = {
     "¿cuánto me deben?": "server",            # las preguntas siguen yendo a Jarvis
     "¿cómo van los trabajos de Ana?": "server",
     "abre el banco": "server",                # fuera de la lista: no se inventa una orden
-    "abre facebook": "server",
+    "abre facebook": "account",   # union: no es orden de mouse; es la navegacion de cuentas del panel
     "abre la Terminal": "server",
 }
 

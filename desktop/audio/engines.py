@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .wav import check_wav
+from .wav import check_wav, has_voice_energy
 
 
 class EngineError(RuntimeError):
@@ -60,8 +60,9 @@ def _run(cmd, timeout, stdin=None, cwd=None):
 class WhisperCpp:
     name = "whisper_cpp"
 
-    def __init__(self, binary, model, threads=4, language="es"):
+    def __init__(self, binary, model, threads=4, language="es", fast=False):
         self.binary = binary or ""; self.model = model or ""; self.threads = int(threads); self.language = language
+        self.fast = fast
 
     def problem(self):
         if not self.binary or not (shutil.which(self.binary) or os.access(self.binary, os.X_OK)):
@@ -77,11 +78,17 @@ class WhisperCpp:
         why = self.problem()
         if why:
             raise EngineError(why)
+        if not has_voice_energy(wav_bytes):
+            return {"text": "", "language": self.language, "duration_s": seconds,
+                    "engine": self.name, "reason": "no_voice_energy"}
         with tempfile.TemporaryDirectory(prefix="jarvis-stt-") as tmp:   # per request, always deleted
             src = Path(tmp) / "in.wav"; src.write_bytes(wav_bytes)
             out = Path(tmp) / "out"
+            decoding = ["-bs", "1", "-bo", "1"] if self.fast else []
+            # Whisper codifica siempre 30 s; -ac ajusta la ventana a la frase (1500 = 30 s, 50 por segundo).
+            decoding += ["-ac", str(min(1500, max(512, int(seconds * 50) + 64)))]
             _run([self.binary, "-m", self.model, "-f", str(src), "-l", self.language, "-t", str(self.threads),
-                  "-nt", "-np", "-otxt", "-of", str(out)], timeout=max(30, int(seconds * 6)))
+                  "-nt", "-np", "-otxt", "-of", str(out)] + decoding, timeout=max(30, int(seconds * 6)))
             txt = out.with_suffix(".txt")
             text = txt.read_text(encoding="utf-8", errors="replace") if txt.is_file() else ""
             if retain_dir:
@@ -109,7 +116,7 @@ FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica
                  "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
 ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
 EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
-DEFAULT_WPM = 170                         # slightly slower, natural conversation
+DEFAULT_WPM = 160                         # 160 ppm: pausado y claro (Yullian), JARVIS_VOZ_RATE lo cambia
 
 
 def is_female(name):
@@ -152,18 +159,30 @@ def choose_voices(listing):
 
 
 _EN_WORDS = set("the you your is are and of to what how hello sir i it this that with for have has be will "
-                "can do not we my me on in at today guess much money made".split())
+                "can do not we my me on in at today guess much money made thanks ready understood sure".split())
 _ES_WORDS = set("el la los las de que y en un una es por para con no se lo como qué hola señor tu su "
-                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más".split())
+                "estoy está están hoy cuánto dinero hemos muy bien sí ya pero más perfecto gracias listo entendido vale claro correcto".split())
 
 
-def detect_lang(text):
+def preferred_lang():
+    """Idioma del dueño: JARVIS_REPLY_LANGUAGE (es-* -> español). Decide los casos sin señal."""
+    v = str(os.environ.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-")
+    return "es" if v.startswith("es") else "en"
+
+
+def detect_lang(text, fallback=None):
+    """Idioma de ESTE texto, para leerlo con la voz que le toca.
+
+    Un texto en español leído por una voz inglesa no se entiende: es lo que le pasaba al dueño.
+    Sin ninguna palabra reconocible ("ok", "3", "") manda el idioma configurado, no el inglés."""
     t = str(text or "").lower()
     if re.search(r"[ñáéíóú¿¡]", t):
         return "es"
     words = re.findall(r"[a-z']+", t)
     en = sum(w in _EN_WORDS for w in words); es = sum(w in _ES_WORDS for w in words)
-    return "es" if es > en else "en"          # inglés (Daniel) es el idioma principal; español solo si lo es
+    if es == en:                               # empate o ninguna señal: lo que el dueño configuró
+        return fallback if fallback in ("es", "en") else preferred_lang()
+    return "es" if es > en else "en"
 
 
 def speech_rate(default=DEFAULT_WPM):
@@ -171,6 +190,10 @@ def speech_rate(default=DEFAULT_WPM):
         return max(90, min(int(float(os.getenv("JARVIS_VOZ_RATE", "") or default)), 300))
     except ValueError:
         return default
+
+
+# Juan/Daniel/auto en la config: la voz la decide el idioma del texto (detect_lang), no una fija.
+ROUTED_VOICES = {"auto-latino", "auto", "Juan", "Daniel"}
 
 
 class MacSay:
@@ -195,16 +218,28 @@ class MacSay:
         return self._pair
 
     def resolve_voice(self, text=""):
-        """Voz masculina según el idioma: Juan (es) / Daniel (en_GB); nunca descarga ni elige femenina."""
-        if self.voice != "auto-latino":
-            return self.voice
-        es, en = self.voices()
-        if en and (not text or detect_lang(text) == "en"):
-            return en                                    # inglés británico primero
-        if es:
-            self._resolved_voice = es
-            return es
-        raise EngineError("no hay una voz masculina en español instalada (instala Juan en Ajustes → Accesibilidad → Contenido leído)")
+        """Voz masculina SEGÚN EL IDIOMA DEL TEXTO: Juan (es) / Daniel (en_GB).
+
+        Antes devolvía siempre la inglesa, incluso para un texto en español. El dueño lo
+        describió exactamente así: «la voz responde pero no lo entiendo». Era eso: sus
+        respuestas llegan en español y las leía Daniel, de Londres.
+        Nunca descarga nada ni elige una voz femenina."""
+        if self.voice not in ROUTED_VOICES:
+            return self.voice                            # voz personalizada explícita: se respeta
+        try:
+            es, en = self.voices()
+        except EngineError:
+            if self.voice in ("Juan", "Daniel"):
+                return "Daniel"                          # sin listado de voces: Daniel, sin fallar
+            raise
+        quiere = detect_lang(text, getattr(self, "_last_lang", None))
+        self._last_lang = quiere
+        elegida = (es if quiere == "es" else en) or en or es
+        if not elegida:
+            raise EngineError("no hay una voz masculina instalada (instala Juan en Ajustes → "
+                              "Accesibilidad → Contenido leído)")
+        self._resolved_voice = elegida
+        return elegida
 
     def problem(self):
         if sys.platform != "darwin" or not shutil.which("say"):
@@ -244,7 +279,7 @@ class Piper:
 
     def __init__(self, binary, model, length_scale=1.18):
         self.binary = binary or "piper"; self.model = model or ""
-        try:                                              # 1.18 = Alan algo más pausado (más grave y señorial)
+        try:                                              # 1.1 = pausado y claro
             self.length_scale = max(0.5, min(float(length_scale), 2.5))
         except (TypeError, ValueError):
             self.length_scale = 1.18
@@ -295,7 +330,7 @@ def pick_tts(cfg, platform=None, which=None, exists=None):
     return "none"
 
 
-DANIEL_WPM = 170                         # calm English, same pace across local engines
+DANIEL_WPM = 160                         # Daniel (say en la Mac): pausado y claro
 # Voces femeninas conocidas en inglés: nunca se usan como respaldo en en-GB (Jarvis es voz masculina).
 FEMALE_EN = {"samantha", "karen", "kate", "serena", "moira", "tessa", "victoria", "allison", "ava", "susan",
              "fiona", "veena", "zoe", "stephanie", "martha", "flo", "sandy", "shelley", "grandma",
@@ -338,7 +373,16 @@ def build(cfg):
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
     s = (WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
-                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto")) if stt == "whisper_cpp" else NoSTT())
+                    cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+                    fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes")) if stt == "whisper_cpp" else NoSTT())
+    if stt == "whisper_resident":
+        from .resident import ResidentWhisper
+        fallback = WhisperCpp(cfg.get("VOICE_WHISPER_BIN", "whisper-cli"), cfg.get("VOICE_STT_MODEL_PATH", ""),
+            cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+            fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes"))
+        s = ResidentWhisper(cfg.get("VOICE_WHISPER_SERVER_BIN", ""), cfg.get("VOICE_STT_MODEL_PATH", ""),
+            cfg.get("VOICE_STT_THREADS", "4"), language=cfg.get("VOICE_STT_LANGUAGE", "auto"),
+            fast=str(cfg.get("VOICE_STT_FAST", "true")).lower() in ("true", "1", "yes"), fallback=fallback)
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":

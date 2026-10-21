@@ -92,7 +92,7 @@ class ReadOnlyAllowlist(DesktopBase):
     def test_misconfigured_channel_still_cannot_write(self):
         # even if someone passed a write tool in allowed_tools, the read-only allowlist refuses it
         self.ai()
-        async def fake(history, tools, extra):
+        async def fake(history, tools, extra, model=None):
             return ai_tool("add_income", {"amount": 77}) if len(history) == 1 else ai_text("ok")
         with patch.object(j, "_ai_call_scoped", new=fake):
             j.asyncio.run(j.run("desk:x", "anota 77", allowed_tools={"add_income"}, read_only="escritorio"))

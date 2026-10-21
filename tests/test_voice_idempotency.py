@@ -52,7 +52,7 @@ class Idempotency(DesktopBase):
     def test_turn_record_written_before_work(self):
         token, dev = self.pair()
         seen = {}
-        async def fake(history, tools, extra):
+        async def fake(history, tools, extra, model=None):
             seen["state"] = D.load_turns()[f"{dev}:req-00000001"]["state"]
             return ai_text("ok")
         self.ai()
