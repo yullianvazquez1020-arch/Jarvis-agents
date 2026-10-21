@@ -226,7 +226,7 @@ class JarvisCombinadoV2(unittest.TestCase):
         self.assertEqual(intents.parse("scroll down")[0], "mouse")
         self.assertIn("concedido", mouse_autonomo.accesibilidad())
         js = (root / "desktop" / "ui" / "app.js").read_text("utf-8")
-        for k in ("function ack()", "resumeConversation()", "jarvis-convo", "silenceMs: 350", "st-ax"):
+        for k in ("function ack()", "resumeConversation()", "jarvis-convo", "silenceMs: VAD_SILENCE_MS", "var VAD_SILENCE_MS = 350", "st-ax"):
             self.assertIn(k, js)
         gl = (root / "desktop" / "ui" / "nucleo-gl.js").read_text("utf-8")
         self.assertIn("const HB = 66 / 60", gl)

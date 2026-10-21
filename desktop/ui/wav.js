@@ -38,6 +38,29 @@
     return Math.sqrt(sum / Math.max(1, frame.length));
   }
 
+  /* Keep a short onset margin, not seconds of idle microphone audio. Once speech
+     starts retain every sample, including pauses and the final silence. */
+  function CaptureBuffer(rate, preRollMs) {
+    this.limit = Math.ceil(rate * (preRollMs || 300) / 1000);
+    this.frames = []; this.samples = 0; this.started = false;
+  }
+  CaptureBuffer.prototype.push = function (frame, speech) {
+    if (speech) this.started = true;
+    this.frames.push(frame); this.samples += frame.length;
+    if (!this.started) {
+      while (this.frames.length && this.samples > this.limit) {
+        var excess = this.samples - this.limit, first = this.frames[0];
+        if (first.length <= excess) { this.frames.shift(); this.samples -= first.length; }
+        else { this.frames[0] = first.slice(excess); this.samples -= excess; }
+      }
+    }
+  };
+  CaptureBuffer.prototype.audio = function () {
+    var out = new Float32Array(this.samples), offset = 0;
+    this.frames.forEach(function (frame) { out.set(frame, offset); offset += frame.length; });
+    return out;
+  };
+
   /* End-of-phrase: speech starts when level > threshold; the phrase ends after silenceMs below it.
      Returns "speech" | "silence-end" | "no-speech" | "max" | null for each frame.
      Opcional (el panel lo activa; por defecto se comporta como antes):

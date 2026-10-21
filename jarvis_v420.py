@@ -35,8 +35,9 @@ MONEY_MOVE_RX = re.compile(
 )
 ODD_DELEGATION_RX = re.compile(r"\b(coinbase|amazon)\b", re.I)
 # 4.2.2: sin conciencia ni autonomía. Texto fijo y sin tokens; esas frases no se guardan como meta ni beneficio.
-AUTONOMY_REFUSAL = ("No tengo conciencia ni actúo solo. Solo leo trabajos ya cobrados y dejo una propuesta. "
-                    "El dinero sigue en el gate.")
+AUTONOMY_REFUSAL = ("Puedo preparar trabajo y ejecutar las tareas que estén habilitadas en el ciclo autónomo. "
+                    "No tengo conciencia ni puedo saltarme permisos. Los pagos, compras y mensajes conservan "
+                    "la aprobación del dueño.")
 AUTONOMY_RX = re.compile(
     # Formas verbales exactas: «actualiza solo el precio» o «facturas sin aprobar» no son autonomía.
     r"\b(conciencia|consciente|autoconscien\w*|"
@@ -420,8 +421,8 @@ def install(core):
         short = os.getenv("JARVIS_SHORT_MODEL", "").strip() or "claude-haiku-4-5"
         if not re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", short):
             short = core.MODEL
-        return await core.client.messages.create(model=short, max_tokens=700, system=core.system_prompt(),
-                                                 tools=core.TOOLS, messages=history)
+        return await core._model_call(history, core.TOOLS, core.system_prompt(),
+                                      model=short, max_tokens=700)
 
     async def run(session, message, *, allowed_tools=None, extra_system="", read_only=None, **extra):
         # **extra: lo que core.run acepte de mas (p.ej. model) pasa de largo. Enumerar aqui los

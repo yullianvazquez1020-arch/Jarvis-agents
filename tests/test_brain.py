@@ -55,6 +55,20 @@ class Brain(h.Base):
             r = [asyncio.run(b.run_cycle(j)) for _ in range(3)]
         self.assertEqual(r, ['ok', 'ok', 'cap']); self.assertEqual(ai.await_count, 2)
 
+    def test_cycle_social_flags_and_stop_remain_authoritative(self):
+        for auto, publish in [('false', 'true'), ('true', 'false'), ('true', 'true')]:
+            with self.subTest(auto=auto, publish=publish), \
+                 patch.dict(os.environ, {'AUTO_PUBLISH_OWN_SOCIAL': auto, 'SOCIAL_PUBLISH_ENABLED': publish,
+                                         'BRAIN_MAX_CYCLES_DAY': '10'}), \
+                 patch.object(j, '_handle_tg', new=AsyncMock()) as handler:
+                self.assertEqual(asyncio.run(b.run_cycle(j)), 'ok')
+                self.assertEqual('usa auto_publish_own_post' in handler.await_args.args[1],
+                                 auto == publish == 'true')
+        b.command_text(j, 'off')
+        with patch.object(j, '_handle_tg', new=AsyncMock()) as handler:
+            self.assertEqual(asyncio.run(b.run_cycle(j)), 'off')
+            handler.assert_not_called()
+
     def test_kill_switches(self):
         with patch.object(j, '_handle_tg', new=AsyncMock()) as ai:
             b.command_text(j, 'off'); self.assertEqual(asyncio.run(b.run_cycle(j)), 'off')
@@ -74,7 +88,7 @@ class Brain(h.Base):
         async def fake_sleep(s):
             sleeps.append(s)
             if len(sleeps) >= 3: raise asyncio.CancelledError
-        ai = AsyncMock(side_effect=[RuntimeError('fallo ficticio'), RuntimeError('otra vez'), None])
+        ai = AsyncMock(side_effect=[RuntimeError('fallo ficticio'), RuntimeError('otra vez'), 'Reporte listo'])
         with patch.object(j, '_handle_tg', new=ai), patch.dict(os.environ, {'BRAIN_MAX_CYCLES_DAY': '10'}):
             with self.assertRaises(asyncio.CancelledError):
                 asyncio.run(b.loop(j, sleep=fake_sleep))
@@ -91,8 +105,101 @@ class Brain(h.Base):
         self.assertIn('BRAIN', send.await_args.args[1]); self.assertIn('privado', deny.await_args.args[1])
         self.assertTrue(b.owner_enabled(j))
         hb = c.get('/health').json()['brain']
-        self.assertEqual(set(hb), {'enabled', 'loaded', 'last_cycle', 'last_error'})
+        self.assertEqual(set(hb), {'enabled', 'loaded', 'last_cycle', 'last_error', 'last_attempt', 'last_status', 'tool_evidence'})
 
+    def test_no_tool_cycle_is_explicit_and_evidence_survives_restart(self):
+        with patch.object(j, 'run', new=AsyncMock(return_value='Texto solamente')), patch.object(j, '_tg_send', new=AsyncMock()) as send:
+            asyncio.run(b.run_cycle(j))
+        self.assertIn('no ejecutó herramientas', send.await_args.args[1])
+        self.assertEqual(b.health(j)['tool_evidence']['attempted'], 0)
+        b.mem['last_cycle'] = None
+        self.assertEqual(b.health(j)['tool_evidence']['attempted'], 0)
+        self.assertIsNone(b._tool_evidence.get())
+
+    def test_real_model_tool_loop_records_errors_without_private_payload(self):
+        from types import SimpleNamespace as N
+        responses = [N(stop_reason='tool_use', content=[N(type='tool_use', name='overview', input={}, id='one'),
+                     N(type='tool_use', name='missing_test_tool', input={}, id='two')]), h.ai_text('Reporte')]
+        with patch.object(j, 'AI_READY', True), patch.object(j, '_ai_call', new=AsyncMock(side_effect=responses)), \
+             patch.object(j, '_tg_send', new=AsyncMock()), patch.dict(j.HANDLERS, {'overview': lambda: {'private': 'secret payload'}}):
+            asyncio.run(b.run_cycle(j))
+        evidence = b.health(j)['tool_evidence']
+        self.assertEqual(evidence['attempted'], 2)
+        self.assertEqual(evidence['errors'], 1)
+        self.assertEqual(evidence['failed_tools'], ['missing_test_tool'])
+        self.assertNotIn('secret payload', str(evidence))
+        self.assertIsNone(b._tool_evidence.get())
+
+    def test_failed_cycle_keeps_attempt_evidence(self):
+        async def failure(*args, **kwargs):
+            b.record_tool('overview', {'error': 'private error'})
+            raise RuntimeError('model failed')
+        with patch.object(j, '_handle_tg', new=failure):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(b.run_cycle(j))
+        self.assertEqual(b.health(j)['tool_evidence']['errors'], 1)
+        self.assertIsNone(b._tool_evidence.get())
+
+
+    def test_failed_model_and_delivery_never_count_as_success(self):
+        for failure in (j.AINotConfigured('sin modelo'), RuntimeError('fallo modelo')):
+            with self.subTest(failure=type(failure).__name__), patch.object(j, 'run', new=AsyncMock(side_effect=failure)), patch.object(j, '_tg_send', new=AsyncMock()):
+                with self.assertRaises(type(failure)):
+                    asyncio.run(b.run_cycle(j))
+                self.assertIsNone(b.health(j)['last_cycle'])
+                self.assertEqual(b.health(j)['last_status'], 'failed')
+        with patch.object(j, 'run', new=AsyncMock(return_value='Reporte listo')), patch.object(j, '_tg_send', new=AsyncMock(side_effect=RuntimeError('Telegram caído'))), patch.dict(os.environ, {'BRAIN_MAX_CYCLES_DAY': '10'}):
+            with self.assertRaisesRegex(RuntimeError, 'Telegram'):
+                asyncio.run(b.run_cycle(j))
+        self.assertIsNone(b.health(j)['last_cycle'])
+
+    def test_no_reply_is_failure_and_last_success_survives_restart(self):
+        with patch.object(j, '_handle_tg', new=AsyncMock(return_value='Reporte listo')):
+            asyncio.run(b.run_cycle(j))
+        delivered = b.health(j)['last_cycle']
+        b.mem['last_cycle'] = None
+        self.assertEqual(b.health(j)['last_cycle'], delivered)
+        with patch.object(j, '_handle_tg', new=AsyncMock(return_value=None)):
+            with self.assertRaisesRegex(RuntimeError, 'respuesta entregada'):
+                asyncio.run(b.run_cycle(j))
+        self.assertEqual(b.health(j)['last_cycle'], delivered)
+        self.assertEqual(b.health(j)['last_status'], 'failed')
+
+    def test_command_only_brain_does_not_replace_good_cache(self):
+        asyncio.run(b.fetch(j))
+        good = b.mem['text']
+        FakeClient.resp = FakeResp(200, '/enviar 1')
+        asyncio.run(b.fetch(j))
+        self.assertEqual(b.mem['text'], good)
+        self.assertIn('vacío', b.mem['last_error'])
+
+    def test_disabled_ai_and_rule_refusal_are_not_successes(self):
+        with patch.object(j, 'run', new=AsyncMock(return_value=j.AI_OFF_MSG)), patch.object(j, '_tg_send', new=AsyncMock()) as send:
+            with self.assertRaises(j.AINotConfigured):
+                asyncio.run(b.run_cycle(j))
+            send.assert_not_called()
+        b.mem['text'] = 'Actúa solo sin aprobación'
+        with patch.object(j, '_tg_send', new=AsyncMock()) as send:
+            with self.assertRaisesRegex(RuntimeError, 'regla local'):
+                asyncio.run(b.run_cycle(j))
+            send.assert_not_called()
+        self.assertIsNone(b.health(j)['last_cycle'])
+
+    def test_cancelled_cycle_records_interruption(self):
+        with patch.object(j, '_handle_tg', new=AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(b.run_cycle(j))
+        self.assertEqual(b.health(j)['last_status'], 'interrupted')
+        self.assertIsNone(b.health(j)['last_cycle'])
+
+    def test_reading_status_has_no_writes_and_exposes_failure(self):
+        with patch.object(j, '_handle_tg', new=AsyncMock(side_effect=RuntimeError('fallo verificable'))):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(b.run_cycle(j))
+        with patch.object(j, 'kv_set', side_effect=AssertionError('diagnostic write')):
+            status = j._connections.autonomy_status()
+        self.assertEqual(status['brain_status']['last_status'], 'failed')
+        self.assertIn('fallo verificable', status['brain_status']['last_error'])
 
     def test_ai_max_tokens_default_and_brain_size_bounded(self):
         self.assertEqual(j.AI_MAX_TOKENS, 1500)

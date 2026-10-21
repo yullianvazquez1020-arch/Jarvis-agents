@@ -389,8 +389,7 @@
     } else { releaseWarmMic(); r.stream.getTracks().forEach(function(t){t.stop();}); }
     r.ctx.onstatechange = null; r.ctx.close(); micUi(false); $("talk").classList.remove("recording"); $("talk").firstChild.nodeValue = "Talk ";
     if (discard) { setState("listo"); return; }
-    var n = 0; r.chunks.forEach(function (c) { n += c.length; });
-    var all = new Float32Array(n), o = 0; r.chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+    var all = r.capture.audio();
     var wav = W.encodeWav(W.downsample(all, r.rate, W.OUT_RATE));
     transcribing = true; var transcriptTicket = micGeneration; setState("transcribing");
     api("POST", "/voice/transcribe", undefined, wav).then(function (t) {

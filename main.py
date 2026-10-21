@@ -189,11 +189,14 @@ class _RedactingFilter(logging.Filter):
             msg = record.getMessage(); clean, found = _redact_secrets(msg)
             if found: record.msg, record.args = clean, ()
             if record.exc_info and record.exc_info[1] is not None:
-                exc = record.exc_info[1]
-                exc_txt, f2 = _redact_secrets(str(exc))
-                if f2:   # drop the raw traceback text, keep the type and a masked message
-                    record.exc_info = None; record.exc_text = None
-                    record.msg = f"{record.getMessage()} [{type(exc).__name__}: {exc_txt}]"; record.args = ()
+                # SDK exceptions can hide the credential in __cause__, not in str(exc).
+                import traceback
+                exc_txt, f2 = _redact_secrets("".join(traceback.format_exception(*record.exc_info)))
+                if f2:
+                    record.exc_info = None
+                    record.exc_text = exc_txt
+            elif record.exc_text:
+                record.exc_text = _redact_secrets(record.exc_text)[0]
         except Exception:
             pass
         return True
@@ -247,8 +250,20 @@ app = FastAPI(title="Jarvis Orchestrator", lifespan=_lifespan)
 
 # v4.0.1 (D): a missing/placeholder key never reaches the paid API. Commands keep working without AI.
 _AI_PLACEHOLDERS = {"", "change-me", "changeme", "dummy", "fake", "none", "local", "test", "test-local-only", "x"}
-AI_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
-AI_READY = AI_KEY.lower() not in _AI_PLACEHOLDERS and not AI_KEY.lower().startswith(("test-", "fake-", "dummy-"))
+def _anthropic_key(raw):
+    """Read one key from a bare value or a pasted curl example. Never execute the example."""
+    value = str(raw or "").strip()
+    pattern = r"sk-ant-[A-Za-z0-9_-]{16,}"
+    if re.fullmatch(pattern, value):
+        return value
+    if not value.startswith("curl "):
+        return ""
+    keys = set(re.findall(r"(?<![A-Za-z0-9_-])" + pattern + r"(?![A-Za-z0-9_-])", value))
+    return keys.pop() if len(keys) == 1 else ""
+
+
+AI_KEY = _anthropic_key(os.getenv("ANTHROPIC_API_KEY", ""))
+AI_READY = bool(AI_KEY)
 MODEL = os.getenv("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"   # documented API id (models overview)
 MODEL_FORMAT_OK = bool(re.fullmatch(r"claude-[a-z0-9][a-z0-9.-]{2,80}", MODEL))
 # Modelo opcional SOLO para los turnos de voz del panel, donde la espera se oye. Vacio = el de siempre.
@@ -442,7 +457,7 @@ def _kv_raw(key, default):
 
 # Fase A (revisada): keys that jarvis_seal.py seals. Kept here too so that, if that file is missing from a
 # deploy, Jarvis still refuses to overwrite sealed data in clear (every other key is never affected).
-_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history"})
+_SEALED_FALLBACK = frozenset({"jarvis:history", "jarvis:profile", "jarvis:bio", "jarvis:diary", "jarvis:venice_history", "jarvis:desktop:document-turns"})
 _seal_warned = set()
 
 def _seal_module():
@@ -6104,7 +6119,7 @@ READ_ONLY_TOOLS = frozenset({
     "bank_accounts", "bank_transactions", "bank_summary", "bank_weekly_report", "list_clients", "find_client",
     "list_jobs", "jobs_summary", "list_inventory", "crypto_log_summary", "list_client_messages", "paper_status",
     "paper_trades", "list_notes", "get_note", "list_documents", "list_recurring_invoices", "list_external_actions",
-    "list_product_candidates", "growth_status"})
+    "list_product_candidates", "growth_status", "business_context"})
 
 async def run_tool(name, args, read_only=None):
     if read_only and name not in READ_ONLY_TOOLS:
@@ -6176,7 +6191,7 @@ def system_prompt():
     deployed = [a for a, u in AGENTS.items() if u]
     ext = ", ".join(deployed) if deployed else "(none deployed yet)"
     return (f"You are Jarvis, chief of staff for {OWNER}. Now in Puerto Rico: {now}.\n"
-            + MEMORY_PROMPT + PERSONALITY_PROMPT + LANGUAGE_RULE +
+            + MEMORY_PROMPT + PERSONALITY_PROMPT + LANGUAGE_RULE + _specialists.PROMPT +
             "Built-in tools: reminders, shopping list, bills, accounting (income, expenses, "
             "net profit, tax estimates), and editing/deleting any of those entries.\n"
             "Proactive engine: reminders with a due date/time are sent to Telegram automatically "
@@ -6195,11 +6210,19 @@ def system_prompt():
             "Use the existing kit and ffmpeg pipeline; do not propose Synthesia.\n"
             "Already running without the boss: https://jarvis-agents.onrender.com/kit sells the kit and the buy "
             "button opens https://yullian.gumroad.com/l/ketec. Gumroad delivers the buyer file. "
-            "A real Gumroad ping records the income and enrolls the buyer email. A test ping does not record income. "
+            "The /public/gumroad-sale receiver can record income and enroll the buyer email from a validated real ping. "
+            "A test ping does not record income. Receiver code or a public product link does not prove that "
+            "the seller has configured the webhook or that any sale notification arrived. Consult autonomy_status "
+            "and recorded sales; do not promise automatic revenue recording without verified delivery. "
             "/hub and the green button open https://wa.me/17874465095, the owner's phone. "
             "/producirvideo renders a real original MP4 with ffmpeg, an intro, the AINCRAD mark and an .srt file.\n"
-            f"Automatic WhatsApp replies are {'on' if SMS_ON else 'off'} and automatic email is "
-            f"{'on' if EMAIL_ON else 'off'}. Check configuration and errors before diagnosing why a channel is off. "
+            f"Twilio outbound messaging is {'configured' if SMS_ON else 'not configured'}; "
+            f"Resend outbound email is {'configured' if EMAIL_ON else 'not configured'}. "
+            "WhatsApp requires Twilio credentials TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and "
+            "TWILIO_FROM with a whatsapp: sender; an SMS-only sender does not enable WhatsApp. "
+            "There is no WHATSAPP_BUSINESS_API_KEY setting in this implementation. "
+            "Client messages remain drafts until the owner's /enviar; configured credentials do not "
+            "prove automatic replies or verified delivery. Check autonomy_status for channel configuration. "
             "Do not turn that into 'I cannot send messages'. "
             "YouTube, X, Pinterest and TikTok do not publish by themselves: a real token and the owner's "
             "confirmation code are required. Never invent views, sales or revenue.\n"
@@ -6323,6 +6346,38 @@ class AIModelError(RuntimeError):
 # fix for "(Respuesta interrumpida; pídemela por partes.)" (stop_reason max_tokens).
 AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
 
+_model_timing = {}
+
+def _cache_tools(tools):
+    """Cache only tool definitions; preserve channel scope and the shared registry."""
+    if not tools or os.getenv('AI_TOOL_CACHE_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
+        return tools
+    return list(tools[:-1]) + [{**tools[-1], 'cache_control': {'type': 'ephemeral'}}]
+
+async def _model_call(history, tools, system, *, model=None, max_tokens=None):
+    started = time.monotonic()
+    result = await client.messages.create(model=model or MODEL, max_tokens=max_tokens or AI_MAX_TOKENS, system=system,
+                                          tools=_cache_tools(tools), messages=history)
+    usage = getattr(result, 'usage', None)
+    def count(name):
+        value = getattr(usage, name, 0)
+        return value if type(value) is int and value >= 0 else 0
+    _model_timing.update(reply_ms=round((time.monotonic() - started) * 1000),
+                         cache_read_tokens=count('cache_read_input_tokens'),
+                         cache_write_tokens=count('cache_creation_input_tokens'))
+    return result
+
+
+# Voice turns (desktop panel and /voice) may use a faster model: VOICE_MODEL in Render, e.g. claude-haiku-5-5.
+# Empty (the default) keeps CLAUDE_MODEL, so nothing changes until the owner sets it. Telegram never uses it.
+_VOICE_TURN = contextvars.ContextVar("jarvis_voice_turn", default=False)
+
+def voice_model():
+    """Model for the current call: VOICE_MODEL only inside a voice turn, read at call time; else None (= MODEL)."""
+    if not _VOICE_TURN.get():
+        return None
+    name = os.getenv("VOICE_MODEL", "").strip()
+    return name if re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,80}", name) else None
 # 4.2.8 IDIOMA: una sola variable decide en qué idioma contesta Jarvis, por voz y por escrito.
 # El dueño (17 oct): «has que todo sea en inglés, yo soy full english». Antes el idioma estaba
 # escrito a mano en cuatro sitios distintos y no coincidían entre ellos.
@@ -6376,7 +6431,7 @@ async def _ai_call(history):
 
 async def _ai_call_scoped(history, tools, extra_system, model=None):
     """Same call as _ai_call, but only with the tools this channel may see (v4.1-desktop)."""
-    return await _create_con_cache(history, system_prompt() + extra_system, tools, model)
+    return await _create_con_cache(history, system_prompt() + extra_system, tools, model or voice_model())
 
 async def _phase_a_remember_turn(session, user_text, reply):
     """Fase A (revisada): save the turn in a worker thread (Upstash calls must not block the event loop that
@@ -6398,7 +6453,15 @@ async def _phase_a_remember_turn(session, user_text, reply):
 async def run(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None, model=None) -> str:
     """allowed_tools=None keeps the original behaviour (Telegram, /chat). With a set, the model only SEES those
     tools and any other tool call is refused here, before a handler runs. read_only="name" also blocks every
-    storage write made by the tools of this turn (see _WRITE_BLOCK)."""
+    storage write made by the tools of this turn (see _WRITE_BLOCK). Voice turns may use VOICE_MODEL."""
+    token = _VOICE_TURN.set(read_only in ("voice", "escritorio"))
+    try:
+        return await _run_turn(session, message, allowed_tools=allowed_tools, extra_system=extra_system,
+                               read_only=read_only)
+    finally:
+        _VOICE_TURN.reset(token)
+
+async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
     clean, found = _redact_secrets(message)
     if not found:
         fact = str(clean or '').strip()
@@ -6506,6 +6569,8 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
                             _WRITE_BLOCK.reset(token)
                     else:
                         out = _redact_any(await run_tool(b.name, _redact_any(b.input)))
+                    import jarvis_brain
+                    jarvis_brain.record_tool(b.name, out)
                     results.append({"type": "tool_result", "tool_use_id": b.id,
                                     "content": json.dumps(out, default=str, ensure_ascii=False)[:15000]})
             history.append({"role": "user", "content": results})
@@ -6862,7 +6927,7 @@ async def _tg_send(chat_id, text):
             if not confirmed:
                 raise RuntimeError("Telegram did not confirm sendMessage")
 
-async def _handle_tg(chat_id, text, *, read_only=False):
+async def _handle_tg(chat_id, text, *, read_only=False, raise_errors=False):
     session = f"tg:{chat_id}"
     try:
         if read_only:
@@ -6878,6 +6943,8 @@ async def _handle_tg(chat_id, text, *, read_only=False):
         else:
             reply = await run(session, text)
     except Exception as e:
+        if raise_errors:
+            raise
         logger.exception("telegram chat failed")
         if read_only and not isinstance(e, (AINotConfigured, StaleInstance, AIModelError)):
             reply = "No pude responder esa consulta. No ejecuté acciones; puedes volver a preguntar."
@@ -6886,9 +6953,15 @@ async def _handle_tg(chat_id, text, *, read_only=False):
         failed = True
     else:
         failed = reply.endswith(AI_OFF_MSG)
+    if raise_errors and failed:
+        raise AINotConfigured("IA no configurada para el ciclo autónomo")
+    import jarvis_brain
+    reply += jarvis_brain.evidence_summary()
     try:
         await _tg_send(chat_id, reply)
     except Exception:
+        if raise_errors:
+            raise
         return None
     if read_only and failed:
         return None          # PR11 rev (6): the voice path never reads an error message aloud
@@ -7582,6 +7655,9 @@ _connections.install(_sys.modules[__name__])
 
 import jarvis_business_workflows as _business_workflows
 _business_workflows.install(_sys.modules[__name__])
+
+import jarvis_specialists as _specialists
+_specialists.install(_sys.modules[__name__])
 
 # Optional read-only API for the local voice/monitor companion (jarvis_desktop_api.py).
 # 4.0.5 (1.1): loaded ONLY when DESKTOP_API_ENABLED=true. If the variable is not true, the file is missing or its

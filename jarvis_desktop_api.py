@@ -338,6 +338,43 @@ def _panel_estado():
              f"IA: {'configurada' if core.AI_READY else 'sin ANTHROPIC_API_KEY válida'}",
              f"Modo cripto: {core.MODE_SHORT[ms['effective']]}",
              f"Programador: último ciclo {str(st.get('last_tick') or '—')[11:16] or '—'}"]
+    try:
+        autonomy = core._connections.autonomy_status()
+        lines += [f"Ciclo autónomo: {'activo' if autonomy['brain_enabled'] else 'apagado'}",
+                  f"Autopublicación: {'habilitada' if autonomy['auto_publish_enabled'] else 'apagada'} · tope {autonomy['daily_post_limit']}/día",
+                  f"Publicación Meta: {'habilitada' if autonomy['meta_publish_enabled'] else 'apagada'}"]
+        brain = autonomy.get('brain_status', {})
+        labels = {'not_run': 'sin intentos registrados', 'running': 'en curso',
+                  'failed': 'falló', 'interrupted': 'interrumpido; revisar',
+                  'response_delivered': 'respuesta entregada; no verifica entregables'}
+        lines += [f"Resultado autónomo: {labels.get(brain.get('last_status'), 'sin evidencia')}",
+                  f"Última respuesta autónoma entregada: {brain.get('last_cycle') or '—'}"]
+        if brain.get('last_error'):
+            lines.append('Error autónomo: ' + str(brain['last_error'])[:240])
+        evidence = brain.get('tool_evidence')
+        if isinstance(evidence, dict):
+            lines.append(f"Herramientas del último intento: {evidence.get('attempted', 0)} llamadas · {evidence.get('errors', 0)} errores")
+            if not evidence.get('attempted'):
+                lines.append('Sin ejecución de herramientas: trabajo no verificado.')
+            if evidence.get('failed_tools'):
+                lines.append('Herramientas con error: ' + ', '.join(evidence['failed_tools']))
+        for name, account in autonomy['accounts'].items():
+            lines.append(f"{name}: {'configurado' if account['configured'] else 'sin configuración completa'} · verificación {account['check']}")
+            if account.get("missing"):
+                lines.append("  Faltan: " + ", ".join(account["missing"]))
+        lines.append('Compras: aprobación del dueño. Fichas Amazon: validación y publicación por el dueño.')
+        for post in autonomy.get('publication_blockers', []):
+            lines.append(f"Autopublicación bloqueada en {post['platform']}: revisar envío #{post['id']} ({post['status']}).")
+        channels = autonomy.get('communication', {})
+        if channels:
+            lines.append('WhatsApp Twilio: ' + ('configurado' if channels['whatsapp']['configured'] else 'sin configurar'))
+            lines.append('Correo Resend: ' + ('configurado' if channels['email']['configured'] else 'sin configurar'))
+            lines.append('Gumroad: recepción de notificaciones sin verificar; un enlace activo no prueba ventas registradas.')
+    except Exception:
+        lines.append('Autonomía: estado no disponible; no equivale a cuentas desconectadas.')
+    timing = getattr(core, '_model_timing', {})
+    if timing:
+        lines.append(f"Última llamada IA (no turno de voz completo): {timing['reply_ms']} ms · tokens reutilizados {timing['cache_read_tokens']}")
     speak = (f"Estoy en línea, versión {core.VERSION}. Modo cripto "
              f"{'práctica' if ms['effective'] == 'practice' else 'real'}.")
     return {"title": "Estado", "lines": lines, "speak": speak, "sensitive": False}
@@ -438,7 +475,7 @@ _PANEL_INTENT = (
     ("cobros", re.compile(r"\b(cobros?|por cobrar|me deben|cuentas por cobrar)\b")),
     ("agenda", re.compile(r"\b(agenda|calendario|que tengo hoy|mis citas)\b")),
     ("practica", re.compile(r"\b(practica|simulador|simulado)\b")),
-    ("estado", re.compile(r"\b(como estas|estado del sistema|estado de jarvis|diagnostico)\b")),
+    ("estado", re.compile(r"\b(estado del sistema|estado de jarvis|diagnostico)\b")),
 )
 
 def classify(text):
@@ -447,7 +484,10 @@ def classify(text):
     for rx, reply in _REFUSE:
         if rx.search(n):
             return "refuse", reply
-    if len(n.split()) <= 8:
+    # Discussion and follow-up questions must keep their conversational context.
+    # Short explicit panel requests retain the existing zero-token shortcut.
+    discuss = re.search(r"\b(por que|como|compar\w*|investig\w*|mejor\w*|conviene|opinas|hablemos|explica\w*)\b", n)
+    if len(n.split()) <= 8 and not discuss:
         for name, rx in _PANEL_INTENT:
             if rx.search(n):
                 return "panel", name
@@ -667,9 +707,9 @@ def install(j):
     core = j
     READ_TOOLS = j.READ_ONLY_TOOLS
 
-    async def _body(request):
+    async def _body(request, limit=BODY_MAX):
         raw = await request.body()
-        if len(raw) > BODY_MAX:
+        if len(raw) > limit:
             raise DesktopError(413, "solicitud demasiado grande")
         try:
             data = json.loads(raw or b"{}")
@@ -757,6 +797,27 @@ def install(j):
             data = await _body(request)
             return await turn(dev, data.get("request_id"), data.get("text"))
         return await _audited("turns", authorization, work)
+
+    @j.app.post('/desktop/v1/documents')
+    async def desk_document(request: j.Request, authorization: str = j.Header(None)):
+        async def work():
+            import sys
+            import jarvis_desktop_documents
+            dev = await asyncio.to_thread(authenticate, authorization, 'converse')
+            data = await _body(request, limit=131072)
+            return await jarvis_desktop_documents.generate(sys.modules[__name__], dev,
+                data.get('request_id'), data.get('text'), data.get('previous'), data.get('preferences'))
+        return await _audited('documents', authorization, work)
+
+    @j.app.post('/desktop/v1/documents/get')
+    async def desk_document_get(request: j.Request, authorization: str = j.Header(None)):
+        async def work():
+            import sys
+            import jarvis_desktop_documents
+            dev = await asyncio.to_thread(authenticate, authorization, 'converse')
+            data = await _body(request)
+            return await asyncio.to_thread(jarvis_desktop_documents.lookup, sys.modules[__name__], dev, data.get('request_id'))
+        return await _audited('documents/get', authorization, work)
 
     @j.app.post("/desktop/v1/turns/get")
     async def desk_turn_get(request: j.Request, authorization: str = j.Header(None)):

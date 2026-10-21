@@ -27,11 +27,14 @@ class Navigation(unittest.TestCase):
 
     def test_all_sites(self):
         for site in nav.SITES:
+            if site in ("github", "outlook"):
+                continue  # union: desde el #172 son ordenes de pantalla (mouse); la cuenta va por la forma explicita
             with self.subTest(site=site):
                 self.assertEqual(intents.parse('Abre ' + site), ('account', site))
     def test_aliases_and_language(self):
         for text, site in [('Jarvis, abre Chat GPT', 'chatgpt'), ('entra a mi correo', 'gmail'),
-                           ('please open my Coinbase', 'coinbase'), ('abre YouTube Studio por favor', 'youtube studio')]:
+                           ('please open my Coinbase', 'coinbase'), ('abre YouTube Studio por favor', 'youtube studio'),
+                           ('abre mi cuenta de github', 'github'), ('abre la cuenta de outlook', 'outlook')]:
             self.assertEqual(intents.parse(text), ('account', site))
     def test_no_compound_actions(self):
         for text in ['abre Coinbase y compra bitcoin', 'abre gmail y envia el correo',

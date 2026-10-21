@@ -71,7 +71,9 @@ class ServerSideActionList(DesktopBase):
 
     def test_no_action_routes_registered(self):
         paths = sorted({getattr(r, "path", "") for r in j.app.routes if getattr(r, "path", "").startswith("/desktop")})
-        self.assertEqual(paths, ["/desktop/v1/hud", "/desktop/v1/pair/claim", "/desktop/v1/pair/start",
+        # Draft-only document endpoints have no tools or business mutation capability.
+        self.assertEqual(paths, ["/desktop/v1/documents", "/desktop/v1/documents/get",
+                                 "/desktop/v1/hud", "/desktop/v1/pair/claim", "/desktop/v1/pair/start",
                                  "/desktop/v1/panel", "/desktop/v1/pulse", "/desktop/v1/status", "/desktop/v1/turns",
                                  "/desktop/v1/turns/get"])
         for word in ("aprobar", "confirmar", "enviar", "anotar", "ejecutar", "delegate"):
@@ -110,7 +112,7 @@ class PanelsAndNavigation(DesktopBase):
         c = j.add_client("Ana"); j.add_job(c["id"], "Gabinete", price=500, advance=100)
         before = json.dumps({k: j.kv_get(k, None) for k in (j.C_KEY, j.B_KEY, j.M_KEY)}, sort_keys=True, default=str)
         for i, (text, panel) in enumerate((("Muéstrame los cobros", "cobros"), ("Léeme la agenda", "agenda"),
-                                           ("Abre práctica", "practica"), ("Jarvis, ¿cómo estás?", "estado"))):
+                                           ("Abre práctica", "practica"), ("estado del sistema", "estado"))):
             r = self.turn(token, text, rid=f"panel-{i:04d}x").json()
             self.assertIn({"type": "panel.open", "panel": panel}, r["events"], text)
             self.assertFalse(r["llm_used"])

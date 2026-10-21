@@ -180,6 +180,34 @@ class Secrets(WithAI):
         finally: j.logger.removeHandler(h)
         self.assertNotIn('DDDD', buf.getvalue())
 
+    def test_nested_sdk_error_never_logs_the_key(self):
+        key = 'sk-ant-api03-' + 'N' * 40
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.addFilter(j._RedactingFilter())
+        j.logger.addHandler(handler)
+        try:
+            try:
+                try:
+                    raise ValueError('Illegal header ' + key)
+                except ValueError as cause:
+                    raise RuntimeError('Connection error') from cause
+            except RuntimeError:
+                j.logger.exception('model failed')
+        finally:
+            j.logger.removeHandler(handler)
+        self.assertNotIn(key, buf.getvalue())
+        self.assertIn('Connection error', buf.getvalue())
+        self.assertIn('OMITIDA', buf.getvalue())
+
+    def test_api_key_configuration_handles_curl_without_executing_it(self):
+        key = 'sk-ant-api03-' + 'K' * 40
+        self.assertEqual(j._anthropic_key(key), key)
+        self.assertEqual(j._anthropic_key('curl https://example.invalid \\n --header "x-api-key: ' + key + '"'), key)
+        self.assertEqual(j._anthropic_key('curl ' + key + ' ' + key), key)
+        for value in ('', 'test-local-only', 'not-a-key', 'export ' + key, 'curl ' + key + ' sk-ant-api03-' + 'Z' * 40):
+            self.assertEqual(j._anthropic_key(value), '')
+
     def test_voice_transcript_and_incoming_masked(self):
         class R:
             def raise_for_status(self): pass
