@@ -211,7 +211,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 @contextlib.asynccontextmanager
 async def _lifespan(app):
     # v4.0.1: take write leadership first (this is the newest process), then resume queued Telegram work
-    await asyncio.to_thread(fence_take_leadership)
+    # boot retries: a transient Upstash failure at boot must not kill the deploy
+    await asyncio.to_thread(fence_take_leadership, 5)
     await asyncio.to_thread(_restaurar_seq_bus)
     from jarvis_private_backup import boot_migrate
     await asyncio.to_thread(boot_migrate, _sys.modules[__name__])
@@ -1129,18 +1130,32 @@ _FENCED_SET = ("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 'FENCED' en
 _TAKE_LEADER = ("redis.call('SET', KEYS[1], ARGV[1]) "
                 "if redis.call('GET', KEYS[1]) == ARGV[1] then return 'OK' end return 'NO'")
 
-def fence_take_leadership():
-    """Called once at boot by the new process. Safe to call when Upstash is off."""
+def fence_take_leadership(reintentos=0, espera_s=2.0):
+    """Called once at boot by the new process. Safe to call when Upstash is off.
+
+    Strict by default: ONE probe, and without EVAL it refuses — that is the
+    safety contract the hardening tests pin down. The boot path passes
+    reintentos>0 so a transient Upstash REST failure cannot kill a deploy:
+    on 2026-10-20 the union deploy died at boot on a single failed probe
+    while the previous version, running this same code, had booted fine.
+    Retries change nothing else: same refusal, same message, if EVAL never
+    answers."""
     if not USE_REDIS:
         _fence.update(mode="off", leader=True); return _fence
-    try:
-        probe = _redis(["EVAL", _TAKE_LEADER, "1", LEADER_KEY, INSTANCE_ID])
-        if probe != "OK":
-            raise RuntimeError("Redis leadership could not be verified")
-        _fence.update(mode="on", leader=True)
-    except RuntimeError:
-        _fence.update(mode="unavailable", leader=False)
-        raise RuntimeError("Redis EVAL is required for safe writes; startup refused") from None
+    espera = espera_s
+    for intento in range(reintentos + 1):
+        try:
+            probe = _redis(["EVAL", _TAKE_LEADER, "1", LEADER_KEY, INSTANCE_ID])
+            if probe != "OK":
+                raise RuntimeError("Redis leadership could not be verified")
+            _fence.update(mode="on", leader=True)
+            return _fence
+        except RuntimeError:
+            if intento == reintentos:
+                _fence.update(mode="unavailable", leader=False)
+                raise RuntimeError("Redis EVAL is required for safe writes; startup refused") from None
+            time.sleep(espera)
+            espera = min(espera * 2, 30.0)
     return _fence
 
 def _redis_write(pairs):
