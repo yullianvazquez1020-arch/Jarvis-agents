@@ -415,15 +415,25 @@ if bool(UP_URL) != bool(UP_TOKEN):
 if UP_URL and not UP_URL.startswith("https://"):
     raise RuntimeError("UPSTASH_REDIS_REST_URL must use HTTPS")
 
+class RedisRequestFailed(RuntimeError):
+    """A safe diagnostic category, without URLs, credentials or Redis payloads."""
+    def __init__(self, category):
+        self.category = category
+        super().__init__("Redis request failed")
+
 def _redis(cmd):
-    r = httpx.post(UP_URL, headers={"Authorization": f"Bearer {UP_TOKEN}"}, json=cmd, timeout=15)
     try:
+        r = httpx.post(UP_URL, headers={"Authorization": f"Bearer {UP_TOKEN}"}, json=cmd, timeout=15)
         r.raise_for_status()
         body = r.json()
-    except (httpx.HTTPError, ValueError):
-        raise RuntimeError("Redis request failed") from None
+    except httpx.HTTPStatusError as exc:
+        raise RedisRequestFailed(f"http_{exc.response.status_code}") from None
+    except httpx.RequestError as exc:
+        raise RedisRequestFailed(type(exc).__name__) from None
+    except ValueError:
+        raise RedisRequestFailed("invalid_json") from None
     if not isinstance(body, dict) or body.get("error") or "result" not in body:
-        raise RuntimeError("Redis returned an invalid response or command error")
+        raise RedisRequestFailed("invalid_response_or_command_error")
     return body["result"]
 
 def _atomic_file(path, text):
@@ -1140,9 +1150,14 @@ def fence_take_leadership(reintentos=0, espera_s=2.0):
     while the previous version, running this same code, had booted fine.
     Retries change nothing else: same refusal, same message, if EVAL never
     answers."""
+    if not isinstance(reintentos, int) or isinstance(reintentos, bool) or not 0 <= reintentos <= 5:
+        raise ValueError("reintentos must be an integer from 0 to 5")
+    if isinstance(espera_s, bool) or not isinstance(espera_s, (int, float)) or not math.isfinite(espera_s) or espera_s < 0:
+        raise ValueError("espera_s must be finite and nonnegative")
     if not USE_REDIS:
         _fence.update(mode="off", leader=True); return _fence
-    espera = espera_s
+    _fence.update(mode="unavailable", leader=False)
+    espera = min(espera_s, 30.0)
     for intento in range(reintentos + 1):
         try:
             probe = _redis(["EVAL", _TAKE_LEADER, "1", LEADER_KEY, INSTANCE_ID])
@@ -1150,7 +1165,10 @@ def fence_take_leadership(reintentos=0, espera_s=2.0):
                 raise RuntimeError("Redis leadership could not be verified")
             _fence.update(mode="on", leader=True)
             return _fence
-        except RuntimeError:
+        except RuntimeError as exc:
+            logger.warning("Redis leadership probe %s/%s failed (%s)",
+                           intento + 1, reintentos + 1,
+                           getattr(exc, "category", "unverified_leadership"))
             if intento == reintentos:
                 _fence.update(mode="unavailable", leader=False)
                 raise RuntimeError("Redis EVAL is required for safe writes; startup refused") from None
@@ -7612,8 +7630,15 @@ async def restore(req: RestoreReq, x_api_key: str = Header(...)):
 @app.get("/health")
 @app.get("/")
 async def health():
+    from fastapi.responses import JSONResponse
     import jarvis_mobile_media as mobile
     import jarvis_chat_voice as voice
+    try:
+        brain_health = await asyncio.to_thread(__import__("jarvis_brain").health, _sys.modules[__name__])
+    except RedisRequestFailed as exc:
+        logger.warning("Health storage read failed (%s)", exc.category)
+        return JSONResponse(status_code=503, content={"jarvis": "unavailable", "version": VERSION,
+                            "storage": "unavailable", "reason": "Redis request failed"})
     return {"jarvis": "online", "version": VERSION, "storage": storage_mode(),
             "mobile": {"visual_enabled": mobile.enabled(), "local_voice_enabled": voice.enabled(),
                        "voice_auto_reply": voice.auto_reply_enabled(),
@@ -7625,7 +7650,7 @@ async def health():
                                 "local_execution_verified": False, "requires_local_approval": True},
             "instance": {"write_fencing": _fence["mode"], "leader": _fence["leader"]},
             "telegram_queue": dict(_tg_stats),
-            "brain": __import__("jarvis_brain").health(_sys.modules[__name__]),
+            "brain": brain_health,
             "time": _now().isoformat(),
             "telegram_ready": bool(TG_TOKEN and TG_SECRET and TG_OWNER),
             "v420": {"status": globals().get("V420_STATUS", "no cargada")},
