@@ -1,0 +1,45 @@
+/* Jarvis Business OS visual refresh (opt-in via ?business_os=1).
+   Only appearance is changed. Existing IDs, event handlers, core animation,
+   voice, trading safety and mouse control are preserved. */
+body.business-os.aip-on {
+ --aip-borde:rgba(41,219,230,.26);--aip-fondo:rgba(3,20,34,.90);
+ --aip-fondo-alto:rgba(5,31,46,.95);--aip-texto:#eaffff;
+ --aip-tenue:#a0c6d4;--aip-brillo:#38f5e2;
+ --bg:#03101b;--panel:#092236;--line:#164658;--cyan:#38e7e5;
+ --green:#23e1a0;--mono:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+ background:radial-gradient(ellipse at 80% 0,rgba(5,106,110,.24),transparent 48%),#03101b;
+ font-family:var(--mono);
+}
+body.business-os.aip-on .aip { gap:14px;padding:16px;--aip-columna:clamp(270px,23vw,400px); }
+body.business-os.aip-on .aip-top,body.business-os.aip-on .aip-bottom,
+body.business-os.aip-on .aip-card {border-radius:18px;border-color:var(--aip-borde);
+ box-shadow:0 15px 48px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);
+ backdrop-filter:blur(20px) saturate(135%);
+}
+body.business-os.aip-on .aip-top{padding:13px 22px;
+ background:linear-gradient(105deg,rgba(7,42,59,.96),rgba(8,20,46,.90));}
+body.business-os.aip-on .brand{letter-spacing:.14em;font-weight:800;font-size:20px;color:#f2ffff}
+body.business-os.aip-on .aip-name{color:#38f5e2;letter-spacing:.17em}
+body.business-os.aip-on .aip-card{padding:20px;background:linear-gradient(155deg,rgba(5,34,50,.93),rgba(4,16,32,.87))}
+body.business-os.aip-on .aip-card h2{font-size:12px;font-weight:800;letter-spacing:.13em;margin-bottom:16px}
+body.business-os.aip-on .aip-left .tabs{grid-template-columns:1fr;gap:9px}
+body.business-os.aip-on .aip-left .tabs button{padding:12px 14px;text-align:left;
+ background:rgba(19,76,89,.25);font-size:14px;border-radius:12px}
+body.business-os.aip-on .aip-left .tabs button.active,
+body.business-os.aip-on .aip-left .tabs button[aria-selected=true]{
+ background:linear-gradient(95deg,rgba(0,210,187,.25),rgba(0,133,171,.15));
+ border-color:#2de0c4;box-shadow:inset 3px 0 #38f5e2}
+body.business-os.aip-on .aip-assistant{border-color:rgba(41,219,230,.40)}
+body.business-os.aip-on .aip-assistant textarea{min-height:90px;padding:13px;font-size:14px;
+ background:rgba(2,13,26,.8);border-radius:12px}
+body.business-os.aip-on button:not(.ghost){transition:background .15s,border-color .15s,transform .15s}
+body.business-os.aip-on button:not(.ghost):hover:not(:disabled){transform:translateY(-1px)}
+body.business-os.aip-on .aip-bottom .talk{background:linear-gradient(110deg,#24dcc6,#10a5d5);
+ color:#03101b;font-weight:800;border-radius:12px}
+body.business-os.aip-on .aip-detail .lines li{border-bottom:1px solid rgba(82,190,204,.16);padding:7px 0}
+body.business-os.aip-on .chip{border-radius:9px;padding:6px 10px}
+body.business-os.aip-on .status dt{color:#95bcc8}
+body.business-os.aip-on .status dd{color:#efffff}
+@media(max-width:1100px){body.business-os.aip-on .aip{padding:8px;gap:8px}
+ body.business-os.aip-on .aip-card{padding:14px}}
+@media(prefers-reduced-motion:reduce){body.business-os.aip-on button{transition:none!important}}
