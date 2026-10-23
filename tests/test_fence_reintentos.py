@@ -162,6 +162,63 @@ class FenceReintentos(unittest.TestCase):
         fence.assert_called_once_with(5)
         bus.assert_not_called(); tg.assert_not_called(); scheduler.assert_not_called()
 
+    def test_http_400_distingue_cuotas_permisos_y_lua_sin_texto_remoto(self):
+        request = j.httpx.Request('POST', 'https://example.invalid')
+        cases = [
+            ('ERR max daily request limit exceeded', 'daily_request_limit'),
+            ('ERR max requests limit exceeded', 'monthly_request_limit'),
+            ('ERR max request size exceeded', 'request_size_limit'),
+            ('ERR max concurrent connections exceeded', 'connection_limit'),
+            ('ERR max data size exceeded', 'storage_limit'),
+            ('ERR database capacity quota exceeded', 'storage_limit'),
+            ('NOPERM this user has no permissions', 'permission_denied'),
+            ('READONLY You cannot write', 'read_only'),
+            ('WRONGPASS invalid username-password pair', 'authentication_failed'),
+            ('NOAUTH Authentication required', 'authentication_required'),
+            ("ERR unknown command 'EVAL'", 'unsupported_command'),
+            ('ERR wrong number of arguments', 'invalid_arguments'),
+            ('ERR Error running script', 'script_error'),
+            ('ERR Error compiling script', 'script_error'),
+        ]
+        for error, category in cases:
+            with self.subTest(category=category):
+                response = j.httpx.Response(400, json={'error': error + ' private-token'}, request=request)
+                with patch.object(j.httpx, 'post', return_value=response), \
+                     patch.object(j, 'USE_REDIS', True), self.assertLogs('jarvis', level='WARNING') as logs:
+                    with self.assertRaisesRegex(RuntimeError, 'startup refused'):
+                        j.fence_take_leadership()
+                self.assertIn('http_400:' + category, str(logs.output))
+                self.assertNotIn('private-token', str(logs.output))
+                self.assertNotIn(error, str(logs.output))
+                self.assertFalse(j._fence['leader'])
+
+    def test_respuestas_desconocidas_no_filtran_el_cuerpo(self):
+        request = j.httpx.Request('POST', 'https://example.invalid')
+        responses = [
+            j.httpx.Response(400, json={'error':'private-token'}, request=request),
+            j.httpx.Response(400, json={'error':{'message':'private-token'}}, request=request),
+            j.httpx.Response(400, json=['private-token'], request=request),
+            j.httpx.Response(400, text='<html>private-token</html>', request=request),
+            j.httpx.Response(400, json={'error':'max requests limit exceeded' + 'x' * 9000}, request=request),
+            j.httpx.Response(400, json={'error':'x' * 4200}, request=request),
+        ]
+        for response in responses:
+            with self.subTest(body_type=response.headers.get('content-type')), \
+                 patch.object(j.httpx, 'post', return_value=response):
+                with self.assertRaises(j.RedisRequestFailed) as ctx:
+                    j._redis(['EVAL', 'private-script', '1', 'private-key'])
+                self.assertEqual(ctx.exception.category, 'http_400')
+                self.assertNotIn('private', str(ctx.exception))
+
+    def test_error_redis_en_http_200_se_clasifica_y_no_habilita_escrituras(self):
+        request = j.httpx.Request('POST', 'https://example.invalid')
+        response = j.httpx.Response(200, json={'error':'NOPERM private-token'}, request=request)
+        with patch.object(j.httpx, 'post', return_value=response):
+            with self.assertRaises(j.RedisRequestFailed) as ctx:
+                j._redis(['GET', 'private-key'])
+        self.assertEqual(ctx.exception.category, 'invalid_response_or_command_error:permission_denied')
+        self.assertNotIn('private-token', str(ctx.exception))
+
     def test_health_error_redis_es_503_sin_exponer_diagnosticos(self):
         import jarvis_brain
         async def run():
