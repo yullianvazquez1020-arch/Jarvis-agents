@@ -421,19 +421,63 @@ class RedisRequestFailed(RuntimeError):
         self.category = category
         super().__init__("Redis request failed")
 
+def _redis_command_category(error, default):
+    """Map provider errors to fixed labels; never return any provider text.
+
+    Upstash uses HTTP 400 for both malformed commands and exhausted quotas.
+    Keep unknown errors opaque rather than logging a body that can contain
+    credentials, key names, command arguments or business data.
+    """
+    if not isinstance(error, str) or len(error) > 4096:
+        return default
+    message = error.casefold()
+    categories = (
+        ('max daily request limit exceeded', 'daily_request_limit'),
+        ('max requests limit exceeded', 'monthly_request_limit'),
+        ('max request size exceeded', 'request_size_limit'),
+        ('max concurrent connections exceeded', 'connection_limit'),
+        ('max data size exceeded', 'storage_limit'),
+        ('database capacity quota exceeded', 'storage_limit'),
+        ('noperm', 'permission_denied'),
+        ('readonly', 'read_only'),
+        ('wrongpass', 'authentication_failed'),
+        ('noauth', 'authentication_required'),
+        ('unknown command', 'unsupported_command'),
+        ('wrong number of arguments', 'invalid_arguments'),
+        ('error running script', 'script_error'),
+        ('error compiling script', 'script_error'),
+    )
+    for marker, category in categories:
+        if marker in message:
+            return f'{default}:{category}'
+    return default
+
+def _redis_http_category(response):
+    default = f'http_{response.status_code}'
+    try:
+        # Diagnostics deliberately inspect only a small JSON error envelope.
+        if len(response.content) > 8192:
+            return default
+        body = response.json()
+    except (ValueError, UnicodeError):
+        return default
+    return _redis_command_category(body.get('error'), default) if isinstance(body, dict) else default
+
 def _redis(cmd):
     try:
         r = httpx.post(UP_URL, headers={"Authorization": f"Bearer {UP_TOKEN}"}, json=cmd, timeout=15)
         r.raise_for_status()
         body = r.json()
     except httpx.HTTPStatusError as exc:
-        raise RedisRequestFailed(f"http_{exc.response.status_code}") from None
+        raise RedisRequestFailed(_redis_http_category(exc.response)) from None
     except httpx.RequestError as exc:
         raise RedisRequestFailed(type(exc).__name__) from None
     except ValueError:
         raise RedisRequestFailed("invalid_json") from None
     if not isinstance(body, dict) or body.get("error") or "result" not in body:
-        raise RedisRequestFailed("invalid_response_or_command_error")
+        default = 'invalid_response_or_command_error'
+        category = _redis_command_category(body.get('error'), default) if isinstance(body, dict) else default
+        raise RedisRequestFailed(category)
     return body["result"]
 
 def _atomic_file(path, text):
