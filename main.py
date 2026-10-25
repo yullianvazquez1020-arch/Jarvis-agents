@@ -1210,9 +1210,15 @@ def fence_take_leadership(reintentos=0, espera_s=2.0):
             _fence.update(mode="on", leader=True)
             return _fence
         except RuntimeError as exc:
+            category = getattr(exc, "category", "unverified_leadership")
             logger.warning("Redis leadership probe %s/%s failed (%s)",
-                           intento + 1, reintentos + 1,
-                           getattr(exc, "category", "unverified_leadership"))
+                           intento + 1, reintentos + 1, category)
+            # Provider quotas cannot recover during an exponential boot retry.
+            # Fail closed immediately, without 5 further futile EVAL calls.
+            if isinstance(category, str) and category.rsplit(":", 1)[-1] in (
+                    "monthly_request_limit", "daily_request_limit"):
+                _fence.update(mode="unavailable", leader=False)
+                raise RuntimeError("Redis quota exhausted; startup refused") from None
             if intento == reintentos:
                 _fence.update(mode="unavailable", leader=False)
                 raise RuntimeError("Redis EVAL is required for safe writes; startup refused") from None
