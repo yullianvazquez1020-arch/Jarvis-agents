@@ -11,6 +11,7 @@ def fetch_aiba_summary(url=None, key=None):
     key = key if key is not None else os.getenv("AIBA_JARVIS_OPERATOR_KEY", "")
     parts = urlsplit(url)
     if (parts.scheme != "https" or parts.hostname != "aiba-technologies-preview.onrender.com"
+            or parts.port not in (None, 443)
             or parts.path != "/api/integrations/jarvis/summary"
             or parts.query or parts.fragment or parts.username or parts.password):
         raise ValueError("AIBA summary URL not allowed")
@@ -42,3 +43,11 @@ def fetch_aiba_summary(url=None, key=None):
     if any(not isinstance(k, str) or type(v) is not int or v < 0 for k,v in counts.items()):
         raise RuntimeError("Invalid AIBA metric values")
     return {"service": "AIBA", "leads_by_status": counts}
+
+
+if __name__ == "__main__":
+    try:
+        print(json.dumps(fetch_aiba_summary(), ensure_ascii=False, sort_keys=True))
+    except (ValueError, RuntimeError):
+        print("AIBA integration is unavailable or not configured")
+        raise SystemExit(1) from None
