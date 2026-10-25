@@ -51,8 +51,23 @@ class Arranque(unittest.TestCase):
         import wave
         with wave.open(str(ROOT / "desktop/ui/audio/encendido.wav")) as w:
             self.assertAlmostEqual(w.getnframes() / w.getframerate(), 6.0, places=1)
-        js = (ROOT / "desktop/ui/arranque.js").read_text("utf-8")
-        self.assertIn("settings.sound", js); self.assertIn("/api/greet", js)
+        # El servicio reproduce la intro; el navegador ya no pide settings.sound
+        # ni /api/greet. Comprobar la ruta real con el archivo del dueño evita
+        # restaurar por accidente una segunda intro al abrir otra pestaña.
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        companion = SimpleNamespace(_voz_gen=0, prefs={"rate": 1.0},
+                                    tts=SimpleNamespace(synthesize=Mock(return_value=(b"voice", "audio/wav"))),
+                                    _play_local=Mock())
+        process = Mock(); process.poll.return_value = 0
+        with patch.object(app, "local_player", return_value=["afplay"]), \
+                patch.object(app.subprocess, "Popen", return_value=process) as play, \
+                patch.object(app.time, "sleep"), patch.object(app, "_wav_secs", return_value=0.5):
+            app.native_intro(companion, {"JARVIS_STARTUP_SOUND": str(own)})
+        play.assert_called_once_with(["afplay", "-v", "0.35", str(own)],
+                                     stdout=app.subprocess.DEVNULL, stderr=app.subprocess.DEVNULL)
+        companion.tts.synthesize.assert_called_once_with(app.GREETING, rate=1.0)
+        companion._play_local.assert_called_once_with(b"voice", 0)
 
 
 class Mouse(unittest.TestCase):

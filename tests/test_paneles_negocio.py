@@ -52,9 +52,18 @@ class Paneles(unittest.TestCase):
         app = (ROOT / "desktop" / "app.py").read_text("utf-8")
         for k in ('"/api/paneles-negocio"', '"paneles.js"', '"paneles.css"', "/api/evidencia/"):
             self.assertIn(k, app)
-        for page in ("nucleo.html", "index.html"):
-            html = (ROOT / "desktop" / "ui" / page).read_text("utf-8")
-            self.assertIn("/ui/paneles.js", html); self.assertIn("/ui/paneles.css", html)
+        html = (ROOT / "desktop" / "ui" / "nucleo.html").read_text("utf-8")
+        self.assertIn("/ui/paneles.js", html); self.assertIn("/ui/paneles.css", html)
+        # La portada AIP tiene sus propios detalles mediante app.js. Volver a cargar
+        # paneles.js allí crearía otra capa fija y otra consulta periódica de voz.
+        home = (ROOT / "desktop" / "ui" / "index.html").read_text("utf-8")
+        self.assertIn("/ui/app.js", home)
+        self.assertNotIn("/ui/paneles.js", home)
+        self.assertNotIn("/ui/paneles.css", home)
+        for panel in ("brief", "caja", "agenda", "cobros", "practica", "estado"):
+            self.assertIn('data-panel="' + panel + '"', home)
+        for ident in ("panel-title", "panel-asof", "panel-lines"):
+            self.assertIn('id="' + ident + '"', home)
         js = (ROOT / "desktop" / "ui" / "paneles.js").read_text("utf-8")
         self.assertIn("REFRESCO = 45000", js); self.assertNotIn("Math.random", js)
         self.assertNotIn("requestAnimationFrame(frame", js)   # no se mete en el bucle del núcleo

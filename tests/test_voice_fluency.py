@@ -1,12 +1,19 @@
 """Speech preserves complete claims, numbers and read-only conversation boundaries."""
 import sys
+import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import jarvis_chat_voice as cv
 
 
 class SpeechPreparation(unittest.TestCase):
+    def setUp(self):
+        configured_language = patch.dict(os.environ, {"JARVIS_REPLY_LANGUAGE": "es-PR"})
+        configured_language.start()
+        self.addCleanup(configured_language.stop)
+
     def test_formatting_and_code_are_not_read_as_instructions(self):
         text = '## Estado\n✅ **No publiqué nada.**\n```bash\nrm -rf private\n```\n[Detalles](https://example.com/a)'
         out = cv.spoken_text(text)

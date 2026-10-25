@@ -100,8 +100,9 @@ def _count_today(core, bump=False):
     with core._data_lock:
         s = _state(core)
         if s.get("day") != day: s["day"], s["cycles"] = day, 0
-        if bump: s["cycles"] = int(s.get("cycles", 0)) + 1
-        core.kv_set(STATE_KEY, s)
+        if bump:
+            s["cycles"] = int(s.get("cycles", 0)) + 1
+            core.kv_set(STATE_KEY, s)
         return s["cycles"]
 
 
@@ -241,7 +242,7 @@ async def loop(core, sleep=asyncio.sleep):
 
 def health(core):
     state = _state(core)
-    return {"enabled": owner_enabled(core), "loaded": mem["loaded"],
+    return {"enabled": env_enabled() and state.get("owner_on", True) is not False, "loaded": mem["loaded"],
             "last_cycle": mem["last_cycle"] or state.get("last_cycle"),
             "last_error": mem["last_error"] or state.get("last_error"),
             "last_attempt": state.get("last_attempt"),

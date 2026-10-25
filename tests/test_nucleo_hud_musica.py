@@ -18,8 +18,12 @@ class NucleoHUD(unittest.TestCase):
             self.assertIn(need, gl)
         self.assertIn("N.gl = true", gl); self.assertIn("webglOk", gl)
         self.assertIn("nucleo-gl.js", app.UI_FILES)
-        for page in ("index.html", "nucleo.html"):
-            self.assertIn('<script type="module" src="/ui/nucleo-gl.js?v=arc3"></script>', (UI / page).read_text("utf-8"))
+        self.assertIn('<script type="module" src="/ui/nucleo-gl.js?v=arc3"></script>', (UI / "nucleo.html").read_text("utf-8"))
+        # La portada actual usa el cristal; el reactor WebGL queda en /nucleo.
+        # Cargar ambos para satisfacer la prueba vieja duplicaría el renderizador.
+        home = (UI / "index.html").read_text("utf-8")
+        self.assertIn("/ui/crystal-motion.js", home)
+        self.assertNotIn("/ui/nucleo-gl.js", home)
 
     def test_un_solo_bucle_y_rendimiento(self):
         n = (UI / "nucleo.js").read_text("utf-8"); gl = (UI / "nucleo-gl.js").read_text("utf-8")

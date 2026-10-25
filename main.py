@@ -5526,12 +5526,37 @@ def edit_entry(kind, id, changes):
 # (except the optional Phase 5 market brief).
 # ---------------------------------------------------------------------------
 _sched_state = {"last_tick": None, "last_error": None, "alerts_sent": 0}
+_redis_claims = {}
+_redis_claims_lock = threading.RLock()
+_REDIS_CLAIMS_MAX = 2048
 
 def _claim(key, ttl):
     """True only once per key while it lives (safe if two servers overlap on deploy)."""
     _require_leader()
     if USE_REDIS:
-        return _redis(["SET", key, "1", "NX", "EX", str(int(ttl))]) is not None
+        # Remember only claims this process actually acquired. This cache can
+        # only refuse duplicate work, never authorize it. Leadership is still
+        # checked against Redis above on every call, including cache hits.
+        identity = (UP_URL, INSTANCE_ID, key)
+        with _redis_claims_lock:
+            now = time.monotonic()
+            if _redis_claims.get(identity, 0) > now:
+                return False
+            result = _redis(["SET", key, "1", "NX", "EX", str(int(ttl))])
+            if result is None:
+                return False
+            if result != "OK":
+                raise RedisRequestFailed("invalid_claim_response")
+            if len(_redis_claims) >= _REDIS_CLAIMS_MAX:
+                for claim, deadline in list(_redis_claims.items()):
+                    if deadline <= now:
+                        _redis_claims.pop(claim, None)
+                if len(_redis_claims) >= _REDIS_CLAIMS_MAX:
+                    _redis_claims.pop(next(iter(_redis_claims)))
+            # Start the TTL before the network round trip: a cache entry must
+            # not suppress work past the lifetime granted by Redis.
+            _redis_claims[identity] = now + int(ttl)
+            return True
     with _data_lock:
         claims = kv_get("jarvis:claims", {})
         now = _now().timestamp()
@@ -5542,7 +5567,9 @@ def _claim(key, ttl):
 
 def _unclaim(key):
     if USE_REDIS:
-        _redis(["DEL", key])
+        with _redis_claims_lock:
+            _redis(["DEL", key])
+            _redis_claims.pop((UP_URL, INSTANCE_ID, key), None)
     else:
         with _data_lock:
             claims = kv_get("jarvis:claims", {}); claims.pop(key, None); kv_set("jarvis:claims", claims)
@@ -6425,6 +6452,16 @@ AI_MAX_TOKENS = _env_int("AI_MAX_TOKENS", 1500, 256, 8000)
 
 _model_timing = {}
 
+def _record_model_timing(result, started):
+    """Record only timing and token counts for the call that actually completed."""
+    usage = getattr(result, 'usage', None)
+    def count(name):
+        value = getattr(usage, name, 0)
+        return value if type(value) is int and value >= 0 else 0
+    _model_timing.update(reply_ms=round((time.monotonic() - started) * 1000),
+                         cache_read_tokens=count('cache_read_input_tokens'),
+                         cache_write_tokens=count('cache_creation_input_tokens'))
+
 def _cache_tools(tools):
     """Cache only tool definitions; preserve channel scope and the shared registry."""
     if not tools or os.getenv('AI_TOOL_CACHE_ENABLED', 'true').lower() not in ('true', '1', 'yes'):
@@ -6435,13 +6472,7 @@ async def _model_call(history, tools, system, *, model=None, max_tokens=None):
     started = time.monotonic()
     result = await client.messages.create(model=model or MODEL, max_tokens=max_tokens or AI_MAX_TOKENS, system=system,
                                           tools=_cache_tools(tools), messages=history)
-    usage = getattr(result, 'usage', None)
-    def count(name):
-        value = getattr(usage, name, 0)
-        return value if type(value) is int and value >= 0 else 0
-    _model_timing.update(reply_ms=round((time.monotonic() - started) * 1000),
-                         cache_read_tokens=count('cache_read_input_tokens'),
-                         cache_write_tokens=count('cache_creation_input_tokens'))
+    _record_model_timing(result, started)
     return result
 
 
@@ -6491,17 +6522,20 @@ def _tools_cached(tools):
     return list(tools[:-1]) + [marcada]
 
 async def _create_con_cache(history, system, tools, model=None):
+    started = time.monotonic()
     model = model or MODEL
     try:
-        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
+        result = await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
                                             tools=_tools_cached(tools), messages=history)
     except (BadRequestError, TypeError) as e:
         if _cache_unsupported["si"] or not PROMPT_CACHE_ON or "cache" not in str(e).lower():
             raise
         _cache_unsupported["si"] = True                  # una sola vez por proceso
         logger.warning("la API rechazó la caché del prompt (%s); sigo sin ella", type(e).__name__)
-        return await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
+        result = await client.messages.create(model=model, max_tokens=AI_MAX_TOKENS, system=system,
                                             tools=tools, messages=history)
+    _record_model_timing(result, started)
+    return result
 
 async def _ai_call(history):
     return await _create_con_cache(history, system_prompt(), TOOLS)
@@ -6534,11 +6568,11 @@ async def run(session: str, message: str, *, allowed_tools=None, extra_system=""
     token = _VOICE_TURN.set(read_only in ("voice", "escritorio"))
     try:
         return await _run_turn(session, message, allowed_tools=allowed_tools, extra_system=extra_system,
-                               read_only=read_only)
+                               read_only=read_only, model=model)
     finally:
         _VOICE_TURN.reset(token)
 
-async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None) -> str:
+async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_system="", read_only=None, model=None) -> str:
     clean, found = _redact_secrets(message)
     if not found:
         fact = str(clean or '').strip()
@@ -6601,8 +6635,12 @@ async def _run_turn(session: str, message: str, *, allowed_tools=None, extra_sys
         tools_executed = False
         for _ in range(10):
             try:
-                r = await (_ai_call(history) if allowed_tools is None
-                           else _ai_call_scoped(history, scoped_tools, extra_system, model))
+                if allowed_tools is None:
+                    r = await _ai_call(history)
+                elif model is not None:
+                    r = await _ai_call_scoped(history, scoped_tools, extra_system, model)
+                else:
+                    r = await _ai_call_scoped(history, scoped_tools, extra_system)
             except BadRequestError as e:
                 _ai_state["last_error"] = f"BadRequest: {str(getattr(e, 'message', e))[:200]}"
                 if not repaired and not tools_executed and _is_history_error(e) and len(history) > 1:

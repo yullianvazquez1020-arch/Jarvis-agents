@@ -33,10 +33,14 @@ class InglesPrimero(unittest.TestCase):
             self.assertEqual(engines.speech_rate(), 175)
         self.assertEqual(engines.Piper("piper", "x.onnx").length_scale, 1.18)
 
-    def test_no_spanish_startup_greeting(self):
+    def test_startup_greeting_uses_the_voice_for_its_actual_language(self):
         self.assertNotIn("_announce_focus", SRC)
         self.assertNotIn('"-r", "142"', SRC)
-        self.assertIn('GREETING = "Good morning, sir.', SRC)
+        import app
+        listing = type("L", (), {"stdout": FULL})()
+        with patch.object(engines.subprocess, "run", return_value=listing):
+            # El saludo vigente es español; una configuración inglesa no debe leerlo con Daniel.
+            self.assertEqual(engines.MacSay("Daniel").resolve_voice(app.GREETING), "Juan")
 
     def test_native_player_claims_single_voice(self):
         self.assertIn("una_voz.claim()", SRC); self.assertIn('una_voz.register(getattr(proc, "pid", 0))', SRC)

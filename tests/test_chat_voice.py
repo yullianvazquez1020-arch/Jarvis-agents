@@ -391,8 +391,12 @@ class WhisperModel:
             self.assertIn("voz local activa", cv.status())
         with patch.dict(os.environ, {"LOCAL_VOICE_ENABLED": "false"}):
             self.assertIn("apagada", cv.status())
-        j.TG_TOKEN = ""
-        self.assertIn("Voz local:", asyncio.run(j.diagnostics_text()))
+        # The diagnostic checks a model ID; isolate that SDK call as well as Telegram.
+        # A fictitious API key must never cause a real outbound request or long retry.
+        from types import SimpleNamespace
+        with patch.object(j, "TG_TOKEN", ""), \
+             patch.object(j.client.models, "retrieve", new=AsyncMock(return_value=SimpleNamespace(id=j.MODEL))):
+            self.assertIn("Voz local:", asyncio.run(j.diagnostics_text()))
 
     def test_secrets_in_transcript_are_masked(self):
         key = "sk-ant-api03-" + "Z" * 40

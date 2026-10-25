@@ -17,7 +17,8 @@ class Cableado(unittest.TestCase):
         self.assertTrue((UI / "vivo.js").is_file())
         self.assertIn('"vivo.js": "text/javascript', APP_PY)
         self.assertIn("/ui/vivo.js", MERCADO_HTML)
-        self.assertIn("/ui/vivo.js", (UI / "index.html").read_text(encoding="utf-8"))
+        # mercado.js es el consumidor de JarvisVivo; la portada AIP recibe texto por
+        # eventos y anima el cristal con crystal-motion.js, sin este observador numérico.
 
     def test_se_carga_antes_de_mercado_js(self):
         # Si no, el primer dato se pinta sin que nadie lo este observando.

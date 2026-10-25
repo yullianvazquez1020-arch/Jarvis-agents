@@ -7,6 +7,7 @@ import http.server
 import json
 import logging
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -812,6 +813,24 @@ class MercadoDisplay(CompanionBase):
 
 class GalaxyTheme(CompanionBase):
     demo = True
+
+    def test_page_assets_are_served_with_their_actual_mime_types(self):
+        assets = set()
+        for page in ("/", "/todo", "/hud", "/avatar", "/torre", "/nucleo", "/mercado", "/orbe"):
+            status, _, response, body = self.req("GET", page)
+            self.assertEqual(status, 200, page)
+            self.assertTrue(response.getheader("Content-Type").startswith("text/html"))
+            assets.update(re.findall(rb'(?:href|src)="(/ui/[^\"]+)"', body))
+        expected = {".css": "text/css", ".js": "text/javascript", ".jpg": "image/jpeg"}
+        for asset in sorted(assets):
+            path = asset.decode("utf-8")
+            with self.subTest(asset=path):
+                status, _, response, body = self.req("GET", path)
+                self.assertEqual(status, 200)
+                self.assertTrue(body, "empty asset")
+                suffix = Path(path.split("?", 1)[0]).suffix
+                self.assertTrue(response.getheader("Content-Type").startswith(expected[suffix]))
+                self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
 
     def test_home_is_the_nucleo_full_screen(self):
         body = self.req("GET", "/")[3]

@@ -85,7 +85,7 @@ body.aip-on .aip-left .tabs button, body.aip-on .aip-card > button {
 body.aip-on .aip-left .tabs button:hover, body.aip-on .aip-card > button:hover {
   background: rgba(127, 199, 255, .14); border-color: rgba(127, 199, 255, .5);
 }
-body.aip-on .aip-left .tabs button[aria-selected="true"],
+body.aip-on .aip-left .tabs button[aria-pressed="true"],
 body.aip-on .aip-left .tabs button.active {
   background: rgba(127, 199, 255, .2); border-color: var(--aip-brillo);
 }

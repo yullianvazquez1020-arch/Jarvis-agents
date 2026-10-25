@@ -48,6 +48,7 @@ class Precalentado(unittest.TestCase):
     def panel_con(self, motor):
         companion = object.__new__(panel.Companion)       # sin __init__: no hace falta el resto
         companion.stt = motor
+        companion.lock = threading.RLock()               # el motor comparte el mismo candado que los turnos
         return companion
 
     def test_transcribe_un_tono_generado_no_el_microfono(self):

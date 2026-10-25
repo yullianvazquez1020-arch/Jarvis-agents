@@ -183,18 +183,20 @@ def _next_date(date,repeat,anchor):
     return day.isoformat()
 
 def recurring_due():
-    d=load();today=core._today().isoformat();jobs={x['id']:x for x in core._cload()['jobs']}
+    d=load();today=core._today().isoformat();changed=False
+    # An empty/paused schedule has no job state to inspect or data to save.
+    jobs={x['id']:x for x in core._cload()['jobs']} if any(s.get('active') for s in d['recurring']) else {}
     for s in d['recurring']:
         if not s.get('active'):continue
-        if s['job_id'] not in jobs or jobs[s['job_id']]['status']=='cancelled':s['active']=False;continue
+        if s['job_id'] not in jobs or jobs[s['job_id']]['status']=='cancelled':s['active']=False;changed=True;continue
         # Bounded catch-up; each occurrence is persisted with its advancement atomically.
         for _ in range(12):
             if s['next_date']>today:break
             occurrence=f"schedule:{s['id']}:{s['next_date']}"
             if not any(x.get('schedule_key')==occurrence for x in d['documents']):
                 doc=_document(d,s['job_id'],'invoice',s['taxable'],s['next_date']);doc['schedule_key']=occurrence
-            s['next_date']=_next_date(s['next_date'],s['repeat'],s['anchor'])
-    save(d)
+            s['next_date']=_next_date(s['next_date'],s['repeat'],s['anchor']);changed=True
+    if changed:save(d)
     return [x for x in d['documents'] if x.get('schedule_key') and not x.get('notice_sent')]
 
 def business_report(month='',client_id=None):
