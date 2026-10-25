@@ -1,0 +1,24 @@
+name: Business Core smoke checks
+on:
+  pull_request:
+    paths:
+      - 'business_core.py'
+      - 'test_business_core.py'
+      - 'jarvis_aiba_summary.py'
+      - 'test_jarvis_aiba_summary.py'
+      - '.github/workflows/business-core-tests.yml'
+  workflow_dispatch:
+jobs:
+  stdlib-unit-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax compilation
+        run: python -m py_compile business_core.py test_business_core.py jarvis_aiba_summary.py test_jarvis_aiba_summary.py
+      - name: Test no external services
+        run: python -m unittest -v test_business_core test_jarvis_aiba_summary
