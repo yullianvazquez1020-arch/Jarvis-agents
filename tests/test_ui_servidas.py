@@ -20,8 +20,7 @@ RAIZ = Path(__file__).parents[1]
 UI = RAIZ / "desktop" / "ui"
 APP = (RAIZ / "desktop" / "app.py").read_text(encoding="utf-8")
 
-PAGINAS = ["index.html", "hud.html", "mercado.html", "avatar.html", "nucleo.html",
-           "orbe.html", "torre.html", "ironman.html"]
+PAGINAS = sorted(p.name for p in UI.glob("*.html"))
 PEDIDO = re.compile(r'(?:href|src)="/ui/([^"?#]+)')
 
 
@@ -63,20 +62,11 @@ class ServidasDeVerdad(unittest.TestCase):
                 self.assertTrue(tipo.startswith(esperado[ext]),
                                 f"{nombre} se sirve como {tipo}")
 
-    # Estos cuatro llegaron a la Mac del dueno en una entrega aparte y no viven en esta rama.
-    # Se registran a proposito para que el servidor sepa servirlos ALLI. Si alguno se anade
-    # alguna vez a esta rama, hay que sacarlo de esta lista: la prueba de abajo lo exige.
-    FUERA_DE_ESTA_RAMA = ("aip.css", "hud-uno.css", "mercado-barra.css", "mercado-barra.js")
-
-    def test_todo_lo_registrado_existe_en_el_disco_salvo_lo_declarado(self):
-        faltan = [f for f in registrados()
-                  if not (UI / f).is_file() and f not in self.FUERA_DE_ESTA_RAMA]
+    def test_todo_lo_registrado_existe_en_el_disco(self):
+        # La integración de panel-unico ya incluye los cuatro archivos antes externos.
+        # Ninguna excepción puede esconder un recurso ausente en una instalación nueva.
+        faltan = [f for f in registrados() if not (UI / f).is_file()]
         self.assertEqual(faltan, [], f"registrados pero no estan en desktop/ui/: {faltan}")
-
-    def test_la_lista_de_excepciones_no_se_queda_vieja(self):
-        # Una excepcion que ya no hace falta esconde el proximo archivo que falte de verdad.
-        sobran = [f for f in self.FUERA_DE_ESTA_RAMA if (UI / f).is_file()]
-        self.assertEqual(sobran, [], f"ya estan en el disco, saquelos de FUERA_DE_ESTA_RAMA: {sobran}")
 
     def test_lo_que_falta_del_disco_no_tumba_el_servidor(self):
         # Es la unica razon por la que registrar algo ausente es aceptable: el 404 limpio.

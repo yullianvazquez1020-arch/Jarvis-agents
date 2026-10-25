@@ -50,6 +50,9 @@ class NadaSePerdio(unittest.TestCase):
         self.assertEqual(len(re.findall(r'data-panel="', HTML)), 6)
         self.assertEqual(len(re.findall(r'data-launch="', HTML)), 3)
         self.assertIn('class="tabs"', HTML)          # crystal.js busca '.tabs button'
+        # app.js informa la selección con aria-pressed. La hoja AIP debe conservar
+        # esa señal visible al sustituir los estilos generales de los botones.
+        self.assertIn('body.aip-on .aip-left .tabs button[aria-pressed="true"]', AIP)
 
     def test_ningun_id_repetido(self):
         todos = re.findall(r'id="([^"]+)"', HTML)

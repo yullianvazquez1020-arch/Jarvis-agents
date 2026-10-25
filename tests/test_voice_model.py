@@ -78,6 +78,32 @@ class VoiceModel(unittest.TestCase):
             lines = [l.strip() for l in f]
         self.assertIn("VOICE_MODEL=", lines)
 
+    def test_explicit_desktop_model_reaches_provider_and_does_not_leak_to_telegram(self):
+        with patch.dict(os.environ, {"VOICE_MODEL": "claude-voice-configured"}):
+            self.turn(None, allowed=False, text="How is the other project?")
+            telegram_model = self.models.pop()
+            reply = asyncio.run(j.run("desk:explicit-test", "How is the test project?",
+                allowed_tools=j.READ_ONLY_TOOLS, read_only="escritorio", model="claude-voice-explicit"))
+            self.assertEqual(reply, "Listo.")
+            self.assertIsNone(j.voice_model())
+            self.turn(None, allowed=False, text="How is the other project?")
+        self.assertEqual(self.models, ["claude-voice-explicit", telegram_model])
+
+    def test_explicit_model_is_preserved_across_read_only_tool_round_trip(self):
+        tool = N(content=[N(type="tool_use", id="read1", name="overview", input={})], stop_reason="tool_use")
+        replies = iter([tool, answer("Read-only result.")])
+        models = []
+
+        async def create(**kw):
+            models.append(kw["model"])
+            return next(replies)
+
+        with patch.object(j.client.messages, "create", new=create):
+            reply = asyncio.run(j.run("desk:explicit-tools", "Show the current test overview",
+                allowed_tools=j.READ_ONLY_TOOLS, read_only="escritorio", model="claude-voice-explicit"))
+        self.assertEqual(reply, "Read-only result.")
+        self.assertEqual(models, ["claude-voice-explicit", "claude-voice-explicit"])
+
 
 if __name__ == "__main__":
     unittest.main()

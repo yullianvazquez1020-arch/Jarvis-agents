@@ -180,7 +180,7 @@ async def _ffmpeg(args, timeout=FFMPEG_TIMEOUT) -> int:
     return code
 
 
-async def transcribe_local(raw: bytes, language: str = "es") -> str:
+async def transcribe_local(raw: bytes, language: str = "") -> str:
     return (await transcribe_local_detect(raw, language))[0]
 
 
@@ -227,7 +227,7 @@ async def transcribe_local_detect(raw: bytes, language: str = "") -> tuple:
 
 
 def reply_language():
-    return 'en-GB' if os.getenv('JARVIS_REPLY_LANGUAGE','es').lower() in ('en','en-gb','en_gb') else 'es'
+    return 'es' if os.getenv('JARVIS_REPLY_LANGUAGE', 'en-GB').strip().lower().startswith('es') else 'en-GB'
 
 
 async def speak_local(text: str, language: str | None = None) -> bytes:
@@ -236,7 +236,10 @@ async def speak_local(text: str, language: str | None = None) -> bytes:
     if not text:
         raise ValueError("no hay texto para hablar")
     import jarvis_local_tts
-    chosen = "alan" if language == "alan" else "en-GB" if language in ("en", "en-GB", "en_gb") else "es" if language in ("es", "es-MX", "es_mx") else ("alan" if reply_language() == "en-GB" else "es")
+    normalized_language = str(language or '').strip().lower().replace('_', '-')
+    chosen = ("alan" if normalized_language == "alan" or normalized_language.startswith("en") else
+              "es" if normalized_language.startswith("es") else
+              "alan" if reply_language() == "en-GB" else "es")
     with tempfile.TemporaryDirectory() as tmp:
         chunks = speech_chunks(text)
         paths = await jarvis_local_tts.local_narration(
@@ -406,7 +409,9 @@ def is_voice_query(text: str) -> bool:
         return False
     return bool(re.match(r"^(hola\b|buenos dias\b|buenas (tardes|noches)\b|que\b|como\b|cual\b|"
                          r"cuanto\w*\b|quien\b|donde\b|por que\b|explica\w*\b|cuentame\b|"
-                         r"puedes explicarme\b)", text))
+                         r"puedes explicarme\b|hello\b|hi\b|good (morning|afternoon|evening)\b|"
+                         r"what\b|how\b|which\b|who\b|where\b|when\b|why\b|explain\b|"
+                         r"tell me\b|(?:can|could) you explain\b)", text))
 
 
 async def handle_voice(core, chat_id, voice, load, alloc, stamp, save):

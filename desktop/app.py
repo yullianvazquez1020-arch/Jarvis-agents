@@ -340,34 +340,47 @@ def startup_sound(cfg):
 
 def native_intro(app, cfg):
     """Al iniciar el servicio: música por los altavoces, saludo corto encima y la música se corta al terminar."""
+    if str(cfg.get("VOICE_SERVER_PLAYBACK", "auto")).strip().lower() in ("false", "0", "no", "off"):
+        return
     proc, player = None, local_player()
     generation = getattr(app, "_voz_gen", 0)
-    app._intro_until = time.monotonic() + 15
-    snd = startup_sound(cfg)
-    if snd and player and player[0] == "afplay":
-        try:
-            proc = subprocess.Popen(["afplay", "-v", "0.35", str(snd[0])],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            proc = None
-    app._intro_process = proc
-    start = time.time()
-    time.sleep(3.0 if proc else 0.5)
-    if generation != getattr(app, "_voz_gen", 0):
-        app._intro_until = 0
-        return
+    deadline = time.monotonic() + 15
+    app._intro_until = deadline
     try:
-        audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
-        app._play_local(audio)
-        until = time.time() + _wav_secs(audio) + 1.0
-    except Exception:
-        until = time.time() + 1.0
-    while time.time() < min(until, start + 15.0) and proc and proc.poll() is None:
-        time.sleep(0.2)
-    if proc and proc.poll() is None:
-        proc.terminate()
-    app._intro_until = 0
-    app._intro_process = None
+        snd = startup_sound(cfg)
+        if snd and player and player[0] == "afplay":
+            try:
+                proc = subprocess.Popen(["afplay", "-v", "0.35", str(snd[0])],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+        app._intro_process = proc
+        time.sleep(3.0 if proc else 0.5)
+        if generation != getattr(app, "_voz_gen", 0):
+            return
+        try:
+            audio, _ = app.tts.synthesize(GREETING, rate=app.prefs.get("rate", 1.0))
+            # Stop/cancel may arrive while the local engine is generating the greeting.
+            # Keep the original generation all the way into the playback queue.
+            if generation != getattr(app, "_voz_gen", 0) or time.monotonic() >= deadline:
+                return
+            app._play_local(audio, generation)
+            until = time.monotonic() + _wav_secs(audio) + 1.0
+        except Exception:
+            until = time.monotonic() + 1.0
+        while (time.monotonic() < min(until, deadline) and proc and proc.poll() is None
+               and generation == getattr(app, "_voz_gen", 0)):
+            time.sleep(0.2)
+    finally:
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+        if getattr(app, "_intro_process", None) is proc:
+            app._intro_process = None
+        if generation == getattr(app, "_voz_gen", 0):
+            app._intro_until = 0
 
 
 def core_mode(server_state, last_alert_at, now):
