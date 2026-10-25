@@ -4,6 +4,8 @@ on:
     paths:
       - 'business_core.py'
       - 'test_business_core.py'
+      - 'jarvis_aiba_summary.py'
+      - 'test_jarvis_aiba_summary.py'
       - '.github/workflows/business-core-tests.yml'
   workflow_dispatch:
 jobs:
@@ -17,6 +19,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Syntax compilation
-        run: python -m py_compile business_core.py test_business_core.py
+        run: python -m py_compile business_core.py test_business_core.py jarvis_aiba_summary.py test_jarvis_aiba_summary.py
       - name: Test no external services
-        run: python -m unittest -v test_business_core
+        run: python -m unittest -v test_business_core test_jarvis_aiba_summary
