@@ -49,3 +49,30 @@ automáticamente: esa condición depende del proveedor y de su configuración.
 
 Nota: esta es una ruta de arranque y runbook, NO un cambio automático
 de infraestructura ni la confirmación de que Jarvis está funcionando.
+
+
+## Decisión del dueño: iniciar desde cero (27 octubre 2026)
+El dueño autoriza **una NUEVA instancia de Jarvis con memoria vacía**, sin esperar
+la exportación de la base antigua. Esto NO autoriza eliminar ni sobrescribir
+la base Upstash ni cambiar el servicio productivo actual hasta validar un
+servidor alterno.
+
+Procedimiento para instalación nueva:
+1. Preparar un volumen realmente persistente y un directorio **nuevo** vacío,
+   separado del estado de la versión antigua.
+2. Configurar en el NUEVO entorno: `DATA_DIR` (ruta absoluta de ese volumen),
+   `JARVIS_PERSISTENT_STORAGE_CONFIRMED=YES` y
+   `JARVIS_ALLOW_EMPTY_STORE=YES`.
+3. Omitir las dos variables `UPSTASH_REDIS_REST_*` por completo; comprobar
+   que ninguna configuración heredada las vuelve a inyectar.
+4. Ejecutar `python3 scripts/start_without_upstash.py` en una sola instancia.
+5. Verificar reinicio y persistencia, web/health, diagnóstico, mensajes Telegram,
+   cola sin duplicados, voz, permisos y límites monetarios antes del cambio
+   del webhook o dominio público.
+6. Cambiar tráfico únicamente cuando el despliegue nuevo supere las pruebas;
+   mantener la base Upstash antigua sin modificar para eventual recuperación.
+
+CUIDADO: La clave original de cifrado no debe publicarse ni copiarse a GitHub.
+Para comenzar desde cero, generar/gestionar secretos nuevos por gestor seguro.
+Aunque el arranque vacío está autorizado, el volumen **no puede ser efímero**
+si queremos que la nueva memoria sobreviva a los siguientes despliegues.
