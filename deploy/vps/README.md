@@ -16,11 +16,12 @@ The live Render application and legacy Upstash database are untouched.
 ```sh
 sudo useradd --system --home /var/lib/jarvis --shell /usr/sbin/nologin jarvis
 sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis
-sudo install -d -o root -g root -m 0700 /etc/jarvis
+sudo install -d -o root -g jarvis -m 0750 /etc/jarvis
 sudo install -d -o root -g root -m 0755 /opt/jarvis
 # Deploy your reviewed checkout to /opt/jarvis/app and virtualenv to /opt/jarvis/venv
 sudo cp deploy/vps/jarvis.env.example /etc/jarvis/jarvis.env
-sudo chmod 0600 /etc/jarvis/jarvis.env
+sudo chown root:jarvis /etc/jarvis/jarvis.env
+sudo chmod 0640 /etc/jarvis/jarvis.env
 # Configure owner and Telegram secrets privately before permitting real traffic
 sudo cp deploy/vps/jarvis.service /etc/systemd/system/jarvis.service
 sudo systemctl daemon-reload
