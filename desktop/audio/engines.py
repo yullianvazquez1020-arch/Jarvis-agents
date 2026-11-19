@@ -199,9 +199,9 @@ def detect_lang(text, fallback=None):
     return "es" if es > en else "en"
 
 
-def speech_rate(default=DEFAULT_WPM):
+def speech_rate(default=DEFAULT_WPM, override=None):
     try:
-        return max(90, min(int(float(os.getenv("JARVIS_VOZ_RATE", "") or default)), 300))
+        return max(90, min(int(float((override if override is not None else os.getenv("JARVIS_VOZ_RATE", "")) or default)), 300))
     except ValueError:
         return default
 
@@ -214,11 +214,12 @@ class MacSay:
     name = "macos_say"
     BASE_WPM = DEFAULT_WPM
 
-    def __init__(self, voice="", style=None, es_override=None, en_override=None):
+    def __init__(self, voice="", style=None, es_override=None, en_override=None, rate_override=None):
         voice = (voice or "").strip()
         self.style = "female" if voice_style_female(style) else "male"
         self.es_override = es_override
         self.en_override = en_override
+        self.rate_override = rate_override
         # Preserve the previous male default; female voices are enabled by explicit configuration.
         self.voice = "auto-latino" if (not voice or (is_female(voice) and self.style != "female")) else voice
         self._resolved_voice = None
@@ -269,7 +270,7 @@ class MacSay:
         if not text:
             raise EngineError("no hay texto que leer")
         chosen = self.resolve_voice(text)
-        wpm = speech_rate(DANIEL_WPM if chosen == "Daniel" else self.BASE_WPM)
+        wpm = speech_rate(DANIEL_WPM if chosen == "Daniel" else self.BASE_WPM, self.rate_override)
         key = (chosen, int(wpm * rate), text)
         cache = self.__dict__.setdefault("_cache", {})
         if key in cache:                                  # saludo y frases repetidas: sin volver a generar el audio
@@ -403,7 +404,8 @@ def build(cfg):
         tts = pick_tts(cfg)
     if tts == "macos_say":
         t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"), style=cfg.get("JARVIS_VOICE_STYLE"),
-                   es_override=cfg.get("JARVIS_VOZ_ES"), en_override=cfg.get("JARVIS_VOZ_EN"))
+                   es_override=cfg.get("JARVIS_VOZ_ES"), en_override=cfg.get("JARVIS_VOZ_EN"),
+                   rate_override=cfg.get("JARVIS_VOZ_RATE"))
     elif tts == "piper":
         t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""), cfg.get("VOICE_PIPER_LENGTH_SCALE", "1.18"))
     else:
