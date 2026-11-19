@@ -287,7 +287,8 @@ def load_config(path=None):
             break
     for k in list(DEFAULTS) + ["JARVIS_SERVER_URL", "JARVIS_DEVICE_TOKEN", "VOICE_WHISPER_BIN", "VOICE_STT_MODEL_PATH",
                                "VOICE_STT_THREADS", "VOICE_STT_FAST", "VOICE_TTS_VOICE", "VOICE_PIPER_BIN", "VOICE_PIPER_DIR", "JARVIS_STARTUP_SOUND",
-                               "VOICE_CICLO", "VOICE_CICLO_DIR", "VOICE_PIPER_LENGTH_SCALE"]:
+                               "VOICE_CICLO", "VOICE_CICLO_DIR", "VOICE_PIPER_LENGTH_SCALE",
+                               "JARVIS_VOZ_ES", "JARVIS_VOZ_EN", "JARVIS_VOZ_RATE"]:
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
