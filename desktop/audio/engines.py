@@ -116,6 +116,10 @@ FEMALE_VOICES = {"paulina", "monica", "mónica", "soledad", "marisol", "angelica
                  "ava", "susan", "zoe", "catherine", "veena", "mei-jia", "carmit", "ellen", "laura", "joana"}
 ES_PREFERRED = (("Juan", "es_MX"), ("Jorge", "es_ES"), ("Diego", "es_AR"))
 EN_PREFERRED = (("Daniel", "en_GB"), ("Oliver", "en_GB"), ("Arthur", "en_GB"))
+ES_FEMALE_PREFERRED = (("Paulina", "es_MX"), ("Monica", "es_ES"), ("Mónica", "es_ES"),
+                       ("Soledad", "es_AR"), ("Isabela", "es_ES"))
+EN_FEMALE_PREFERRED = (("Serena", "en_GB"), ("Kate", "en_GB"), ("Samantha", "en_US"),
+                       ("Karen", "en_AU"), ("Moira", "en_IE"))
 DEFAULT_WPM = 160                         # 160 ppm: pausado y claro (Yullian), JARVIS_VOZ_RATE lo cambia
 
 
@@ -133,8 +137,16 @@ def parse_say_listing(listing):
     return out
 
 
-def choose_voices(listing):
-    """(voz_es, voz_en) masculinas instaladas; JARVIS_VOZ_ES / JARVIS_VOZ_EN mandan si existen."""
+def voice_style_female(style=None):
+    """A female voice is strictly opt-in; old installations retain their current voices."""
+    if style is None:
+        style = os.getenv("JARVIS_VOICE_STYLE", "")
+    return str(style or "").strip().lower() in ("female", "femenina")
+
+
+def choose_voices(listing, style=None):
+    """Return installed Spanish and English voices, optionally prioritizing female voices."""
+    female = voice_style_female(style)
     voices = parse_say_listing(listing)
     names = {n for n, _ in voices}
 
@@ -147,14 +159,16 @@ def choose_voices(listing):
                 return name
         for loc in fallback_locales:
             for name, l in voices:
-                if l == loc and not is_female(name):
+                if l == loc and is_female(name) == female:
                     return name
         for name, l in voices:
-            if l.startswith(prefix) and not is_female(name):
+            if l.startswith(prefix) and is_female(name) == female:
                 return name
         return ""
-    es = pick("JARVIS_VOZ_ES", ES_PREFERRED, "es_", ("es_MX", "es_US", "es_CO", "es_AR", "es_CL", "es_ES"))
-    en = pick("JARVIS_VOZ_EN", EN_PREFERRED, "en_GB", ("en_GB",))
+    es = pick("JARVIS_VOZ_ES", ES_FEMALE_PREFERRED if female else ES_PREFERRED,
+              "es_", ("es_MX", "es_US", "es_CO", "es_AR", "es_CL", "es_ES"))
+    en = pick("JARVIS_VOZ_EN", EN_FEMALE_PREFERRED if female else EN_PREFERRED,
+              "en_", ("en_GB", "en_US", "en_AU", "en_IE") if female else ("en_GB",))
     return es, en
 
 
@@ -200,10 +214,11 @@ class MacSay:
     name = "macos_say"
     BASE_WPM = DEFAULT_WPM
 
-    def __init__(self, voice=""):
+    def __init__(self, voice="", style=None):
         voice = (voice or "").strip()
-        # Una voz femenina nunca se usa: se trata como auto (masculina bilingüe).
-        self.voice = "auto-latino" if (not voice or is_female(voice)) else voice
+        self.style = "female" if voice_style_female(style) else "male"
+        # Preserve the previous male default; female voices are enabled by explicit configuration.
+        self.voice = "auto-latino" if (not voice or (is_female(voice) and self.style != "female")) else voice
         self._resolved_voice = None
         self._pair = None
 
@@ -214,16 +229,13 @@ class MacSay:
                                         text=True, timeout=5, check=True)
             except (OSError, subprocess.SubprocessError):
                 raise EngineError("no pude consultar las voces locales de macOS") from None
-            self._pair = choose_voices(result.stdout)
+            self._pair = choose_voices(result.stdout, style=self.style)
         return self._pair
 
     def resolve_voice(self, text=""):
-        """Voz masculina SEGÚN EL IDIOMA DEL TEXTO: Juan (es) / Daniel (en_GB).
+        """Choose a locally installed voice matching the detected language and configured style.
 
-        Antes devolvía siempre la inglesa, incluso para un texto en español. El dueño lo
-        describió exactamente así: «la voz responde pero no lo entiendo». Era eso: sus
-        respuestas llegan en español y las leía Daniel, de Londres.
-        Nunca descarga nada ni elige una voz femenina."""
+        No downloading or third-party speech API is performed here."""
         if self.voice not in ROUTED_VOICES:
             return self.voice                            # voz personalizada explícita: se respeta
         try:
@@ -236,8 +248,8 @@ class MacSay:
         self._last_lang = quiere
         elegida = (es if quiere == "es" else en) or en or es
         if not elegida:
-            raise EngineError("no hay una voz masculina instalada (instala Juan en Ajustes → "
-                              "Accesibilidad → Contenido leído)")
+            raise EngineError("no hay una voz del estilo seleccionado instalada en macOS; "
+                              "revisa las voces disponibles en Ajustes → Accesibilidad → Contenido leído")
         self._resolved_voice = elegida
         return elegida
 
@@ -362,13 +374,14 @@ def default_voice(cfg, exists=None):
 
 def build(cfg):
     cfg = dict(cfg)
-    if str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-") == "en-gb" and is_female_en(cfg.get("VOICE_TTS_VOICE")):
-        cfg["VOICE_TTS_VOICE"] = ""                    # en-GB: nunca voz femenina; cae a Alan o Daniel
+    female = voice_style_female(cfg.get("JARVIS_VOICE_STYLE"))
+    if not female and str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().replace("_", "-") == "en-gb" and is_female_en(cfg.get("VOICE_TTS_VOICE")):
+        cfg["VOICE_TTS_VOICE"] = ""                    # legacy male profile remains unchanged
     if not cfg.get("VOICE_TTS_VOICE"):
-        v = default_voice(cfg)
+        v = "" if female else default_voice(cfg)
         if v:
             cfg["VOICE_TTS_VOICE"] = v
-        elif str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en") and sys.platform == "darwin":
+        elif not female and str(cfg.get("JARVIS_REPLY_LANGUAGE", "")).lower().startswith("en") and sys.platform == "darwin":
             cfg["VOICE_TTS_VOICE"] = "Daniel"
     stt = cfg.get("VOICE_STT_BACKEND", "none")
     tts = cfg.get("VOICE_TTS_BACKEND", "none")
@@ -386,7 +399,7 @@ def build(cfg):
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":
-        t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"))
+        t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"), style=cfg.get("JARVIS_VOICE_STYLE"))
     elif tts == "piper":
         t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""), cfg.get("VOICE_PIPER_LENGTH_SCALE", "1.18"))
     else:
