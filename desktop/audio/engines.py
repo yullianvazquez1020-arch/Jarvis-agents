@@ -144,14 +144,14 @@ def voice_style_female(style=None):
     return str(style or "").strip().lower() in ("female", "femenina")
 
 
-def choose_voices(listing, style=None):
+def choose_voices(listing, style=None, forced_es=None, forced_en=None):
     """Return installed Spanish and English voices, optionally prioritizing female voices."""
     female = voice_style_female(style)
     voices = parse_say_listing(listing)
     names = {n for n, _ in voices}
 
-    def pick(env, preferred, prefix, fallback_locales):
-        forced = os.getenv(env, "").strip()
+    def pick(env, preferred, prefix, fallback_locales, override=None):
+        forced = str(override if override is not None else os.getenv(env, "")).strip()
         if forced:
             return forced
         for name, _loc in preferred:
@@ -166,9 +166,9 @@ def choose_voices(listing, style=None):
                 return name
         return ""
     es = pick("JARVIS_VOZ_ES", ES_FEMALE_PREFERRED if female else ES_PREFERRED,
-              "es_", ("es_MX", "es_US", "es_CO", "es_AR", "es_CL", "es_ES"))
+              "es_", ("es_MX", "es_US", "es_CO", "es_AR", "es_CL", "es_ES"), forced_es)
     en = pick("JARVIS_VOZ_EN", EN_FEMALE_PREFERRED if female else EN_PREFERRED,
-              "en_", ("en_GB", "en_US", "en_AU", "en_IE") if female else ("en_GB",))
+              "en_", ("en_GB", "en_US", "en_AU", "en_IE") if female else ("en_GB",), forced_en)
     return es, en
 
 
@@ -214,9 +214,11 @@ class MacSay:
     name = "macos_say"
     BASE_WPM = DEFAULT_WPM
 
-    def __init__(self, voice="", style=None):
+    def __init__(self, voice="", style=None, es_override=None, en_override=None):
         voice = (voice or "").strip()
         self.style = "female" if voice_style_female(style) else "male"
+        self.es_override = es_override
+        self.en_override = en_override
         # Preserve the previous male default; female voices are enabled by explicit configuration.
         self.voice = "auto-latino" if (not voice or (is_female(voice) and self.style != "female")) else voice
         self._resolved_voice = None
@@ -229,7 +231,8 @@ class MacSay:
                                         text=True, timeout=5, check=True)
             except (OSError, subprocess.SubprocessError):
                 raise EngineError("no pude consultar las voces locales de macOS") from None
-            self._pair = choose_voices(result.stdout, style=self.style)
+            self._pair = choose_voices(result.stdout, style=self.style,
+                                       forced_es=self.es_override, forced_en=self.en_override)
         return self._pair
 
     def resolve_voice(self, text=""):
@@ -399,7 +402,8 @@ def build(cfg):
     if tts == "auto":                                  # voz siempre lista: say en la Mac, Piper donde exista
         tts = pick_tts(cfg)
     if tts == "macos_say":
-        t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"), style=cfg.get("JARVIS_VOICE_STYLE"))
+        t = MacSay(cfg.get("VOICE_TTS_VOICE", "auto-latino"), style=cfg.get("JARVIS_VOICE_STYLE"),
+                   es_override=cfg.get("JARVIS_VOZ_ES"), en_override=cfg.get("JARVIS_VOZ_EN"))
     elif tts == "piper":
         t = Piper(cfg.get("VOICE_PIPER_BIN", "piper"), cfg.get("VOICE_TTS_VOICE", ""), cfg.get("VOICE_PIPER_LENGTH_SCALE", "1.18"))
     else:
